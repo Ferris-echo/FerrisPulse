@@ -7,11 +7,11 @@ if not exist "%CSC%" (
     exit /b 1
 )
 
-echo Compiling RazerBatteryTray with app.ico...
-"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:RazerBatteryTray.exe RazerBatteryTray.cs
+echo Compiling FerrisPulse with app.ico...
+"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:FerrisPulse.exe RazerBatteryTray.cs
 
 if %ERRORLEVEL% equ 0 (
-    echo Build successful: RazerBatteryTray.exe
+    echo Build successful: FerrisPulse.exe
 ) else (
     echo Build failed with error code: %ERRORLEVEL%
 )
