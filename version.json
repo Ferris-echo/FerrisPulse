@@ -1,0 +1,16 @@
+﻿{
+  "latestVersion": "4.3.0",
+  "releaseDate": "2026-10-02",
+  "minSupportedVersion": "4.0.0",
+  "downloadUrl": "https://github.com/Ferris-echo/FerrisPulse/releases/download/v4.3.0/FerrisPulse.exe",
+  "sha256": "2727443f5ef444e60a749e32223749feeb57be6b4364dda5071602910e845085",
+  "fileSize": 531456,
+
+  "changelog": [
+    "【新增】全自动在线检查更新与原地热替换功能，告别手动覆盖",
+    "【新增】黑金电竞美学关于与致谢卡片，支持作者一键打赏与开机静默检测",
+    "【优化】主界面顶栏交互全面升级，高雅纯白抗锯齿矢量关于图标优雅呈现",
+    "【优化】关于页面全要素像素级对齐与中轴线居中排版，舒适呼吸感设计",
+    "【优化】外设连接探测与后台待机休眠稳定性全面增强"
+  ]
+}
