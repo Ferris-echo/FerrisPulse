@@ -1,9 +1,9 @@
-﻿{
+{
   "latestVersion": "2.0.0",
   "releaseDate": "2026-10-05",
   "minSupportedVersion": "1.0.0",
-  "downloadUrl": "https://gitee.com/feitian-zhang-fei/ferris-pulse/releases/download/v2.0.0/FerrisPulse.exe",
-  "sha256": "15b71a56b21a8b4ced7b2fc5f04fbc9da0159c7cbbf84348553882dfb94c2590",
+  "downloadUrl": "https://gitee.com/feitian-zhang-fei/ferris-pulse/raw/main/FerrisPulse.exe",
+  "sha256": "6a15666cb7e950b9c103a60cd16945b87747de5bbc6193192592a73397883890",
   "fileSize": 659968,
 
   "changelog": [
