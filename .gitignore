@@ -8,8 +8,11 @@
 *.wav
 *.m4a
 *.zip
+!FerrisPulse_v2.0_Portable.zip
 *.html
 *.txt
+!使用说明与常见问题.txt
+!更新日志.txt
 audio_voice/
 *.log
 
@@ -23,8 +26,8 @@ final_*
 promo_*
 *.png
 !screenshots/*.png
+!app.png
 
 TestConsole.exe
 render_menu_from_exe.cs
 *.jpg
-
