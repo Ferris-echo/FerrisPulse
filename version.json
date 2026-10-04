@@ -1,15 +1,16 @@
 ﻿{
   "latestVersion": "4.4.0",
-  "releaseDate": "2026-10-02",
+  "releaseDate": "2026-10-05",
   "minSupportedVersion": "4.0.0",
-  "downloadUrl": "https://github.com/Ferris-echo/FerrisPulse/releases/download/v4.3.0/FerrisPulse.exe",
-  "sha256": "2727443f5ef444e60a749e32223749feeb57be6b4364dda5071602910e845085",
-  "fileSize": 531456,
+  "downloadUrl": "https://gitee.com/feitian-zhang-fei/ferris-pulse/releases/download/v4.4.0/FerrisPulse.exe",
+  "sha256": "3769a21385df6817134694fec6d6a2a05a4698c425b142ce0c9955e7a6103504",
+  "fileSize": 659968,
 
   "changelog": [
-    "【旗舰】全新的灵脉流光电竞控制台与双击即启特性",
-    "【新增】全自动后台无感热替换自愈与原地平滑重启系统",
-    "【优化】外设回报率与 DPI 实时无延迟同步技术",
-    "【体验】关于面板全要素对称高质感电竞美学"
+    "【旗舰】国内免梯子高速多通道更新矩阵，Gitee 权威源秒级直连",
+    "【无感】SWR 静默自动复检与单例守卫，彻底根除双弹窗与重复检测",
+    "【美学】更新弹窗原地平滑热替换与微光提示，版本排版舒展呼吸感",
+    "【精修】关于页赞赏码去副标与双向绝对居中，留白空间极致舒展",
+    "【硬件】深入系统级驱动层，蓝牙双模耳机时间戳裁决与断联自愈"
   ]
 }
