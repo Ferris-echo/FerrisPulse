@@ -1,16 +1,16 @@
 ﻿{
-  "latestVersion": "4.4.0",
+  "latestVersion": "2.0.0",
   "releaseDate": "2026-10-05",
-  "minSupportedVersion": "4.0.0",
-  "downloadUrl": "https://gitee.com/feitian-zhang-fei/ferris-pulse/releases/download/v4.4.0/FerrisPulse.exe",
-  "sha256": "3769a21385df6817134694fec6d6a2a05a4698c425b142ce0c9955e7a6103504",
+  "minSupportedVersion": "1.0.0",
+  "downloadUrl": "https://gitee.com/feitian-zhang-fei/ferris-pulse/releases/download/v2.0.0/FerrisPulse.exe",
+  "sha256": "15b71a56b21a8b4ced7b2fc5f04fbc9da0159c7cbbf84348553882dfb94c2590",
   "fileSize": 659968,
 
   "changelog": [
-    "【旗舰】国内免梯子高速多通道更新矩阵，Gitee 权威源秒级直连",
-    "【无感】SWR 静默自动复检与单例守卫，彻底根除双弹窗与重复检测",
-    "【美学】更新弹窗原地平滑热替换与微光提示，版本排版舒展呼吸感",
-    "【精修】关于页赞赏码去副标与双向绝对居中，留白空间极致舒展",
-    "【硬件】深入系统级驱动层，蓝牙双模耳机时间戳裁决与断联自愈"
+    "【外设支持】扩展支持罗技、雷柏、NuPhy 及主流国产品牌外设，支持蓝牙耳机电量显示",
+    "【游戏调度】支持全屏游戏自动切换高回报率与游戏进程守护，配备无感 OSD 与提示音",
+    "【按键测速】内置独占全键无冲测速仪 (NKRO)，毫秒级统计击键并发与延迟",
+    "【自动更新】新增在线检查更新与无感热替换，发现新版一键自动升级",
+    "【原生美学】Win11 深度暗黑质感，三大托盘图标风格，支持设备自定义改名"
   ]
 }
