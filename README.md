@@ -1,4 +1,4 @@
-﻿# ⚡ FerrisPulse · 灵脉 (多品牌外设电量管家与独占感知引擎) v2.0.0
+# ⚡ FerrisPulse · 灵脉 (多品牌外设电量管家与独占感知引擎) v2.0.0
 
 <p align="center">
   <img src="app.png" width="96" height="96" alt="FerrisPulse Logo" />
@@ -45,31 +45,16 @@
 
 ---
 
-## 🛠️ 本地编译构建
+## 📦 获取与使用
 
-本项目采用纯 C# 模块化分层架构（61 个独立功能模块，高内聚低耦合），使用 Windows 系统自带的 .NET Framework 编译器，**无需安装 Visual Studio 等庞大 IDE** 即可秒级编译：
-
-```cmd
-# 克隆仓库
-git clone https://github.com/Ferris-echo/RazerBatteryTray.git
-cd RazerBatteryTray
-
-# 运行一键构建脚本 (自动嵌入高清 app.ico 图标)
-build.bat
-```
-
-构建完成后将在当前目录生成独立的单文件 `FerrisPulse.exe`。
+* **官方便携包**：直接从 [GitHub Releases](https://github.com/Ferris-echo/FerrisPulse/releases/latest) 或 [Gitee 发行版](https://gitee.com/feitian-zhang-fei/ferris-pulse/releases) 下载 `FerrisPulse_v2.0_Portable.zip`。
+* **单文件直链**：国内免梯子可直接通过 [Gitee Raw 直链](https://gitee.com/feitian-zhang-fei/ferris-pulse/raw/main/FerrisPulse.exe) 下载最新 `FerrisPulse.exe`。
+* **解压即用**：绿色免安装，双击 `FerrisPulse.exe` 即可直接常驻系统托盘运行。
+* **初次运行提示**：因个人作品未购买商业签名证书，若首次启动弹出 Windows SmartScreen 提示，点击 **「更多信息」 -> 「仍要运行」** 即可安全启动。
 
 ---
 
-## 📦 下载与运行
+## 📄 声明与许可
 
-* **便携版下载**：访问 [Releases 页面](../../releases) 下载最新版的 `FerrisPulse_v3.0_Portable.zip`。
-* **运行方式**：解压后双击 `FerrisPulse.exe` 即可运行。
-* **初次运行提示**：因个人开源作品未购买商业数字证书，若弹出 Windows SmartScreen 提示，点击 **「更多信息」 -> 「仍要运行」** 即可。
+本项目为纯净绿色免费软件 (Freeware)，永久面向广大电竞玩家免费提供。未经作者许可，严禁用于任何商业牟利或二次打包分发行为。
 
----
-
-## 📄 开源许可证
-
-本项目基于 [MIT License](LICENSE) 协议开源。
