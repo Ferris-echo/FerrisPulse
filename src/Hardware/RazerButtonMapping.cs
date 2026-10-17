@@ -334,34 +334,46 @@ namespace RazerBatteryTray
             return true;
         }
 
-        /// <summary>Reads one button binding; returns null on success or a human-readable error.</summary>
+        /// <summary>Reads one button binding; returns null on success or a human-readable error.
+        /// Stale-echo retry (measured 2026-10-17, smoke on-device): GetFeature occasionally
+        /// returns the PREVIOUS transaction's answer — status 0x02 but [profile][button] echo
+        /// mismatch. One re-issued read then returns the fresh answer.</summary>
         private static string BtnReadOne(IntPtr handle, ushort frbl, bool prepended, ButtonId button, out ButtonFunctionInfo info)
         {
-            byte[] args = new byte[BtnDataSize];
-            args[0] = BtnProfileOnboard;
-            args[1] = (byte)button;
-            args[2] = BtnHypershiftOff;
-            BtnTransaction t = BtnTransact(handle, frbl, prepended, BtnClass, BtnGetId, BtnDataSize, args, false);
-            if (BtnTryParse(button, t.Response, prepended, out info)) return null;
-            if (t.NotSupported) return string.Format("button 0x{0:X2} not supported by device", (byte)button);
-            return string.Format("read failed for button 0x{0:X2} (status 0x{1:X2})", (byte)button, t.Status);
+            for (int attempt = 0; ; attempt++)
+            {
+                byte[] args = new byte[BtnDataSize];
+                args[0] = BtnProfileOnboard;
+                args[1] = (byte)button;
+                args[2] = BtnHypershiftOff;
+                BtnTransaction t = BtnTransact(handle, frbl, prepended, BtnClass, BtnGetId, BtnDataSize, args, false);
+                if (BtnTryParse(button, t.Response, prepended, out info)) return null;
+                if (attempt == 0 && t.Status == 0x02) { Thread.Sleep(20); continue; }   // stale echo — retry once
+                if (t.NotSupported) return string.Format("button 0x{0:X2} not supported by device", (byte)button);
+                return string.Format("read failed for button 0x{0:X2} (status 0x{1:X2})", (byte)button, t.Status);
+            }
         }
 
-        /// <summary>Writes one binding and verifies by read-back; "written" means the read-back matches semantically (design §4.4). Returns null on success.</summary>
+        /// <summary>Writes one binding and verifies by read-back; "written" means the read-back matches semantically (design §4.4). Returns null on success.
+        /// Stale-echo retry mirrors BtnReadOne: a status-0x02 answer failing the echo predicate is a
+        /// leftover buffer; re-issuing is safe because the write is idempotent (same args, same result).</summary>
         private static string BtnWriteOne(IntPtr handle, ushort frbl, bool prepended, ButtonId button, ButtonFunction fn)
         {
-            byte[] args = new byte[BtnDataSize];
-            args[0] = BtnProfileOnboard;
-            args[1] = (byte)button;
-            args[2] = BtnHypershiftOff;
-            Array.Copy(fn.ToBytes7(), 0, args, 3, 7);
-
-            BtnTransaction t = BtnTransact(handle, frbl, prepended, BtnClass, BtnSetId, BtnDataSize, args, true);
-            int offset = prepended ? 1 : 0;
-            // write predicate (M0b-report §8-2): st==02 + class/id echo + [profile][button] echo
-            if (t.Response == null || t.Response[offset] != 0x02 || t.Response[offset + 6] != BtnClass || t.Response[offset + 7] != BtnSetId
-                || t.Response[offset + 8] != BtnProfileOnboard || t.Response[offset + 9] != (byte)button)
+            for (int attempt = 0; ; attempt++)
             {
+                byte[] args = new byte[BtnDataSize];
+                args[0] = BtnProfileOnboard;
+                args[1] = (byte)button;
+                args[2] = BtnHypershiftOff;
+                Array.Copy(fn.ToBytes7(), 0, args, 3, 7);
+
+                BtnTransaction t = BtnTransact(handle, frbl, prepended, BtnClass, BtnSetId, BtnDataSize, args, true);
+                int offset = prepended ? 1 : 0;
+                // write predicate (M0b-report §8-2): st==02 + class/id echo + [profile][button] echo
+                bool predicateOk = t.Response != null && t.Response[offset] == 0x02 && t.Response[offset + 6] == BtnClass && t.Response[offset + 7] == BtnSetId
+                    && t.Response[offset + 8] == BtnProfileOnboard && t.Response[offset + 9] == (byte)button;
+                if (predicateOk) break;
+                if (attempt == 0 && t.Status == 0x02) { Thread.Sleep(20); continue; }   // stale echo — retry once
                 return string.Format("write rejected for button 0x{0:X2} (status 0x{1:X2})", (byte)button, t.Status);
             }
 
@@ -379,6 +391,19 @@ namespace RazerBatteryTray
             BtnTransaction t = BtnTransact(handle, frbl, prepended, 0x00, 0x82, 16, null, false);
             int offset = prepended ? 1 : 0;
             return t.Response != null && t.Response[offset] == 0x02 && t.Response[offset + 6] == 0x00 && t.Response[offset + 7] == 0x82;
+        }
+
+        /// <summary>Handshake with retry (measured 2026-10-17, smoke on-device): a batch started
+        /// immediately after a previous write can fail the first get_serial — the firmware appears
+        /// briefly busy; a short backoff clears it.</summary>
+        private static bool BtnHandshakeRetry(IntPtr handle, ushort frbl, bool prepended)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (BtnHandshake(handle, frbl, prepended)) return true;
+                if (i < 2) Thread.Sleep(500);
+            }
+            return false;
         }
 
         // =====================================================================
@@ -487,7 +512,7 @@ namespace RazerBatteryTray
                 if (handle == IntPtr.Zero) return null;
                 try
                 {
-                    if (!BtnHandshake(handle, frbl, prepended)) return null;
+                    if (!BtnHandshakeRetry(handle, frbl, prepended)) return null;
                     List<ButtonFunctionInfo> list = new List<ButtonFunctionInfo>();
                     foreach (ButtonId b in AllSupportedButtons)
                     {
@@ -521,7 +546,7 @@ namespace RazerBatteryTray
                 }
                 try
                 {
-                    if (!BtnHandshake(handle, frbl, prepended))
+                    if (!BtnHandshakeRetry(handle, frbl, prepended))
                     {
                         result.ErrorMessage = "device offline or asleep";
                         return result;
