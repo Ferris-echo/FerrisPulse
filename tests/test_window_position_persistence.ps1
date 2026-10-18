@@ -1,53 +1,115 @@
-## 问题
+# tests\test_window_position_persistence.ps1
+# 验证主窗体启动时位置记忆能够准确从注册表恢复，且越界坐标会被夹紧到屏幕工作区内
 
-主窗口每次显示（托盘点击、双击、唤醒已有实例）都会从注册表恢复上次保存的窗口坐标，但 `RestoreWindowPosition()` 只要求窗口有 100×100 像素与屏幕工作区相交，就直接采用保存坐标，从不把窗口夹紧到工作区内。
+$ErrorActionPreference = "Stop"
 
-一旦保存的 Y 偏低（窗口高度变化、拖动、分辨率/缩放变化等），窗口下边缘就会落到任务栏下方。由于每次显示都恢复同一坐标，会稳定复现“打开时下半截被任务栏挡住，必须手动拖上去”。
+$regPath = "HKCU:\Software\FerrisPulse"
+if (-not (Test-Path $regPath)) {
+    New-Item -Path $regPath -Force | Out-Null
+}
 
-复现环境（Windows 11，150% 缩放，工作区 1707×1019，窗口约 474×807）：
+# 记录测试前的坐标，测试结束后恢复，避免污染真实配置
+$originalRegX = (Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue).WindowX
+$originalRegY = (Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue).WindowY
 
-1. 将 `HKCU\Software\FerrisPulse\WindowY` 设为 700
-2. 启动程序
-3. 窗口底部到达 1507，超过工作区底部 1019，下边缘被任务栏遮挡约 488px
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+$workArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 
-## 修复
+# 1. 预先向注册表写入一个完整可见、且明显不是居中位置的坐标
+$expectedX = $workArea.Left + 40
+$expectedY = $workArea.Top + 40
 
-- 恢复位置时选择与保存矩形交集最大的显示器工作区，不再使用固定的“100×100 可见”判断
-- 将窗口 X/Y 夹紧到 `WorkingArea` 内，保证整个窗口完整可见
-- 窗口尺寸大于工作区时，优先保证左上角可见
+Set-ItemProperty -Path $regPath -Name "WindowX" -Value $expectedX -Type DWord
+Set-ItemProperty -Path $regPath -Name "WindowY" -Value $expectedY -Type DWord
 
-核心改动：
+Write-Host "Injected test coordinates into registry: ($expectedX, $expectedY)"
 
-```csharp
-if (this.Width >= workArea.Width)
-    restoredX = workArea.Left;
-else
-    restoredX = Math.Min(Math.Max(restoredX, workArea.Left), workArea.Right - this.Width);
+# 2. 反射加载并实例化 MainForm
+$asmPath = Join-Path $PSScriptRoot "..\FerrisPulse.exe"
+if (-not (Test-Path $asmPath)) { $asmPath = "FerrisPulse.exe" }
+$fullPath = (Resolve-Path $asmPath).Path
+$bytes = [System.IO.File]::ReadAllBytes($fullPath)
+$asm = [System.Reflection.Assembly]::Load($bytes)
 
-if (this.Height >= workArea.Height)
-    restoredY = workArea.Top;
-else
-    restoredY = Math.Min(Math.Max(restoredY, workArea.Top), workArea.Bottom - this.Height);
+$tMainForm = $asm.GetType("RazerBatteryTray.MainForm")
+if ($tMainForm -eq $null) {
+    Write-Host "FAIL: Type RazerBatteryTray.MainForm not found" -ForegroundColor Red
+    exit 1
+}
 
-this.Location = new Point(restoredX, restoredY);
-```
+# 实例化 MainForm(false) - 非自启动模式
+$form = [Activator]::CreateInstance($tMainForm, @($false))
+[System.Windows.Forms.Form]$winForm = $form
 
-## 测试
+# 触发句柄与窗口加载
+$handle = $winForm.Handle
+$winForm.Visible = $true
 
-更新 `tests/test_window_position_persistence.ps1`：
+# 3. 校验窗口坐标与注册表坐标
+$actualX = $winForm.Location.X
+$actualY = $winForm.Location.Y
 
-- 测试坐标改为基于 `Screen.PrimaryScreen.WorkingArea` 动态计算，避免小屏幕上的误报
-- 新增越界坐标夹紧断言
-- 测试结束后恢复原始注册表坐标，避免污染真实配置
+$regX = (Get-ItemProperty -Path $regPath).WindowX
+$regY = (Get-ItemProperty -Path $regPath).WindowY
 
-本地验证：
+Write-Host "Form Location: ($actualX, $actualY)"
+Write-Host "Registry Location: ($regX, $regY)"
 
-- `build.bat`（csc.exe，C# 5.0）编译通过
-- 注入 `WindowY=700`：修复前窗口底部 1507（被任务栏遮挡）；修复后底部 1019（正好贴任务栏上沿）
-- `tests/test_window_position_persistence.ps1` 全部断言通过
+$failed = $false
 
-## 备注
+# 检查窗口坐标是否准确恢复
+if ($actualX -ne $expectedX -or $actualY -ne $expectedY) {
+    Write-Host "FAIL: Form location ($actualX, $actualY) does not match expected ($expectedX, $expectedY)" -ForegroundColor Red
+    $failed = $true
+} else {
+    Write-Host "PASS: Form location matches expected ($expectedX, $expectedY)" -ForegroundColor Green
+}
 
-- 保持 C# 5.0 / .NET Framework 4.0 语法基准与 UTF-8 BOM 编码
-- 未引入任何第三方依赖
-- 仅修改 `src/UI/Forms/MainForm.cs` 与对应测试
+# 检查注册表中的坐标是否被错误覆写
+if ($regX -ne $expectedX -or $regY -ne $expectedY) {
+    Write-Host "FAIL: Registry coordinates ($regX, $regY) were overwritten during form startup!" -ForegroundColor Red
+    $failed = $true
+} else {
+    Write-Host "PASS: Registry coordinates were preserved" -ForegroundColor Green
+}
+
+# 4. 越界坐标必须被夹紧回工作区内，杜绝窗口底部被任务栏遮挡
+$flags = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+$tMainForm.GetField("savedWindowX", $flags).SetValue($form, $workArea.Right + 500)
+$tMainForm.GetField("savedWindowY", $flags).SetValue($form, $workArea.Bottom + 500)
+$tMainForm.GetMethod("RestoreWindowPosition", $flags).Invoke($form, $null)
+
+$clampedX = $winForm.Location.X
+$clampedY = $winForm.Location.Y
+$clampedRight = $clampedX + $winForm.Width
+$clampedBottom = $clampedY + $winForm.Height
+
+Write-Host "Clamped Location: ($clampedX, $clampedY), Bottom=$clampedBottom, WorkAreaBottom=$($workArea.Bottom)"
+
+if ($winForm.Width -le $workArea.Width -and $winForm.Height -le $workArea.Height) {
+    if ($clampedX -lt $workArea.Left -or $clampedY -lt $workArea.Top -or $clampedRight -gt $workArea.Right -or $clampedBottom -gt $workArea.Bottom) {
+        Write-Host "FAIL: Out-of-bounds position was not clamped into the work area" -ForegroundColor Red
+        $failed = $true
+    } else {
+        Write-Host "PASS: Out-of-bounds position clamped into the work area" -ForegroundColor Green
+    }
+} else {
+    Write-Host "SKIP: Window larger than work area, clamp assertion skipped" -ForegroundColor Yellow
+}
+
+# 现场清理与关闭
+$winForm.Dispose()
+
+# 恢复测试前的注册表坐标
+if ($null -ne $originalRegX -and $null -ne $originalRegY) {
+    Set-ItemProperty -Path $regPath -Name "WindowX" -Value $originalRegX -Type DWord
+    Set-ItemProperty -Path $regPath -Name "WindowY" -Value $originalRegY -Type DWord
+}
+
+if ($failed) {
+    Write-Host "Test failed." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "ALL TESTS PASSED for test_window_position_persistence.ps1" -ForegroundColor Green
+exit 0
