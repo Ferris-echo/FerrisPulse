@@ -539,32 +539,49 @@ namespace RazerBatteryTray
                     );
                     return;
                 }
-
+        
                 Rectangle targetRect = new Rectangle(savedWindowX, savedWindowY, this.Width, this.Height);
-                bool isVisibleOnAnyScreen = false;
+        
+                // 选择与保存位置交集最大的屏幕；若全部在屏幕外，则退回主屏
+                Screen targetScreen = null;
+                long bestIntersectionArea = -1;
                 foreach (var scr in Screen.AllScreens)
                 {
                     Rectangle intersection = Rectangle.Intersect(scr.WorkingArea, targetRect);
-                    if (intersection.Width >= 100 && intersection.Height >= 100)
+                    long area = (long)Math.Max(0, intersection.Width) * (long)Math.Max(0, intersection.Height);
+                    if (area > bestIntersectionArea)
                     {
-                        isVisibleOnAnyScreen = true;
-                        break;
+                        bestIntersectionArea = area;
+                        targetScreen = scr;
                     }
                 }
-
-                this.StartPosition = FormStartPosition.Manual;
-                if (isVisibleOnAnyScreen)
+                if (targetScreen == null) targetScreen = Screen.PrimaryScreen;
+        
+                Rectangle workArea = targetScreen.WorkingArea;
+                int restoredX = savedWindowX;
+                int restoredY = savedWindowY;
+        
+                // 强制把整个窗口夹紧在工作区内，杜绝下边缘被任务栏遮挡
+                if (this.Width >= workArea.Width)
                 {
-                    this.Location = new Point(savedWindowX, savedWindowY);
+                    restoredX = workArea.Left;
                 }
                 else
                 {
-                    var workingArea = Screen.PrimaryScreen.WorkingArea;
-                    this.Location = new Point(
-                        workingArea.Left + Math.Max(0, (workingArea.Width - this.Width) / 2),
-                        workingArea.Top + Math.Max(0, (workingArea.Height - this.Height) / 2)
-                    );
+                    restoredX = Math.Min(Math.Max(restoredX, workArea.Left), workArea.Right - this.Width);
                 }
+        
+                if (this.Height >= workArea.Height)
+                {
+                    restoredY = workArea.Top;
+                }
+                else
+                {
+                    restoredY = Math.Min(Math.Max(restoredY, workArea.Top), workArea.Bottom - this.Height);
+                }
+        
+                this.StartPosition = FormStartPosition.Manual;
+                this.Location = new Point(restoredX, restoredY);
             }
             catch
             {
