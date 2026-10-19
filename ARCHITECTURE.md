@@ -38,6 +38,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── VgnDeviceHelper.cs   [VGN / 蜻蜓 / ATK 协议解析]
     │   ├── LogitechDeviceHelper.cs [罗技 HID++ 协议解析]
     │   ├── NuphyDeviceHelper.cs [NuPhy 键盘电量协议与侧灯控制]
+    │   ├── ValkyrieDeviceHelper.cs [瓦尔基里全系键盘/鼠标私有 HID 协议、2.4G 接收器多模解析、8K 回报率与 DPI 调节]
     │   ├── BluetoothDeviceHelper.cs [Windows 原生 BLE 电池服务]
     │   ├── GenericHidHelper.cs  [通用 HID 电池报告解析]
     │   ├── UniversalWinLockHelper.cs [Windows 键硬件/驱动级防误触锁定]
@@ -104,13 +105,11 @@ D:\FerrisPulse · 灵脉\
 | :--- | :--- | :--- |
 | **开机自启动与注册表 Run 键** | `src/Core/StartupManager.cs` | 处理自启动注册、StartupApproved 协同 |
 | **托盘图标丢失 / Explorer 重启自愈** | `src/UI/Forms/MainForm.Events.cs` | 监听 `WM_TASKBARCREATED` 并自动恢复 |
-| **雷蛇 DPI 档位 / 8K 回报率** | `src/Hardware/RazerDeviceHelper.cs` | 雷蛇私有 HID 报文与固化 Flash 写入 |
+| **雷蛇 DPI 档位 / 8K 回报率 / XY 轴独立灵敏度** | `src/Hardware/RazerDeviceHelper.cs` | 雷蛇私有 HID 报文、独立 X/Y 轴与板载 Flash 写入 |
+| **瓦尔基里全系键盘/鼠标支持** | `src/Hardware/ValkyrieDeviceHelper.cs` | 瓦尔基里全系 2.4G 接收器/HID 协议解析、双模电量、8K 回报率与独立 X/Y 轴 DPI 调节 |
+| **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
+| **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |
-| **全屏游戏自动切换回报率** | `src/Services/GameDetector.cs` / `MainForm.Hardware.cs` | 前台独占全屏与游戏进程监听 |
-| **游戏切换提示音 (PCM 双音)** | `src/Services/ChimeSynthesizer.cs` | 44.1kHz 纯正弦波双音合成 |
-| **托盘图标样式与动态设备右键菜单** | `src/UI/Forms/MainForm.Tray.cs` | 托盘样式渲染 (0: 现代胶囊电池, 1: 醒目数字能量表, 2: 极简纯数字) 与全新 Fluent 断联图标、多外设快捷切换 |
-| **全键无冲测速仪 / 键盘按键监控** | `src/UI/Forms/KeyRolloverSpeedForm.cs` | 底层键盘钩子与高帧率矩阵点亮 |
-| **主界面暗黑卡片风格 / 矢量闪电** | `src/UI/Theme/ModernThemeHelper.cs` | 统一颜色色板与纯矢量图标绘制 |
 | **按钮、滑块、分段选项卡外观** | `src/UI/Controls/*.cs` | 独立的原子自定义双缓冲 GDI+ 控件 |
 
 ---

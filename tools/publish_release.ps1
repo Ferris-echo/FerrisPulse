@@ -90,7 +90,7 @@ Write-Host "`n[3/7] 产物校验和已生成: SHA256=$sha256, Size=$fileSize byt
 Write-Host "`n[4/7] 更新 version.json 云端自更新配置..." -ForegroundColor Yellow
 $versionJsonPath = Join-Path $rootDir "version.json"
 $today = (Get-Date).ToString("yyyy-MM-dd")
-$downloadUrl = "https://github.com/$ghRepo/releases/download/$tag/FerrisPulse.exe"
+$downloadUrl = "https://gitee.com/$giteeRepo/releases/download/$tag/FerrisPulse.exe"
 
 $vObj = Get-Content $versionJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $vObj.latestVersion = $cleanVer
@@ -99,7 +99,19 @@ $vObj.downloadUrl = $downloadUrl
 $vObj.sha256 = $sha256
 $vObj.fileSize = [long]$fileSize
 if ($Changelog.Count -gt 0) {
-    $vObj.changelog = $Changelog
+    $parsedLogs = @()
+    foreach ($c in $Changelog) {
+        if ($c -match "【" -and ($c.IndexOf("【") -ne $c.LastIndexOf("【"))) {
+            $splits = [System.Text.RegularExpressions.Regex]::Split($c, "(?=【)")
+            foreach ($s in $splits) {
+                $cs = $s.Trim().TrimEnd(',', '，', ';', '；')
+                if ($cs) { $parsedLogs += $cs }
+            }
+        } else {
+            $parsedLogs += $c
+        }
+    }
+    $vObj.changelog = $parsedLogs
 }
 
 $updatedJson = $vObj | ConvertTo-Json -Depth 5
@@ -117,7 +129,7 @@ if (-not (Test-Path $zipPath)) {
 
 # 7. Git 提交、打 Tag 并双推
 Write-Host "`n[6/7] 提交 Git 代码与 Tag，同步推送到 GitHub & Gitee..." -ForegroundColor Yellow
-git add src/Properties/AssemblyInfo.cs version.json tools/build_release_zip.ps1 tools/publish_release.ps1 .gitignore
+git add src/Properties/AssemblyInfo.cs version.json tools/build_release_zip.ps1 tools/publish_release.ps1 .gitignore CHANGELOG.md
 $gitDiff = git status --porcelain
 if ($gitDiff) {
     git commit -m "chore(release): bump version to $tag"

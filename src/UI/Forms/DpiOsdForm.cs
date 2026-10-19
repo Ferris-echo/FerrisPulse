@@ -2,7 +2,7 @@
 // 模块名称: DpiOsdForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   现代化屏幕悬浮 OSD 指示器，具备完全不抢占游戏前台焦点（WS_EX_NOACTIVATE | WS_EX_TOPMOST）、DPI/回报率变动实时屏幕居中或角落弹窗提示、支持居中胶囊、能量阶梯、微型指示段三套风格。
+//   现代化屏幕悬浮 OSD 指示器，具备完全不抢占游戏前台焦点（WS_EX_NOACTIVATE | WS_EX_TOPMOST）、DPI/XY轴独立灵敏度与回报率变动实时屏幕居中或角落弹窗提示、支持雷蛇/雷柏/瓦尔基里品牌适配、支持居中胶囊、能量阶梯、微型指示段三套风格。
 // 依赖关系: Theme.ModernThemeHelper, Controls.RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -20,7 +20,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class DpiOsdForm : Form
+    public class DpiOsdForm : DpiAwareForm
     {
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -36,6 +36,7 @@ namespace RazerBatteryTray
         private const uint SWP_NOSENDCHANGING = 0x0400;
 
         private int currentDpi = 3000;
+        private int currentDpiY = 0;
         private int currentStage = 4;
         private int totalStages = 5;
         private int osdStyle = 0; // 0 = Centered Capsule, 1 = Stepped Gauge, 2 = Compact Top-Right
@@ -44,13 +45,20 @@ namespace RazerBatteryTray
         private string currentRateTitle = "电竞回报率";
         private System.Windows.Forms.Timer displayTimer;
         private System.Windows.Forms.Timer fadeTimer;
-        private float dpiScale = 1.0f;
         private string currentBrand = "Razer";
 
         public int OsdStyle
         {
             get { return osdStyle; }
             set { osdStyle = value; }
+        }
+
+        public void UpdateDpiScale(float scale)
+        {
+            if (scale < 1.0f) scale = 1.0f;
+            this.dpiScale = scale;
+            this.Size = new Size((int)(160 * dpiScale), (int)(58 * dpiScale));
+            UpdateOsdRegion(this.Width, this.Height);
         }
 
         protected override bool ShowWithoutActivation
@@ -100,9 +108,19 @@ namespace RazerBatteryTray
             catch { }
         }
 
-        public DpiOsdForm(float scale)
+        protected override void OnDpiScaleChanged(float oldScale, float newScale)
         {
-            this.dpiScale = scale;
+            base.OnDpiScaleChanged(oldScale, newScale);
+            UpdateDpiScale(newScale);
+        }
+
+        public DpiOsdForm() : this(0f)
+        {
+        }
+
+        public DpiOsdForm(float scale) : base(scale)
+        {
+            if (scale > 0f) this.dpiScale = scale;
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             // Note: Do NOT set this.TopMost = true; WinForms TopMost setter calls SetWindowPos without SWP_NOACTIVATE!
@@ -154,8 +172,14 @@ namespace RazerBatteryTray
 
         public void ShowDpi(int dpi, int stage, int count, string brand = "Razer")
         {
+            ShowDpi(dpi, dpi, stage, count, brand);
+        }
+
+        public void ShowDpi(int dpiX, int dpiY, int stage, int count, string brand = "Razer")
+        {
             this.isRateMode = false;
-            this.currentDpi = dpi;
+            this.currentDpi = dpiX;
+            this.currentDpiY = (dpiY > 0) ? dpiY : dpiX;
             this.currentStage = stage;
             this.totalStages = count > 0 ? count : 5;
             this.currentBrand = !string.IsNullOrEmpty(brand) ? brand : "Razer";
@@ -165,22 +189,27 @@ namespace RazerBatteryTray
             this.Opacity = 1.0;
 
             bool isRapoo = (this.currentBrand == "Rapoo");
+            bool isXyDiff = (this.currentDpiY > 0 && this.currentDpiY != this.currentDpi);
 
             int targetW;
             int targetH;
             if (osdStyle == 0)
             {
-                targetW = 160;
+                targetW = isXyDiff ? 200 : 160;
                 targetH = isRapoo ? 50 : 58;
             }
             else if (osdStyle == 1)
             {
-                targetW = isRapoo ? ((dpi >= 10000) ? 152 : 140) : ((dpi >= 10000) ? 192 : 184);
+                int maxD = Math.Max(dpiX, this.currentDpiY);
+                int baseW = isRapoo ? ((maxD >= 10000) ? 152 : 140) : ((maxD >= 10000) ? 192 : 184);
+                targetW = isXyDiff ? (baseW + 36) : baseW;
                 targetH = isRapoo ? 52 : 62;
             }
             else
             {
-                targetW = isRapoo ? ((dpi >= 10000) ? 152 : 140) : ((dpi >= 10000) ? 178 : 170);
+                int maxD = Math.Max(dpiX, this.currentDpiY);
+                int baseW = isRapoo ? ((maxD >= 10000) ? 152 : 140) : ((maxD >= 10000) ? 178 : 170);
+                targetW = isXyDiff ? (baseW + 36) : baseW;
                 targetH = isRapoo ? 52 : 62;
             }
 
@@ -267,8 +296,9 @@ namespace RazerBatteryTray
             {
                 StringFormat sf = StringFormat.GenericTypographic;
                 bool isRapoo = (currentBrand == "Rapoo");
-                Color brandAccent = isRapoo ? Color.FromArgb(0, 210, 255) : Color.FromArgb(0, 230, 118);
-                string titleText = isRapoo ? "雷柏 DPI" : "鼠标 DPI";
+                bool isValkyrie = (currentBrand == "Valkyrie");
+                Color brandAccent = isRapoo ? Color.FromArgb(0, 210, 255) : (isValkyrie ? Color.FromArgb(255, 64, 129) : Color.FromArgb(0, 230, 118));
+                string titleText = isRapoo ? "雷柏 DPI" : (isValkyrie ? "瓦尔基里 DPI" : "鼠标 DPI");
 
                 if (isRateMode)
                 {
@@ -438,14 +468,15 @@ namespace RazerBatteryTray
                             }
                         }
 
-                        // 2. Middle Value ("3000" + "DPI") - Perfectly Centered & Exact Baseline Aligned
-                        float numFontSize = 20f * dpiScale;
-                        float unitFontSize = 10f * dpiScale;
+                        // 2. Middle Value ("3000" or "1600 × 1200" + "DPI") - Perfectly Centered & Exact Baseline Aligned
+                        bool isXyDiff = (currentDpiY > 0 && currentDpiY != currentDpi);
+                        string numStr = isXyDiff ? string.Format("{0} × {1}", currentDpi, currentDpiY) : currentDpi.ToString();
+                        float numFontSize = (isXyDiff ? 15.5f : 20f) * dpiScale;
+                        float unitFontSize = (isXyDiff ? 9f : 10f) * dpiScale;
 
                         using (GraphicsPath numPath = new GraphicsPath())
                         using (GraphicsPath unitPath = new GraphicsPath())
                         {
-                            string numStr = currentDpi.ToString();
                             numPath.AddString(numStr, ffSegoe, (int)FontStyle.Bold, numFontSize, PointF.Empty, sf);
                             RectangleF numBounds = numPath.GetBounds();
 
@@ -493,13 +524,17 @@ namespace RazerBatteryTray
                         titlePath.AddString(titleText, ffYaHei, (int)FontStyle.Regular, titleFontSize, PointF.Empty, sf);
                         RectangleF titleBounds = titlePath.GetBounds();
 
-                        float numFontSize = (currentDpi >= 10000 ? 19.5f : 21.5f) * dpiScale;
-                        float unitFontSize = 10f * dpiScale;
+                        bool isXyDiff = (currentDpiY > 0 && currentDpiY != currentDpi);
+                        string numStr = isXyDiff ? string.Format("{0} × {1}", currentDpi, currentDpiY) : currentDpi.ToString();
+                        int maxD = Math.Max(currentDpi, currentDpiY);
+                        float numFontSize = isXyDiff
+                            ? ((maxD >= 10000) ? 14.5f : 16.0f) * dpiScale
+                            : ((currentDpi >= 10000 ? 19.5f : 21.5f) * dpiScale);
+                        float unitFontSize = (isXyDiff ? 9f : 10f) * dpiScale;
 
                         using (GraphicsPath numPath = new GraphicsPath())
                         using (GraphicsPath unitPath = new GraphicsPath())
                         {
-                            string numStr = currentDpi.ToString();
                             numPath.AddString(numStr, ffSegoe, (int)FontStyle.Bold, numFontSize, PointF.Empty, sf);
                             RectangleF numBounds = numPath.GetBounds();
 
@@ -603,13 +638,17 @@ namespace RazerBatteryTray
                         titlePath.AddString(titleText, ffYaHei, (int)FontStyle.Regular, titleFontSize, PointF.Empty, sf);
                         RectangleF titleBounds = titlePath.GetBounds();
 
-                        float numFontSize = (currentDpi >= 10000 ? 19.5f : 21.5f) * dpiScale;
-                        float unitFontSize = 10f * dpiScale;
+                        bool isXyDiff = (currentDpiY > 0 && currentDpiY != currentDpi);
+                        string numStr = isXyDiff ? string.Format("{0} × {1}", currentDpi, currentDpiY) : currentDpi.ToString();
+                        int maxD = Math.Max(currentDpi, currentDpiY);
+                        float numFontSize = isXyDiff
+                            ? ((maxD >= 10000) ? 14.5f : 16.0f) * dpiScale
+                            : ((currentDpi >= 10000 ? 19.5f : 21.5f) * dpiScale);
+                        float unitFontSize = (isXyDiff ? 9f : 10f) * dpiScale;
 
                         using (GraphicsPath numPath = new GraphicsPath())
                         using (GraphicsPath unitPath = new GraphicsPath())
                         {
-                            string numStr = currentDpi.ToString();
                             numPath.AddString(numStr, ffSegoe, (int)FontStyle.Bold, numFontSize, PointF.Empty, sf);
                             RectangleF numBounds = numPath.GetBounds();
 

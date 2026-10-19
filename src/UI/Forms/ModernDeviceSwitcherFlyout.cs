@@ -20,11 +20,15 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class ModernDeviceSwitcherFlyout : Form
+    public class ModernDeviceSwitcherFlyout : DpiAwareForm
     {
         public List<MouseBatteryInfo> Devices = new List<MouseBatteryInfo>();
         public MouseBatteryInfo SelectedDevice = null;
-        public float DpiScale = 1.0f;
+        public new float DpiScale
+        {
+            get { return this.dpiScale; }
+            set { this.dpiScale = value > 0 ? value : 1.0f; }
+        }
         public Action<MouseBatteryInfo> OnSelectDevice;
 
         private int hoveredCardIdx = -1;
@@ -43,9 +47,13 @@ namespace RazerBatteryTray
             }
         }
 
-        public ModernDeviceSwitcherFlyout(float scale)
+        public ModernDeviceSwitcherFlyout() : this(0f)
         {
-            this.DpiScale = scale;
+        }
+
+        public ModernDeviceSwitcherFlyout(float scale) : base(scale)
+        {
+            if (scale > 0) this.dpiScale = scale;
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.Manual;

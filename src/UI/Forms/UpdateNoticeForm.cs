@@ -18,7 +18,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class UpdateNoticeForm : Form
+    public class UpdateNoticeForm : DpiAwareForm
     {
         private UpdateInfo updateInfo;
         private string currentVersion;
@@ -51,7 +51,7 @@ namespace RazerBatteryTray
             }
         }
 
-        public static void ShowUpdateDialog(IWin32Window owner, UpdateInfo info, string currentVersion)
+        public static void ShowUpdateDialog(IWin32Window owner, UpdateInfo info, string currentVersion, float dpiScale = 0f)
         {
             if (info == null) return;
 
@@ -84,7 +84,7 @@ namespace RazerBatteryTray
                 }
             }
 
-            using (UpdateNoticeForm form = new UpdateNoticeForm(info, currentVersion))
+            using (UpdateNoticeForm form = new UpdateNoticeForm(info, currentVersion, dpiScale))
             {
                 lock (_dialogLock)
                 {
@@ -114,11 +114,15 @@ namespace RazerBatteryTray
             }
         }
 
-        public UpdateNoticeForm() : this(new UpdateInfo(), UpdateManager.CurrentVersion)
+        public UpdateNoticeForm() : this(new UpdateInfo(), UpdateManager.CurrentVersion, 0f)
         {
         }
 
-        public UpdateNoticeForm(UpdateInfo info, string currentVersion)
+        public UpdateNoticeForm(UpdateInfo info, string currentVersion) : this(info, currentVersion, 0f)
+        {
+        }
+
+        public UpdateNoticeForm(UpdateInfo info, string currentVersion, float dpiScale) : base(dpiScale)
         {
             this.updateInfo = info ?? new UpdateInfo();
             this.currentVersion = currentVersion ?? "";
@@ -134,7 +138,9 @@ namespace RazerBatteryTray
             this.BackColor = Color.FromArgb(18, 19, 23);
             this.ForeColor = Color.White;
             this.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-            this.Size = new Size(580, 520);
+            int formW = Scale(580);
+            int formH = Scale(520);
+            this.ClientSize = new Size(formW, formH);
             this.DoubleBuffered = true;
             this.ShowInTaskbar = false;
             this.TopMost = false;
@@ -147,12 +153,12 @@ namespace RazerBatteryTray
                 }
             };
 
-            int padX = 24;
+            int padX = Scale(24);
 
             // 1. 顶部标题栏
             Panel titleBar = new Panel();
             titleBar.Dock = DockStyle.Top;
-            titleBar.Height = 38;
+            titleBar.Height = Scale(38);
             titleBar.BackColor = Color.FromArgb(22, 24, 30);
             titleBar.MouseDown += TitleBar_MouseDown;
 
@@ -160,7 +166,7 @@ namespace RazerBatteryTray
             lblTitle.Text = "发现新版本";
             lblTitle.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(225, 230, 242);
-            lblTitle.Location = new Point(padX, 9);
+            lblTitle.Location = new Point(padX, Scale(9));
             lblTitle.AutoSize = true;
             lblTitle.MouseDown += TitleBar_MouseDown;
             titleBar.Controls.Add(lblTitle);
@@ -168,20 +174,20 @@ namespace RazerBatteryTray
             btnClose = new ModernButton();
             btnClose.Text = "✕";
             btnClose.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnClose.Size = new Size(34, 28);
-            btnClose.Location = new Point(580 - padX - 18, 5);
+            btnClose.Size = new Size(Scale(34), Scale(28));
+            btnClose.Location = new Point(formW - padX - Scale(18), Scale(5));
             btnClose.NormalColor = Color.Transparent;
             btnClose.HoverColor = Color.FromArgb(232, 17, 35);
             btnClose.PressedColor = Color.FromArgb(180, 10, 25);
             btnClose.ForeColor = Color.FromArgb(180, 180, 180);
-            btnClose.CornerRadius = 4;
+            btnClose.CornerRadius = Scale(4);
             btnClose.Click += delegate(object s, EventArgs e) { this.Close(); };
             titleBar.Controls.Add(btnClose);
 
             this.Controls.Add(titleBar);
 
             // 2. 版本头部信息 (动态对齐，永不重叠)
-            int headerY = 54;
+            int headerY = Scale(54);
 
             string rawVer = string.IsNullOrEmpty(updateInfo.LatestVersion) ? "2.0.0" : updateInfo.LatestVersion;
             // 剥离可能存在的冗余字样，统一纯净规范为 vX.X.X
@@ -192,7 +198,7 @@ namespace RazerBatteryTray
 
             pillVersion = new StatusPill();
             pillVersion.Location = new Point(padX, headerY);
-            pillVersion.Height = 24;
+            pillVersion.Height = Scale(24);
             pillVersion.SetStatus(verText, Color.FromArgb(0, 230, 118));
             this.Controls.Add(pillVersion);
 
@@ -202,7 +208,7 @@ namespace RazerBatteryTray
             lblReleaseDate.ForeColor = Color.FromArgb(155, 164, 180);
             lblReleaseDate.AutoSize = true;
             // 严格根据 pillVersion 实际渲染右侧边缘动态推算坐标，留出舒适间距，永不重叠
-            lblReleaseDate.Location = new Point(pillVersion.Right + 16, headerY + (pillVersion.Height - lblReleaseDate.PreferredHeight) / 2);
+            lblReleaseDate.Location = new Point(pillVersion.Right + Scale(16), headerY + (pillVersion.Height - lblReleaseDate.PreferredHeight) / 2);
             lblReleaseDate.MouseDown += TitleBar_MouseDown;
             this.Controls.Add(lblReleaseDate);
 
@@ -213,19 +219,19 @@ namespace RazerBatteryTray
             lblHotReloadHint.ForeColor = Color.FromArgb(0, 230, 118);
             lblHotReloadHint.AutoSize = true;
             lblHotReloadHint.Visible = false;
-            lblHotReloadHint.Location = new Point(580 - padX - 160, headerY + (pillVersion.Height - lblHotReloadHint.PreferredHeight) / 2);
+            lblHotReloadHint.Location = new Point(formW - padX - Scale(160), headerY + (pillVersion.Height - lblHotReloadHint.PreferredHeight) / 2);
             lblHotReloadHint.MouseDown += TitleBar_MouseDown;
             this.Controls.Add(lblHotReloadHint);
 
-            // 3. 更新日志卡片容器 (扩容至 354px，按钮沉底留白 24px，消除空白多余空腔)
-            int cardY = headerY + 38;
-            int cardW = 580 - padX * 2;
-            int actionY = 520 - 24 - 36;
-            int cardH = actionY - 18 - cardY; // 354px
+            // 3. 更新日志卡片容器
+            int cardY = headerY + Scale(38);
+            int cardW = formW - padX * 2;
+            int actionY = formH - Scale(24) - Scale(36);
+            int cardH = actionY - Scale(18) - cardY;
             cardChangelog = new RoundedCard();
             cardChangelog.Location = new Point(padX, cardY);
             cardChangelog.Size = new Size(cardW, cardH);
-            cardChangelog.CornerRadius = 8;
+            cardChangelog.CornerRadius = Scale(8);
             cardChangelog.CardColor = Color.FromArgb(25, 27, 34);
             cardChangelog.BorderColor = Color.FromArgb(42, 46, 58);
             cardChangelog.MouseDown += TitleBar_MouseDown;
@@ -235,14 +241,14 @@ namespace RazerBatteryTray
             lblLogTitle.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
             lblLogTitle.ForeColor = Color.FromArgb(235, 240, 255);
             lblLogTitle.BackColor = cardChangelog.CardColor;
-            lblLogTitle.Location = new Point(20, 16);
+            lblLogTitle.Location = new Point(Scale(20), Scale(16));
             lblLogTitle.AutoSize = true;
             lblLogTitle.MouseDown += TitleBar_MouseDown;
             cardChangelog.Controls.Add(lblLogTitle);
 
             logScrollPanel = new ModernDarkScrollPanel();
-            logScrollPanel.Location = new Point(16, 44);
-            logScrollPanel.Size = new Size(cardW - 32, cardH - 54);
+            logScrollPanel.Location = new Point(Scale(16), Scale(44));
+            logScrollPanel.Size = new Size(cardW - Scale(32), cardH - Scale(54));
             logScrollPanel.BackColor = Color.Transparent;
             RenderChangelog();
             cardChangelog.Controls.Add(logScrollPanel);
@@ -251,8 +257,8 @@ namespace RazerBatteryTray
 
             // 4. 底部进度条与控制按钮区域 (沉底排布，下留白舒适 24px)
             progressBar = new ModernProgressBar();
-            progressBar.Location = new Point(padX, actionY + 4);
-            progressBar.Size = new Size(cardW, 8);
+            progressBar.Location = new Point(padX, actionY + Scale(4));
+            progressBar.Size = new Size(cardW, Scale(8));
             progressBar.Visible = false;
             progressBar.Value = 0;
             this.Controls.Add(progressBar);
@@ -260,44 +266,44 @@ namespace RazerBatteryTray
             lblProgressText = new Label();
             lblProgressText.Font = new Font("Microsoft YaHei UI", 8.8F);
             lblProgressText.ForeColor = Color.FromArgb(0, 230, 118);
-            lblProgressText.Location = new Point(padX, actionY + 16);
-            lblProgressText.Size = new Size(cardW, 22);
+            lblProgressText.Location = new Point(padX, actionY + Scale(16));
+            lblProgressText.Size = new Size(cardW, Scale(22));
             lblProgressText.TextAlign = ContentAlignment.MiddleCenter;
             lblProgressText.Visible = false;
             this.Controls.Add(lblProgressText);
 
+            int btnLaterW = Scale(110);
+            int btnUpgradeW = Scale(130);
+            int btnH = Scale(36);
+
             btnLater = new ModernButton();
             btnLater.Text = "稍后提醒";
             btnLater.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
-            btnLater.Location = new Point(580 - padX - 130 - 16 - 110, actionY);
-            btnLater.Size = new Size(110, 36);
+            btnLater.Location = new Point(formW - padX - btnUpgradeW - Scale(16) - btnLaterW, actionY);
+            btnLater.Size = new Size(btnLaterW, btnH);
             btnLater.NormalColor = Color.FromArgb(36, 40, 52);
             btnLater.HoverColor = Color.FromArgb(48, 54, 70);
             btnLater.PressedColor = Color.FromArgb(28, 30, 40);
             btnLater.BorderColor = Color.FromArgb(58, 64, 82);
             btnLater.ForeColor = Color.White;
-            btnLater.CornerRadius = 6;
+            btnLater.CornerRadius = Scale(6);
             btnLater.Click += delegate(object s, EventArgs e) { this.Close(); };
             this.Controls.Add(btnLater);
 
             btnUpgrade = new ModernButton();
             btnUpgrade.Text = "立即升级";
             btnUpgrade.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-            btnUpgrade.Location = new Point(580 - padX - 130, actionY);
-            btnUpgrade.Size = new Size(130, 36);
+            btnUpgrade.Location = new Point(formW - padX - btnUpgradeW, actionY);
+            btnUpgrade.Size = new Size(btnUpgradeW, btnH);
             btnUpgrade.NormalColor = Color.FromArgb(0, 200, 83);
             btnUpgrade.HoverColor = Color.FromArgb(0, 230, 118);
             btnUpgrade.PressedColor = Color.FromArgb(0, 160, 65);
             btnUpgrade.ForeColor = Color.FromArgb(10, 24, 15);
-            btnUpgrade.CornerRadius = 6;
+            btnUpgrade.CornerRadius = Scale(6);
             btnUpgrade.Click += BtnUpgrade_Click;
             this.Controls.Add(btnUpgrade);
 
-            // 5. 挂接原生圆角与阴影
-            this.HandleCreated += delegate(object s, EventArgs e)
-            {
-                ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-            };
+            // 5. 挂接原生圆角与阴影已由 DpiAwareForm 自动处理
 
             // 6. SWR (Stale-While-Revalidate) 模式：显示后静默发起后台重检
             this.Shown += delegate(object s, EventArgs e)
@@ -316,9 +322,30 @@ namespace RazerBatteryTray
 
             if (updateInfo.Changelog != null && updateInfo.Changelog.Count > 0)
             {
+                System.Collections.Generic.List<string> displayItems = new System.Collections.Generic.List<string>();
                 for (int i = 0; i < updateInfo.Changelog.Count; i++)
                 {
-                    string itemText = "•  " + updateInfo.Changelog[i];
+                    string entry = updateInfo.Changelog[i];
+                    if (string.IsNullOrEmpty(entry)) continue;
+
+                    if (entry.Contains("【") && entry.IndexOf("【") != entry.LastIndexOf("【"))
+                    {
+                        string[] parts = System.Text.RegularExpressions.Regex.Split(entry, @"(?=【)");
+                        foreach (string p in parts)
+                        {
+                            string cp = p.Trim().TrimEnd(',', '，', ';', '；');
+                            if (!string.IsNullOrEmpty(cp)) displayItems.Add(cp);
+                        }
+                    }
+                    else
+                    {
+                        displayItems.Add(entry);
+                    }
+                }
+
+                for (int i = 0; i < displayItems.Count; i++)
+                {
+                    string itemText = "•  " + displayItems[i];
                     Label lblItem = new Label();
                     lblItem.Text = itemText;
                     lblItem.Font = new Font("Microsoft YaHei UI", 9F);

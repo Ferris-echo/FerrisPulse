@@ -3,7 +3,7 @@
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
 //   DPI 档位管理列表中的单档数据行控件，包含档位胶囊徽标、原生无边框高亮数值输入框、
-//   DPI 对齐单位标签、设为激活/已生效状态按钮以及矢量正方形删除按钮。
+//   X/Y 轴独立灵敏度双输入框支持、DPI 对齐单位标签、设为激活/已生效状态按钮以及矢量正方形删除按钮。
 // 依赖关系: RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -27,14 +27,26 @@ namespace RazerBatteryTray
         public bool IsActive { get; private set; }
         public bool CanDelete { get; private set; }
         public float DpiScale { get; private set; }
+        public bool IsXyIndependent { get; private set; }
 
         public int DpiValue
         {
             get
             {
                 int v;
-                if (int.TryParse(txtDpi.Text.Trim(), out v)) return v;
+                if (txtDpi != null && int.TryParse(txtDpi.Text.Trim(), out v)) return v;
                 return 800;
+            }
+        }
+
+        public int DpiValueY
+        {
+            get
+            {
+                if (!IsXyIndependent || txtDpiY == null) return DpiValue;
+                int v;
+                if (int.TryParse(txtDpiY.Text.Trim(), out v)) return v;
+                return DpiValue;
             }
         }
 
@@ -42,8 +54,12 @@ namespace RazerBatteryTray
         public event Action OnDeleteClicked;
 
         private TextBox txtDpi;
+        private TextBox txtDpiY;
         private Rectangle rectBadge;
+        private Rectangle rectLabelX;
         private Rectangle rectInputBox;
+        private Rectangle rectLabelY;
+        private Rectangle rectInputBoxY;
         private Rectangle rectUnit;
         private Rectangle rectActiveBtn;
         private Rectangle rectDeleteBtn;
@@ -51,18 +67,26 @@ namespace RazerBatteryTray
         private bool isHoverActiveBtn = false;
         private bool isHoverDeleteBtn = false;
         private bool isHoverInputBox = false;
+        private bool isHoverInputBoxY = false;
         private bool isHoverRow = false;
         private bool isInputFocused = false;
+        private bool isInputFocusedY = false;
         private int minDpi;
         private int maxDpi;
 
         private int S(int val) { return (int)Math.Round(val * DpiScale); }
 
         public DpiStageRowControl(int stageNum, int dpiVal, bool active, bool canDel, int min, int max, float scale)
+            : this(stageNum, dpiVal, dpiVal, false, active, canDel, min, max, scale)
+        {
+        }
+
+        public DpiStageRowControl(int stageNum, int dpiValX, int dpiValY, bool isXy, bool active, bool canDel, int min, int max, float scale)
         {
             this.StageNumber = stageNum;
             this.IsActive = active;
             this.CanDelete = canDel;
+            this.IsXyIndependent = isXy;
             this.minDpi = min;
             this.maxDpi = max;
             this.DpiScale = scale > 0 ? scale : 1.0f;
@@ -70,23 +94,36 @@ namespace RazerBatteryTray
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             this.BackColor = Color.FromArgb(14, 17, 24);
 
-            txtDpi = new TextBox();
-            txtDpi.Text = dpiVal.ToString();
-            txtDpi.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            txtDpi.BackColor = Color.FromArgb(10, 13, 19);
-            txtDpi.ForeColor = Color.FromArgb(245, 248, 255);
-            txtDpi.BorderStyle = BorderStyle.None;
-            txtDpi.TextAlign = HorizontalAlignment.Center;
-
-            txtDpi.Click += (s, e) => txtDpi.SelectAll();
+            txtDpi = CreateDpiTextBox(dpiValX);
             txtDpi.GotFocus += (s, e) => { isInputFocused = true; txtDpi.SelectAll(); Invalidate(); };
             txtDpi.LostFocus += (s, e) => { isInputFocused = false; Invalidate(); };
+            this.Controls.Add(txtDpi);
 
-            txtDpi.KeyPress += (s, e) =>
+            if (isXy)
+            {
+                txtDpiY = CreateDpiTextBox(dpiValY);
+                txtDpiY.GotFocus += (s, e) => { isInputFocusedY = true; txtDpiY.SelectAll(); Invalidate(); };
+                txtDpiY.LostFocus += (s, e) => { isInputFocusedY = false; Invalidate(); };
+                this.Controls.Add(txtDpiY);
+            }
+        }
+
+        private TextBox CreateDpiTextBox(int initialVal)
+        {
+            TextBox tb = new TextBox();
+            tb.Text = initialVal.ToString();
+            tb.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            tb.BackColor = Color.FromArgb(10, 13, 19);
+            tb.ForeColor = Color.FromArgb(245, 248, 255);
+            tb.BorderStyle = BorderStyle.None;
+            tb.TextAlign = HorizontalAlignment.Center;
+
+            tb.Click += (s, e) => tb.SelectAll();
+            tb.KeyPress += (s, e) =>
             {
                 if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar)) e.Handled = true;
             };
-            txtDpi.KeyDown += (s, e) =>
+            tb.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
                 {
@@ -108,7 +145,7 @@ namespace RazerBatteryTray
                     if (dlg != null) { dlg.DialogResult = DialogResult.Cancel; dlg.Close(); }
                 }
             };
-            this.Controls.Add(txtDpi);
+            return tb;
         }
 
         protected override void OnResize(EventArgs e)
@@ -123,33 +160,78 @@ namespace RazerBatteryTray
             int elemH = S(28);
             int elemY = (h - elemH) / 2;
 
-            // 1. Stage Badge: compact "第 1 档" -> S(56)
-            int badgeW = S(56);
-            int x = S(11);
+            // 1. Stage Badge: compact "第 1 档" -> S(54)
+            int badgeW = S(54);
+            int x = S(10);
             rectBadge = new Rectangle(x, elemY, badgeW, elemH);
             x = rectBadge.Right + S(8);
 
-            // 2. Input Box: Dedicated number input box -> S(74)
-            int inputW = S(74);
-            rectInputBox = new Rectangle(x, elemY, inputW, elemH);
-            x = rectInputBox.Right + S(8);
+            if (!IsXyIndependent)
+            {
+                // Single DPI input
+                int inputW = S(74);
+                rectInputBox = new Rectangle(x, elemY, inputW, elemH);
+                x = rectInputBox.Right + S(6);
 
-            // Position TextBox inside input box (centered horizontally & vertically)
-            int tbH = txtDpi.PreferredHeight;
-            int tbY = rectInputBox.Y + (elemH - tbH) / 2;
-            txtDpi.SetBounds(rectInputBox.X + S(2), tbY, rectInputBox.Width - S(4), tbH);
+                int tbH = txtDpi.PreferredHeight;
+                int tbY = rectInputBox.Y + (elemH - tbH) / 2;
+                txtDpi.SetBounds(rectInputBox.X + S(2), tbY, rectInputBox.Width - S(4), tbH);
 
-            // 3. Unit Label: "DPI" in fixed, aligned column across all rows -> S(28)
-            int unitW = S(28);
-            rectUnit = new Rectangle(x, elemY, unitW, elemH);
-            x = rectUnit.Right + S(11);
+                rectLabelX = Rectangle.Empty;
+                rectLabelY = Rectangle.Empty;
+                rectInputBoxY = Rectangle.Empty;
+                if (txtDpiY != null) txtDpiY.Visible = false;
 
-            // 4. Active Button: S(82) x S(26)
-            int activeW = S(82);
+                // Unit Label: "DPI" -> S(26)
+                int unitW = S(26);
+                rectUnit = new Rectangle(x, elemY, unitW, elemH);
+                x = rectUnit.Right + S(10);
+            }
+            else
+            {
+                // Dual X/Y input
+                // Label X: "X" -> S(14)
+                int lblW = S(14);
+                rectLabelX = new Rectangle(x, elemY, lblW, elemH);
+                x = rectLabelX.Right + S(2);
+
+                // Input Box X -> S(56)
+                int inputW = S(56);
+                rectInputBox = new Rectangle(x, elemY, inputW, elemH);
+                x = rectInputBox.Right + S(6);
+
+                int tbH = txtDpi.PreferredHeight;
+                int tbY = rectInputBox.Y + (elemH - tbH) / 2;
+                txtDpi.SetBounds(rectInputBox.X + S(2), tbY, rectInputBox.Width - S(4), tbH);
+
+                // Label Y: "Y" -> S(14)
+                rectLabelY = new Rectangle(x, elemY, lblW, elemH);
+                x = rectLabelY.Right + S(2);
+
+                // Input Box Y -> S(56)
+                rectInputBoxY = new Rectangle(x, elemY, inputW, elemH);
+                x = rectInputBoxY.Right + S(4);
+
+                if (txtDpiY != null)
+                {
+                    txtDpiY.Visible = true;
+                    int tbHY = txtDpiY.PreferredHeight;
+                    int tbYY = rectInputBoxY.Y + (elemH - tbHY) / 2;
+                    txtDpiY.SetBounds(rectInputBoxY.X + S(2), tbYY, rectInputBoxY.Width - S(4), tbHY);
+                }
+
+                // Unit Label: "DPI" -> S(24)
+                int unitW = S(24);
+                rectUnit = new Rectangle(x, elemY, unitW, elemH);
+                x = rectUnit.Right + S(8);
+            }
+
+            // 4. Active Button: S(76) x S(26)
+            int activeW = S(76);
             int activeH = S(26);
             int activeY = (h - activeH) / 2;
             rectActiveBtn = new Rectangle(x, activeY, activeW, activeH);
-            x = rectActiveBtn.Right + S(11);
+            x = rectActiveBtn.Right + S(8);
 
             // 5. Delete Button: perfectly square vector cross S(24) x S(24)
             int delW = S(24);
@@ -164,16 +246,18 @@ namespace RazerBatteryTray
             bool oldHoverActive = isHoverActiveBtn;
             bool oldHoverDel = isHoverDeleteBtn;
             bool oldHoverBox = isHoverInputBox;
+            bool oldHoverBoxY = isHoverInputBoxY;
 
             isHoverActiveBtn = rectActiveBtn.Contains(e.Location) && !IsActive;
             isHoverDeleteBtn = CanDelete && rectDeleteBtn.Contains(e.Location);
-            isHoverInputBox = rectInputBox.Contains(e.Location) || rectUnit.Contains(e.Location);
+            isHoverInputBox = rectInputBox.Contains(e.Location) || (!IsXyIndependent && rectUnit.Contains(e.Location));
+            isHoverInputBoxY = IsXyIndependent && (rectInputBoxY.Contains(e.Location) || rectUnit.Contains(e.Location));
 
             if (isHoverActiveBtn || isHoverDeleteBtn) Cursor = Cursors.Hand;
-            else if (isHoverInputBox) Cursor = Cursors.IBeam;
+            else if (isHoverInputBox || isHoverInputBoxY) Cursor = Cursors.IBeam;
             else Cursor = Cursors.Default;
 
-            if (oldHoverActive != isHoverActiveBtn || oldHoverDel != isHoverDeleteBtn || oldHoverBox != isHoverInputBox)
+            if (oldHoverActive != isHoverActiveBtn || oldHoverDel != isHoverDeleteBtn || oldHoverBox != isHoverInputBox || oldHoverBoxY != isHoverInputBoxY)
             {
                 Invalidate();
             }
@@ -193,6 +277,7 @@ namespace RazerBatteryTray
             isHoverActiveBtn = false;
             isHoverDeleteBtn = false;
             isHoverInputBox = false;
+            isHoverInputBoxY = false;
             Cursor = Cursors.Default;
             Invalidate();
         }
@@ -208,10 +293,20 @@ namespace RazerBatteryTray
                     return;
                 }
 
-                if (rectInputBox.Contains(e.Location) || rectUnit.Contains(e.Location))
+                if (rectInputBox.Contains(e.Location) || (!IsXyIndependent && rectUnit.Contains(e.Location)))
                 {
                     txtDpi.Focus();
                     txtDpi.SelectAll();
+                    return;
+                }
+
+                if (IsXyIndependent && (rectInputBoxY.Contains(e.Location) || rectUnit.Contains(e.Location)))
+                {
+                    if (txtDpiY != null)
+                    {
+                        txtDpiY.Focus();
+                        txtDpiY.SelectAll();
+                    }
                     return;
                 }
 
@@ -269,17 +364,52 @@ namespace RazerBatteryTray
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
             }
 
-            // 3. Draw DPI Input Box Container
-            Color inputBorder = isInputFocused ? Color.FromArgb(0, 230, 118) : (isHoverInputBox ? Color.FromArgb(60, 78, 106) : Color.FromArgb(36, 46, 64));
-            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rectInputBox, S(5)))
+            // 3. Draw Input Boxes
+            if (IsXyIndependent)
             {
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(10, 13, 19)))
+                // Draw 'X' indicator
+                using (Font f = new Font("Segoe UI", 8.2F, FontStyle.Bold))
                 {
-                    g.FillPath(b, path);
+                    TextRenderer.DrawText(g, "X", f, rectLabelX, Color.FromArgb(56, 189, 248),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 }
-                using (Pen p = new Pen(inputBorder, isInputFocused ? 1.5f : 1f))
+
+                // Draw X Input Box
+                Color borderX = isInputFocused ? Color.FromArgb(56, 189, 248) : (isHoverInputBox ? Color.FromArgb(60, 78, 106) : Color.FromArgb(36, 46, 64));
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rectInputBox, S(5)))
                 {
-                    g.DrawPath(p, path);
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(10, 13, 19))) { g.FillPath(b, path); }
+                    using (Pen p = new Pen(borderX, isInputFocused ? 1.5f : 1f)) { g.DrawPath(p, path); }
+                }
+
+                // Draw 'Y' indicator
+                using (Font f = new Font("Segoe UI", 8.2F, FontStyle.Bold))
+                {
+                    TextRenderer.DrawText(g, "Y", f, rectLabelY, Color.FromArgb(250, 204, 21),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                }
+
+                // Draw Y Input Box
+                Color borderY = isInputFocusedY ? Color.FromArgb(250, 204, 21) : (isHoverInputBoxY ? Color.FromArgb(60, 78, 106) : Color.FromArgb(36, 46, 64));
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rectInputBoxY, S(5)))
+                {
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(10, 13, 19))) { g.FillPath(b, path); }
+                    using (Pen p = new Pen(borderY, isInputFocusedY ? 1.5f : 1f)) { g.DrawPath(p, path); }
+                }
+            }
+            else
+            {
+                Color inputBorder = isInputFocused ? Color.FromArgb(0, 230, 118) : (isHoverInputBox ? Color.FromArgb(60, 78, 106) : Color.FromArgb(36, 46, 64));
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rectInputBox, S(5)))
+                {
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(10, 13, 19)))
+                    {
+                        g.FillPath(b, path);
+                    }
+                    using (Pen p = new Pen(inputBorder, isInputFocused ? 1.5f : 1f))
+                    {
+                        g.DrawPath(p, path);
+                    }
                 }
             }
 

@@ -18,22 +18,16 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class DevicePriorityForm : Form
+    public class DevicePriorityForm : DpiAwareForm
     {
         private PriorityReorderControl reorderControl;
         private ModernButton btnSave;
         private ModernButton btnCancel;
-        private float dpiScale = 1.0f;
 
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-        }
+        public DevicePriorityForm(List<MouseBatteryInfo> devices) : this(devices, 1.0f) { }
 
-        public DevicePriorityForm(List<MouseBatteryInfo> devices, float scale)
+        public DevicePriorityForm(List<MouseBatteryInfo> devices, float scale) : base(scale)
         {
-            this.dpiScale = scale;
             this.Text = "设备优先级管理 (拖拽排序)";
             this.Size = new Size((int)(460 * dpiScale), (int)(520 * dpiScale));
             this.MinimumSize = new Size((int)(440 * dpiScale), (int)(480 * dpiScale));

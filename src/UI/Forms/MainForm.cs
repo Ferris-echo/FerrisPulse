@@ -113,6 +113,7 @@ namespace RazerBatteryTray
         private ToolStripMenuItem dpiOsdMenuItem;
         private ToolStripMenuItem styleCapsuleItem;
         private ToolStripMenuItem styleNumItem;
+        private ToolStripMenuItem stylePureNumItem;
         private ToolStripMenuItem osdStyleMenu;
         private ToolStripMenuItem osdStyleCapsuleItem;
         private ToolStripMenuItem osdStyleGaugeItem;
@@ -200,6 +201,10 @@ namespace RazerBatteryTray
         private Dictionary<string, int> pendingRazerStageCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private int pendingRapooDpiCandidate = -1;
         private int pendingRapooStageCandidate = -1;
+        private int lastMonitoredValkyrieDpi = -1;
+        private int lastMonitoredValkyrieStage = -1;
+        private int pendingValkyrieDpiCandidate = -1;
+        private int pendingValkyrieStageCandidate = -1;
         private DpiOsdForm osdForm;
 
         // Visual controls - Card 1: Status
@@ -297,6 +302,7 @@ namespace RazerBatteryTray
         private Label lblStyleTitle;
         private ModernSegmentButton btnStyleCapsule;
         private ModernSegmentButton btnStyleNum;
+        private ModernSegmentButton btnStylePureNum;
         private Label lblIntervalTitle;
         private ModernSegmentButton btnInt30s;
         private ModernSegmentButton btnInt1m;
@@ -366,11 +372,18 @@ namespace RazerBatteryTray
         public MainForm(bool isAutoStart = false)
         {
             this.isAutoStartLaunch = isAutoStart;
+            this.AutoScaleMode = AutoScaleMode.None;
 
             using (Graphics g = this.CreateGraphics())
             {
                 dpiScale = g.DpiX / 96.0f;
                 if (dpiScale < 1.0f) dpiScale = 1.0f;
+            }
+
+            Screen primaryScrn = Screen.PrimaryScreen;
+            if (primaryScrn != null)
+            {
+                dpiScale = DpiScaleHelper.ClampScaleToScreen(dpiScale, primaryScrn, 748);
             }
 
             try
@@ -435,7 +448,30 @@ namespace RazerBatteryTray
             base.OnHandleCreated(e);
             ApplyModernWin11Theme();
             RegisterUsbNotification();
-            RegisterMouseWakeDetector();
+        }
+
+        internal void HandleDpiChanged(float newScale, Rectangle suggestedBounds)
+        {
+            if (newScale < 1.0f) newScale = 1.0f;
+
+            Screen screen = Screen.FromRectangle(!suggestedBounds.IsEmpty ? suggestedBounds : this.Bounds);
+            // 屏幕自适应防溢出安全上限约束：无论系统缩放多大，确保窗口高度绝对容纳在工作区内，底部主按钮永不被截断
+            newScale = DpiScaleHelper.ClampScaleToScreen(newScale, screen, 748);
+
+            this.dpiScale = newScale;
+
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(dpiScale);
+            }
+
+            if (!suggestedBounds.IsEmpty)
+            {
+                // 只采用 Windows 建议的起点坐标，绝不接受其因之前截断折算出的错误高度
+                this.SetBounds(suggestedBounds.Left, suggestedBounds.Top, 0, 0, BoundsSpecified.Location);
+            }
+
+            ApplyDpiScaleToControls();
         }
 
         protected override void OnLoad(EventArgs e)
@@ -667,7 +703,7 @@ namespace RazerBatteryTray
         private void SetTrayStyle(int style, bool showNotification = false)
         {
             trayStyle = style;
-            if (trayStyle < 0 || trayStyle > 1) trayStyle = 0;
+            if (trayStyle < 0 || trayStyle > 2) trayStyle = 0;
             SaveConfig();
 
             isUpdatingUI = true;
@@ -675,9 +711,11 @@ namespace RazerBatteryTray
             {
                 if (styleCapsuleItem != null) styleCapsuleItem.Checked = (trayStyle == 0);
                 if (styleNumItem != null) styleNumItem.Checked = (trayStyle == 1);
+                if (stylePureNumItem != null) stylePureNumItem.Checked = (trayStyle == 2);
 
                 if (btnStyleCapsule != null) btnStyleCapsule.Selected = (trayStyle == 0);
                 if (btnStyleNum != null) btnStyleNum.Selected = (trayStyle == 1);
+                if (btnStylePureNum != null) btnStylePureNum.Selected = (trayStyle == 2);
             }
             finally
             {
@@ -896,8 +934,10 @@ namespace RazerBatteryTray
 
                 if (styleCapsuleItem != null) styleCapsuleItem.Checked = (trayStyle == 0);
                 if (styleNumItem != null) styleNumItem.Checked = (trayStyle == 1);
+                if (stylePureNumItem != null) stylePureNumItem.Checked = (trayStyle == 2);
                 if (btnStyleCapsule != null) btnStyleCapsule.Selected = (trayStyle == 0);
                 if (btnStyleNum != null) btnStyleNum.Selected = (trayStyle == 1);
+                if (btnStylePureNum != null) btnStylePureNum.Selected = (trayStyle == 2);
 
                 if (osdForm != null) osdForm.OsdStyle = osdStyle;
                 if (osdStyleCapsuleItem != null) osdStyleCapsuleItem.Checked = (osdStyle == 0);

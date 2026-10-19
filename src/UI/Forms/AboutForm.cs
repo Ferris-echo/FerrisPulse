@@ -30,7 +30,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class AboutForm : Form
+    public class AboutForm : DpiAwareForm
     {
         private static string AppVersion { get { return UpdateManager.CurrentVersion; } }
         private const string AuthorName = "Ferris-echo";
@@ -42,13 +42,19 @@ namespace RazerBatteryTray
         private Panel shatterCanvas;
 
         // 正面控件
+        private Panel titleBar;
         private RoundedCard cardUpdate;
         private RoundedCard cardDonate;
+        private Label lblCardUpdateTitle;
+        private Label lblDonateTitle;
         private ModernCheckBox chkAutoUpdate;
         private ModernButton btnCheckUpdate;
         private Label lblUpdateStatus;
-        private ModernButton btnClose;
+        private Label lblLogo;
+        private Label lblAuthorPrefix;
         private Label lblAuthorName;
+        private Label lblAuthorSuffix;
+        private Label lblDonateDesc;
 
         // 双二维码赞赏面板
         private Panel qrPanelWeChat;
@@ -151,7 +157,21 @@ namespace RazerBatteryTray
         private const int TotalShatterFrames = 30;
         private int currentShatterFrame = 0;
 
-        public AboutForm()
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= 0x02000000; // WS_CLIPCHILDREN: 杜绝主窗体背景绘制涂抹子控件
+                return cp;
+            }
+        }
+
+        public AboutForm() : this(1.0f)
+        {
+        }
+
+        public AboutForm(float scale) : base(scale)
         {
             InitializeAboutUI();
             UpdateManager.OnPendingUpdateChanged += OnPendingUpdateChangedHandler;
@@ -161,12 +181,13 @@ namespace RazerBatteryTray
         private void InitializeAboutUI()
         {
             this.Text = "关于 FerrisPulse";
-            this.FormBorderStyle = FormBorderStyle.None;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(18, 19, 23);
             this.ForeColor = Color.White;
             this.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-            this.Size = new Size(600, 710);
             this.DoubleBuffered = true;
             this.ShowInTaskbar = false;
             this.TopMost = false;
@@ -192,55 +213,18 @@ namespace RazerBatteryTray
                 ChimeSynthesizer.StopAmbientMelody();
             };
 
-            int clientW = this.ClientSize.Width;
-            int padX = 24;
-            int cardWidth = clientW - (padX * 2); // 552
-
-            // 1. 顶部标题栏
-            Panel titleBar = new Panel();
-            titleBar.Dock = DockStyle.Top;
-            titleBar.Height = 42;
-            titleBar.BackColor = Color.FromArgb(22, 24, 30);
-            titleBar.MouseDown += OnDragMouseDown;
-
-            Label lblTitle = new Label();
-            lblTitle.Text = "关于 FerrisPulse";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(220, 226, 238);
-            lblTitle.BackColor = Color.Transparent;
-            lblTitle.Location = new Point(padX, 11);
-            lblTitle.AutoSize = true;
-            lblTitle.MouseDown += OnDragMouseDown;
-            titleBar.Controls.Add(lblTitle);
-
-            btnClose = new ModernButton();
-            btnClose.Text = "✕";
-            btnClose.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnClose.Size = new Size(36, 28);
-            btnClose.Location = new Point(clientW - 36 - 12, 7);
-            btnClose.NormalColor = Color.Transparent;
-            btnClose.HoverColor = Color.FromArgb(232, 17, 35);
-            btnClose.PressedColor = Color.FromArgb(180, 10, 25);
-            btnClose.ForeColor = Color.FromArgb(180, 180, 180);
-            btnClose.CornerRadius = 4;
-            btnClose.Click += delegate(object s, EventArgs e) { this.Close(); };
-            titleBar.Controls.Add(btnClose);
-
-            this.Controls.Add(titleBar);
+            // 1. 顶部标题栏由 Windows 11 原生沉浸式暗黑标题栏接管 (触发 Windows 自带弹性弹出与收回动画)
+            titleBar = new Panel();
+            titleBar.Visible = false;
 
             // 2. 翻转主容器 (挂接正面面板、背面面板与粒子碎裂画布)
-            int containerH = this.ClientSize.Height - titleBar.Height;
-
             flipContainer = new Panel();
-            flipContainer.Location = new Point(0, titleBar.Height);
-            flipContainer.Size = new Size(clientW, containerH);
             flipContainer.BackColor = Color.FromArgb(18, 19, 23);
             flipContainer.MouseDown += OnDragMouseDown;
 
             // 粒子碎裂重组动效专用画布 (置于顶层，过渡时激活)
             shatterCanvas = new Panel();
             shatterCanvas.Location = new Point(0, 0);
-            shatterCanvas.Size = new Size(clientW, containerH);
             shatterCanvas.BackColor = Color.FromArgb(18, 19, 23);
             shatterCanvas.Visible = false;
             shatterCanvas.Paint += ShatterCanvas_Paint;
@@ -252,44 +236,35 @@ namespace RazerBatteryTray
             // ==========================================
             pnlFront = new Panel();
             pnlFront.Location = new Point(0, 0);
-            pnlFront.Size = new Size(clientW, containerH);
             pnlFront.BackColor = Color.FromArgb(18, 19, 23);
             pnlFront.MouseDown += OnDragMouseDown;
             pnlFront.Paint += PnlFront_Paint;
 
-            // 纯粹克制品牌名
-            int topY = 14;
-
-            Label lblLogo = new Label();
+            lblLogo = new Label();
             lblLogo.Text = "FerrisPulse · 灵脉";
             lblLogo.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
             lblLogo.ForeColor = Color.FromArgb(245, 248, 255);
             lblLogo.BackColor = Color.Transparent;
-            lblLogo.Location = new Point(padX, topY);
             lblLogo.AutoSize = true;
             lblLogo.MouseDown += OnDragMouseDown;
             pnlFront.Controls.Add(lblLogo);
 
-            // 作者署名热区行 (支持全区域灵动点击、连击零吞噬、浪漫爱心粒子喷涌)
-            Label lblAuthorPrefix = new Label();
+            // 作者署名热区行
+            lblAuthorPrefix = new Label();
             lblAuthorPrefix.Text = "由 ";
             lblAuthorPrefix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
             lblAuthorPrefix.ForeColor = Color.FromArgb(175, 182, 198);
             lblAuthorPrefix.BackColor = Color.Transparent;
-            lblAuthorPrefix.Location = new Point(padX, topY + 36);
             lblAuthorPrefix.AutoSize = true;
             lblAuthorPrefix.Cursor = Cursors.Hand;
             lblAuthorPrefix.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) HandleAuthorHit(); };
             pnlFront.Controls.Add(lblAuthorPrefix);
-
-            Size prefixSize = TextRenderer.MeasureText(lblAuthorPrefix.Text, lblAuthorPrefix.Font);
 
             lblAuthorName = new Label();
             lblAuthorName.Text = AuthorName;
             lblAuthorName.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
             lblAuthorName.ForeColor = Color.FromArgb(235, 240, 255);
             lblAuthorName.BackColor = Color.Transparent;
-            lblAuthorName.Location = new Point(padX + prefixSize.Width - 6, topY + 36);
             lblAuthorName.AutoSize = true;
             lblAuthorName.Cursor = Cursors.Hand;
             lblAuthorName.MouseEnter += delegate(object s, EventArgs e) { lblAuthorName.ForeColor = Color.FromArgb(255, 255, 255); };
@@ -297,33 +272,27 @@ namespace RazerBatteryTray
             lblAuthorName.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) HandleAuthorHit(); };
             pnlFront.Controls.Add(lblAuthorName);
 
-            Label lblAuthorSuffix = new Label();
+            lblAuthorSuffix = new Label();
             lblAuthorSuffix.Text = " 独立设计与开发";
             lblAuthorSuffix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
             lblAuthorSuffix.ForeColor = Color.FromArgb(175, 182, 198);
             lblAuthorSuffix.BackColor = Color.Transparent;
-            lblAuthorSuffix.Location = new Point(lblAuthorName.Right - 4, topY + 36);
             lblAuthorSuffix.AutoSize = true;
             lblAuthorSuffix.Cursor = Cursors.Hand;
             lblAuthorSuffix.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) HandleAuthorHit(); };
             pnlFront.Controls.Add(lblAuthorSuffix);
 
             // Card 1: 软件在线更新卡片
-            int card1Y = topY + 70;
             cardUpdate = new RoundedCard();
-            cardUpdate.Location = new Point(padX, card1Y);
-            cardUpdate.Size = new Size(cardWidth, 114);
-            cardUpdate.CornerRadius = 8;
             cardUpdate.CardColor = Color.FromArgb(25, 27, 34);
             cardUpdate.BorderColor = Color.FromArgb(42, 46, 58);
             cardUpdate.MouseDown += OnDragMouseDown;
 
-            Label lblCardUpdateTitle = new Label();
+            lblCardUpdateTitle = new Label();
             lblCardUpdateTitle.Text = "软件在线更新";
             lblCardUpdateTitle.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
             lblCardUpdateTitle.ForeColor = Color.FromArgb(235, 240, 255);
             lblCardUpdateTitle.BackColor = cardUpdate.CardColor;
-            lblCardUpdateTitle.Location = new Point(20, 15);
             lblCardUpdateTitle.AutoSize = true;
             lblCardUpdateTitle.MouseDown += OnDragMouseDown;
             cardUpdate.Controls.Add(lblCardUpdateTitle);
@@ -331,22 +300,17 @@ namespace RazerBatteryTray
             btnCheckUpdate = new ModernButton();
             btnCheckUpdate.Text = "检查更新";
             btnCheckUpdate.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnCheckUpdate.Location = new Point(cardWidth - 20 - 110, 44);
-            btnCheckUpdate.Size = new Size(110, 32);
             btnCheckUpdate.NormalColor = Color.FromArgb(36, 40, 52);
             btnCheckUpdate.HoverColor = Color.FromArgb(48, 54, 70);
             btnCheckUpdate.PressedColor = Color.FromArgb(28, 30, 40);
             btnCheckUpdate.BorderColor = Color.FromArgb(0, 200, 83);
             btnCheckUpdate.ForeColor = Color.White;
-            btnCheckUpdate.CornerRadius = 6;
             btnCheckUpdate.Click += BtnCheckUpdate_Click;
             cardUpdate.Controls.Add(btnCheckUpdate);
 
             chkAutoUpdate = new ModernCheckBox();
             chkAutoUpdate.Text = "开机与后台自动检查更新";
             chkAutoUpdate.Font = new Font("Microsoft YaHei UI", 8.8F);
-            chkAutoUpdate.Location = new Point(20, 47);
-            chkAutoUpdate.Size = new Size(cardWidth - 20 - 110 - 20, 26);
             chkAutoUpdate.Checked = ConfigManager.GetAutoCheckUpdate();
             chkAutoUpdate.CheckedChanged += delegate(object s, EventArgs e)
             {
@@ -359,84 +323,65 @@ namespace RazerBatteryTray
             lblUpdateStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblUpdateStatus.ForeColor = Color.FromArgb(140, 148, 162);
             lblUpdateStatus.BackColor = cardUpdate.CardColor;
-            lblUpdateStatus.Location = new Point(20, 81);
             lblUpdateStatus.AutoSize = true;
             lblUpdateStatus.MouseDown += OnDragMouseDown;
             cardUpdate.Controls.Add(lblUpdateStatus);
 
             pnlFront.Controls.Add(cardUpdate);
 
-            // Card 2: 赞赏支持卡片 (纯净无图标极客二维码，底栏 QQ 群与 GitHub 上下双行居中)
-            int card2Y = card1Y + 114 + 14;
-            int card2H = 432;
+            // Card 2: 赞赏支持卡片
             cardDonate = new RoundedCard();
-            cardDonate.Location = new Point(padX, card2Y);
-            cardDonate.Size = new Size(cardWidth, card2H);
-            cardDonate.CornerRadius = 8;
             cardDonate.CardColor = Color.FromArgb(25, 27, 34);
             cardDonate.BorderColor = Color.FromArgb(42, 46, 58);
             cardDonate.MouseDown += OnDragMouseDown;
 
-            Label lblDonateTitle = new Label();
+            lblDonateTitle = new Label();
             lblDonateTitle.Text = "支持作者 / 赞赏开发";
             lblDonateTitle.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Bold);
             lblDonateTitle.ForeColor = Color.FromArgb(235, 240, 255);
             lblDonateTitle.BackColor = cardDonate.CardColor;
-            lblDonateTitle.Location = new Point(20, 16);
             lblDonateTitle.AutoSize = true;
             lblDonateTitle.MouseDown += OnDragMouseDown;
             cardDonate.Controls.Add(lblDonateTitle);
 
-            Label lblDonateDesc = new Label();
+            lblDonateDesc = new Label();
             lblDonateDesc.Text = "如果这款软件为您的游戏体验带来了便利，欢迎赞赏支持作者！";
             lblDonateDesc.Font = new Font("Microsoft YaHei UI", 8.8F);
             lblDonateDesc.ForeColor = Color.FromArgb(160, 168, 185);
-            lblDonateDesc.BackColor = cardDonate.CardColor;
-            lblDonateDesc.Location = new Point(20, 42);
+            lblDonateDesc.BackColor = Color.Transparent;
             lblDonateDesc.AutoSize = true;
             lblDonateDesc.MouseDown += OnDragMouseDown;
             cardDonate.Controls.Add(lblDonateDesc);
 
-            // 双艺术二维码左右平铺面板 (尺寸 176x216, 间距 36px, 左右绝对居中)
-            int qrCardW = 176;
-            int qrCardH = 216;
-            int qrGap = 36;
-            int qrTotalW = qrCardW * 2 + qrGap;
-            int qrStartX = (cardWidth - qrTotalW) / 2;
-            int qrY = 74;
-
-            // 左侧：微信支付原生重绘艺术二维码 (纯净圆角矩阵，绝无中心多余图标)
+            // 双艺术二维码左右平铺面板
             qrPanelWeChat = new Panel();
-            qrPanelWeChat.Location = new Point(qrStartX, qrY);
-            qrPanelWeChat.Size = new Size(qrCardW, qrCardH);
             qrPanelWeChat.BackColor = Color.Transparent;
             qrPanelWeChat.Paint += delegate(object sender, PaintEventArgs e)
             {
-                DrawArtisticQrCard(e.Graphics, qrCardW, qrCardH, true, DonateQrAssets.GetWeChatQr());
+                DrawArtisticQrCard(e.Graphics, qrPanelWeChat.Width, qrPanelWeChat.Height, true, DonateQrAssets.GetWeChatQr());
             };
             qrPanelWeChat.MouseDown += OnDragMouseDown;
             cardDonate.Controls.Add(qrPanelWeChat);
+            qrPanelWeChat.BringToFront();
 
-            // 右侧：支付宝原生重绘艺术二维码 (纯净圆角矩阵，绝无中心多余图标)
             qrPanelAlipay = new Panel();
-            qrPanelAlipay.Location = new Point(qrStartX + qrCardW + qrGap, qrY);
-            qrPanelAlipay.Size = new Size(qrCardW, qrCardH);
             qrPanelAlipay.BackColor = Color.Transparent;
             qrPanelAlipay.Paint += delegate(object sender, PaintEventArgs e)
             {
-                DrawArtisticQrCard(e.Graphics, qrCardW, qrCardH, false, DonateQrAssets.GetAlipayQr());
+                DrawArtisticQrCard(e.Graphics, qrPanelAlipay.Width, qrPanelAlipay.Height, false, DonateQrAssets.GetAlipayQr());
             };
             qrPanelAlipay.MouseDown += OnDragMouseDown;
             cardDonate.Controls.Add(qrPanelAlipay);
+            qrPanelAlipay.BringToFront();
 
-            // 底部社区交流群与开源仓库链接 (克制纯净，双行独立居中，留足 200px 边距防截断)
+            // 底部社区交流群与开源仓库链接
             lnkQQ = new LinkLabel();
             lnkQQ.Text = "QQ 交流群: 580180452";
             lnkQQ.Font = new Font("Microsoft YaHei UI", 8.8F);
             lnkQQ.LinkColor = Color.FromArgb(77, 182, 252);
             lnkQQ.ActiveLinkColor = Color.FromArgb(129, 212, 250);
             lnkQQ.VisitedLinkColor = Color.FromArgb(77, 182, 252);
-            lnkQQ.BackColor = cardDonate.CardColor;
+            lnkQQ.BackColor = Color.Transparent;
             lnkQQ.AutoSize = true;
             lnkQQ.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
@@ -444,7 +389,7 @@ namespace RazerBatteryTray
                 {
                     Clipboard.SetText("580180452");
                     lnkQQ.Text = "QQ 交流群: 580180452 (已复制)";
-                    CenterControlHorizontally(lnkQQ, cardWidth);
+                    CenterControlHorizontally(lnkQQ, cardDonate.Width);
 
                     Timer copyTimer = new Timer();
                     copyTimer.Interval = 2000;
@@ -455,7 +400,7 @@ namespace RazerBatteryTray
                         if (!lnkQQ.IsDisposed)
                         {
                             lnkQQ.Text = "QQ 交流群: 580180452";
-                            CenterControlHorizontally(lnkQQ, cardWidth);
+                            CenterControlHorizontally(lnkQQ, cardDonate.Width);
                         }
                     };
                     copyTimer.Start();
@@ -473,7 +418,7 @@ namespace RazerBatteryTray
             lnkGithub.LinkColor = Color.FromArgb(0, 215, 115);
             lnkGithub.ActiveLinkColor = Color.FromArgb(0, 255, 130);
             lnkGithub.VisitedLinkColor = Color.FromArgb(0, 215, 115);
-            lnkGithub.BackColor = cardDonate.CardColor;
+            lnkGithub.BackColor = Color.Transparent;
             lnkGithub.AutoSize = true;
             lnkGithub.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
@@ -481,49 +426,33 @@ namespace RazerBatteryTray
             };
             cardDonate.Controls.Add(lnkGithub);
 
-            CenterControlHorizontally(lnkQQ, cardWidth);
-            lnkQQ.Top = 330;
-
-            CenterControlHorizontally(lnkGithub, cardWidth);
-            lnkGithub.Top = 360;
-
             pnlFront.Controls.Add(cardDonate);
             flipContainer.Controls.Add(pnlFront);
 
             // ==========================================
-            // 背面面板 (pnlBack: 《写在代码之外》· 克制本真独立开发者心境) 构建
+            // 背面面板 (pnlBack: 《写在代码之外》) 构建
             // ==========================================
             pnlBack = new Panel();
             pnlBack.Location = new Point(0, 0);
-            pnlBack.Size = new Size(clientW, containerH);
             pnlBack.BackColor = Color.FromArgb(18, 19, 23);
             pnlBack.Visible = false;
             pnlBack.MouseDown += OnDragMouseDown;
 
-            int backCardY = 16;
-            int backCardH = containerH - (backCardY * 2) - 8;
             cardQuote = new RoundedCard();
-            cardQuote.Location = new Point(padX, backCardY);
-            cardQuote.Size = new Size(cardWidth, backCardH);
-            cardQuote.CornerRadius = 12;
             cardQuote.CardColor = Color.FromArgb(20, 23, 32);
-            cardQuote.BorderColor = Color.Transparent; // 由 Paint 自主绘制 5 层内聚物理级 Bloom 柔光
+            cardQuote.BorderColor = Color.Transparent;
             cardQuote.MouseDown += CardQuote_MouseDown;
             cardQuote.MouseMove += CardQuote_MouseMove;
             cardQuote.Paint += CardQuote_Paint;
 
-            // 底部优雅返回按钮 (克制质感，告别廉价长句标语)
             btnFlipBack = new ModernButton();
             btnFlipBack.Text = "返  回";
             btnFlipBack.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-            btnFlipBack.Size = new Size(160, 38);
             btnFlipBack.NormalColor = Color.FromArgb(28, 34, 46);
             btnFlipBack.HoverColor = Color.FromArgb(42, 52, 72);
             btnFlipBack.PressedColor = Color.FromArgb(20, 24, 32);
             btnFlipBack.BorderColor = Color.FromArgb(60, 75, 100);
             btnFlipBack.ForeColor = Color.FromArgb(200, 215, 235);
-            btnFlipBack.CornerRadius = 6;
-            btnFlipBack.Location = new Point((cardWidth - 160) / 2, backCardH - 62);
             btnFlipBack.Click += delegate(object s, EventArgs e)
             {
                 ChimeSynthesizer.StopAmbientMelody();
@@ -536,14 +465,14 @@ namespace RazerBatteryTray
 
             this.Controls.Add(flipContainer);
 
-            // 启用全层级无闪烁双缓冲 (Flicker-Free Double Buffering)
+            // 启用全层级无闪烁双缓冲
             EnableDoubleBuffer(flipContainer);
             EnableDoubleBuffer(shatterCanvas);
             EnableDoubleBuffer(pnlFront);
             EnableDoubleBuffer(pnlBack);
             EnableDoubleBuffer(cardQuote);
 
-            // 初始化背景微光环境流光与星芒系统 (持续动画)
+            // 初始化背景微光环境流光与星芒系统
             InitAmbientAnimations();
 
             // 挂接原生 Win11 边框与阴影
@@ -553,6 +482,201 @@ namespace RazerBatteryTray
             };
 
             this.MouseDown += OnDragMouseDown;
+
+            // 应用高质感紧凑自适应布局
+            ApplyAboutLayout();
+        }
+
+        private void ApplyAboutLayout()
+        {
+            const int clientW = 600;
+            const int padX = 24;
+            const int cardWidth = clientW - (padX * 2); // 552
+
+            // 1. 顶部标题栏由 Windows 11 原生沉浸式暗黑标题栏接管
+            if (titleBar != null)
+            {
+                titleBar.Visible = false;
+            }
+
+            // 2. 正面品牌与署名
+            const int topY = 14;
+            if (lblLogo != null)
+            {
+                lblLogo.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
+                lblLogo.Location = new Point(padX, topY);
+            }
+
+            const int authorY = topY + 36; // 50
+            if (lblAuthorPrefix != null)
+            {
+                lblAuthorPrefix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
+                lblAuthorPrefix.Location = new Point(padX, authorY);
+                Size prefixSize = TextRenderer.MeasureText(lblAuthorPrefix.Text, lblAuthorPrefix.Font);
+                if (lblAuthorName != null)
+                {
+                    lblAuthorName.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
+                    lblAuthorName.Location = new Point(padX + prefixSize.Width - 6, authorY);
+                    Size nameSize = TextRenderer.MeasureText(AuthorName, lblAuthorName.Font);
+                    if (lblAuthorSuffix != null)
+                    {
+                        lblAuthorSuffix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
+                        lblAuthorSuffix.Location = new Point(lblAuthorName.Left + nameSize.Width - 4, authorY);
+                        lblAuthorName.SizeChanged += delegate
+                        {
+                            if (lblAuthorSuffix != null && !lblAuthorSuffix.IsDisposed)
+                            {
+                                lblAuthorSuffix.Location = new Point(lblAuthorName.Right - 4, authorY);
+                            }
+                        };
+                    }
+                }
+            }
+
+            // Card 1: 软件在线更新卡片 (原始设计高度 114)
+            const int card1Y = topY + 70; // 84
+            const int card1H = 114;
+            if (cardUpdate != null)
+            {
+                cardUpdate.Location = new Point(padX, card1Y);
+                cardUpdate.Size = new Size(cardWidth, card1H);
+                cardUpdate.CornerRadius = 8;
+
+                if (lblCardUpdateTitle != null)
+                {
+                    lblCardUpdateTitle.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    lblCardUpdateTitle.Location = new Point(20, 15);
+                }
+                if (btnCheckUpdate != null)
+                {
+                    btnCheckUpdate.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+                    btnCheckUpdate.Size = new Size(110, 32);
+                    btnCheckUpdate.Location = new Point(cardWidth - 20 - 110, 44);
+                    btnCheckUpdate.CornerRadius = 6;
+                }
+                if (chkAutoUpdate != null)
+                {
+                    chkAutoUpdate.Font = new Font("Microsoft YaHei UI", 8.8F);
+                    int chkMaxW = (btnCheckUpdate != null ? btnCheckUpdate.Left : cardWidth) - 40;
+                    chkAutoUpdate.Location = new Point(20, 47);
+                    chkAutoUpdate.Size = new Size(chkMaxW, 26);
+                }
+                if (lblUpdateStatus != null)
+                {
+                    lblUpdateStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
+                    lblUpdateStatus.Location = new Point(20, 81);
+                }
+            }
+
+            // Card 2: 赞赏支持卡片 (原始设计高度 432)
+            const int card2Y = card1Y + card1H + 14; // 212
+            const int card2H = 432;
+            if (cardDonate != null)
+            {
+                cardDonate.Location = new Point(padX, card2Y);
+                cardDonate.Size = new Size(cardWidth, card2H);
+                cardDonate.CornerRadius = 8;
+            }
+
+            const int qrCardW = 176;
+            const int qrCardH = 216;
+            const int qrGap = 36;
+            const int qrTotalW = qrCardW * 2 + qrGap; // 388
+            const int qrStartX = (cardWidth - qrTotalW) / 2; // 82
+
+            if (lblDonateTitle != null)
+            {
+                lblDonateTitle.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Bold);
+                lblDonateTitle.Location = new Point(20, 16);
+            }
+            if (lblDonateDesc != null)
+            {
+                lblDonateDesc.Font = new Font("Microsoft YaHei UI", 8.8F);
+                lblDonateDesc.Location = new Point(20, 42);
+                lblDonateDesc.MaximumSize = new Size(cardWidth - 40, 0);
+                lblDonateDesc.AutoSize = true;
+                lblDonateDesc.BackColor = Color.Transparent;
+            }
+
+            // 动态流式布局：严格基于 lblDonateDesc 实际文本渲染底边界计算二维码卡片起始 Y 轴，彻底根绝重叠与截断
+            int descBottom = (lblDonateDesc != null && lblDonateDesc.Height > 0) ? lblDonateDesc.Bottom : 64;
+            int qrY = Math.Max(descBottom + 14, 76);
+
+            if (qrPanelWeChat != null)
+            {
+                qrPanelWeChat.Location = new Point(qrStartX, qrY);
+                qrPanelWeChat.Size = new Size(qrCardW, qrCardH);
+                qrPanelWeChat.BringToFront();
+            }
+            if (qrPanelAlipay != null)
+            {
+                qrPanelAlipay.Location = new Point(qrStartX + qrCardW + qrGap, qrY);
+                qrPanelAlipay.Size = new Size(qrCardW, qrCardH);
+                qrPanelAlipay.BringToFront();
+            }
+
+            int qrBottom = qrY + qrCardH;
+            if (lnkQQ != null)
+            {
+                lnkQQ.Font = new Font("Microsoft YaHei UI", 8.8F);
+                lnkQQ.Top = qrBottom + 16;
+                CenterControlHorizontally(lnkQQ, cardWidth);
+                lnkQQ.BringToFront();
+            }
+            if (lnkGithub != null)
+            {
+                lnkGithub.Font = new Font("Microsoft YaHei UI", 8.8F);
+                lnkGithub.Top = (lnkQQ != null ? lnkQQ.Bottom : qrBottom + 16) + 8;
+                CenterControlHorizontally(lnkGithub, cardWidth);
+                lnkGithub.BringToFront();
+            }
+
+            // 3. 计算窗体与主容器总高度 (固定 600x668 客户端尺寸)
+            const int containerH = 668;
+
+            this.ClientSize = new Size(clientW, containerH);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            if (flipContainer != null)
+            {
+                flipContainer.Location = new Point(0, 0);
+                flipContainer.Size = new Size(clientW, containerH);
+            }
+            if (shatterCanvas != null)
+            {
+                shatterCanvas.Size = new Size(clientW, containerH);
+            }
+            if (pnlFront != null)
+            {
+                pnlFront.Size = new Size(clientW, containerH);
+            }
+            if (pnlBack != null)
+            {
+                pnlBack.Size = new Size(clientW, containerH);
+            }
+            if (cardQuote != null)
+            {
+                const int backCardY = 16;
+                const int backCardH = containerH - (backCardY * 2) - 8; // 628
+                cardQuote.Location = new Point(padX, backCardY);
+                cardQuote.Size = new Size(cardWidth, backCardH);
+                cardQuote.CornerRadius = 12;
+
+                if (btnFlipBack != null)
+                {
+                    btnFlipBack.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    btnFlipBack.Size = new Size(160, 38);
+                    btnFlipBack.CornerRadius = 6;
+                    btnFlipBack.Location = new Point((cardWidth - btnFlipBack.Width) / 2, backCardH - 62);
+                }
+            }
+        }
+
+        protected override void OnApplyDpiScale(float scale)
+        {
+            base.OnApplyDpiScale(scale);
+            ApplyAboutLayout();
+            this.Invalidate(true);
         }
 
         private static void EnableDoubleBuffer(Control c)
@@ -630,7 +754,7 @@ namespace RazerBatteryTray
                 }
             }
 
-            // 4. 下方通道引导提示文案 (垂直居中与水平中轴线双向居中，舒展克制)
+            // 3. 下方通道引导提示文案 (垂直居中与水平中轴线双向居中，舒展克制)
             string titleText = isWeChat ? "微信赞赏码" : "支付宝赞赏码";
 
             using (Font titleFont = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold))
@@ -1197,7 +1321,7 @@ namespace RazerBatteryTray
             float tSign = Math.Max(0f, Math.Min(1f, (elapsedSec - 1.45f) / 0.50f));
 
             float cx = offsetX + w / 2f;
-            float maxAllowedTextW = w - 120f; // 严格预留左右各 60px 奢华呼吸留白，彻底告别出界风险
+            float maxAllowedTextW = w - 120f;
 
             using (StringFormat sfCenter = new StringFormat())
             using (StringFormat sfRight = new StringFormat())
@@ -1221,9 +1345,9 @@ namespace RazerBatteryTray
                     }
 
                     // 极细微光渐变分割线与中心晶体锚点
-                    int divY = offsetY + 110;
+                    int divY = (int)(offsetY + 110);
                     int divW = 160;
-                    int divX = offsetX + (w - divW) / 2;
+                    int divX = (int)(offsetX + (w - divW) / 2);
                     int aLine = Math.Min(aTitle, 130);
                     using (LinearGradientBrush lineBrush = new LinearGradientBrush(
                         new Point(divX, divY), new Point(divX + divW, divY),

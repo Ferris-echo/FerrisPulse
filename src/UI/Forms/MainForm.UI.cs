@@ -152,18 +152,18 @@ namespace RazerBatteryTray
             badgePrimary.Visible = false;
             cardBattery.Controls.Add(badgePrimary);
 
-            int nameX = (int)(18 * dpiScale);
+            int nameX = (int)(20 * dpiScale);
             int nameY = (int)(14 * dpiScale);
             int nameMaxW = badgeX - nameX - (int)(10 * dpiScale);
 
             lblDeviceName = new Label();
             lblDeviceName.Text = "正在检测设备...";
-            lblDeviceName.Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold, GraphicsUnit.Point);
+            lblDeviceName.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold, GraphicsUnit.Point);
             lblDeviceName.ForeColor = Color.White;
             lblDeviceName.BackColor = Color.Transparent;
             lblDeviceName.Location = new Point(nameX, nameY);
             lblDeviceName.AutoSize = false;
-            lblDeviceName.Size = new Size(nameMaxW, (int)(26 * dpiScale));
+            lblDeviceName.Size = new Size(nameMaxW, (int)(24 * dpiScale));
             lblDeviceName.AutoEllipsis = true;
             lblDeviceName.Cursor = Cursors.Hand;
             lblDeviceName.Click += (s, e) => RenameCurrentDevice();
@@ -175,21 +175,21 @@ namespace RazerBatteryTray
             lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
             lblBatteryBig.ForeColor = Color.FromArgb(0, 230, 118);
             lblBatteryBig.BackColor = Color.Transparent;
-            lblBatteryBig.Location = new Point((int)(16 * dpiScale), (int)(46 * dpiScale));
+            lblBatteryBig.Location = new Point((int)(18 * dpiScale), (int)(46 * dpiScale));
             lblBatteryBig.AutoSize = true;
             cardBattery.Controls.Add(lblBatteryBig);
 
             // Status Pill: Power / Charging State (sole status badge in Card 1)
             pillStatus = new StatusPill();
-            pillStatus.Location = new Point((int)(175 * dpiScale), (int)(56 * dpiScale));
-            pillStatus.Size = new Size((int)(110 * dpiScale), (int)(32 * dpiScale));
-            pillStatus.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold, GraphicsUnit.Point);
+            pillStatus.Location = new Point((int)(150 * dpiScale), (int)(56 * dpiScale));
+            pillStatus.Size = new Size((int)(80 * dpiScale), (int)(32 * dpiScale));
+            pillStatus.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point);
             pillStatus.SetStatus("● 正常运行", Color.FromArgb(0, 230, 118));
             cardBattery.Controls.Add(pillStatus);
 
             barBattery = new ModernProgressBar();
-            barBattery.Location = new Point((int)(18 * dpiScale), (int)(118 * dpiScale));
-            barBattery.Size = new Size(cardW - (int)(36 * dpiScale), (int)(10 * dpiScale));
+            barBattery.Location = new Point((int)(20 * dpiScale), (int)(118 * dpiScale));
+            barBattery.Size = new Size(cardW - (int)(40 * dpiScale), (int)(12 * dpiScale));
             barBattery.Value = 0;
             barBattery.TrackColor = Color.FromArgb(38, 42, 53);
             barBattery.ProgressColor = Color.FromArgb(0, 230, 118);
@@ -200,13 +200,13 @@ namespace RazerBatteryTray
             lblUpdateTime.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
             lblUpdateTime.ForeColor = Color.FromArgb(135, 142, 156);
             lblUpdateTime.BackColor = Color.Transparent;
-            lblUpdateTime.Location = new Point((int)(18 * dpiScale), (int)(142 * dpiScale));
+            lblUpdateTime.Location = new Point((int)(20 * dpiScale), (int)(142 * dpiScale));
             lblUpdateTime.AutoSize = true;
             cardBattery.Controls.Add(lblUpdateTime);
 
             // ================= CARD 2: PERFORMANCE & TUNING =================
             int card2Y = card1Y + card1H + (int)(12 * dpiScale);
-            int card2H = (int)(152 * dpiScale);
+            int card2H = autoGameRateEnabled ? (int)(218 * dpiScale) : (int)(148 * dpiScale);
 
             cardPerformance = new RoundedCard();
             cardPerformance.Location = new Point(padX, card2Y);
@@ -224,7 +224,7 @@ namespace RazerBatteryTray
             lblPerfTitle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold, GraphicsUnit.Point);
             lblPerfTitle.ForeColor = Color.FromArgb(240, 245, 255);
             lblPerfTitle.BackColor = Color.Transparent;
-            lblPerfTitle.Location = new Point(cPad, (int)(14 * dpiScale));
+            lblPerfTitle.Location = new Point((int)(20 * dpiScale), (int)(12 * dpiScale));
             lblPerfTitle.AutoSize = true;
             cardPerformance.Controls.Add(lblPerfTitle);
 
@@ -239,7 +239,7 @@ namespace RazerBatteryTray
             cardPerformance.Controls.Add(lblLiveRateBadge);
 
             // Row 1: DPI 档位
-            int r1Y = (int)(40 * dpiScale);
+            int r1Y = (int)(38 * dpiScale);
             int lblW = (int)(86 * dpiScale);
             int segH = (int)(28 * dpiScale);
 
@@ -248,7 +248,7 @@ namespace RazerBatteryTray
             lblDpiTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblDpiTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblDpiTitle.BackColor = Color.Transparent;
-            lblDpiTitle.Location = new Point(cPad, r1Y + (int)(4 * dpiScale));
+            lblDpiTitle.Location = new Point(cPad, (int)(41 * dpiScale));
             lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblDpiTitle);
 
@@ -276,14 +276,14 @@ namespace RazerBatteryTray
             RelayoutDpiButtons();
 
             // Row 2: 回报率
-            int r2Y = (int)(76 * dpiScale);
+            int r2Y = (int)(75 * dpiScale);
 
             lblRateTitle = new Label();
             lblRateTitle.Text = "常规回报率";
             lblRateTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblRateTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblRateTitle.BackColor = Color.Transparent;
-            lblRateTitle.Location = new Point(cPad, r2Y + (int)(4 * dpiScale));
+            lblRateTitle.Location = new Point(cPad, (int)(78 * dpiScale));
             lblRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblRateTitle);
 
@@ -307,14 +307,14 @@ namespace RazerBatteryTray
             }
 
             // Row 3: 全屏游戏自动切换回报率 (开关 + 游戏管理按钮)
-            int gameSwY = (int)(110 * dpiScale);
-            int gameChkW = (int)(175 * dpiScale);
+            int gameSwY = (int)(112 * dpiScale);
+            int gameChkW = (int)(180 * dpiScale);
             chkAutoGameRate = new ModernCheckBox();
             chkAutoGameRate.Text = "全屏游戏自动切换回报率";
             chkAutoGameRate.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkAutoGameRate.ForeColor = Color.FromArgb(210, 220, 240);
             chkAutoGameRate.Location = new Point(cPad, gameSwY);
-            chkAutoGameRate.Size = new Size(gameChkW, (int)(22 * dpiScale));
+            chkAutoGameRate.Size = new Size(gameChkW, (int)(26 * dpiScale));
             chkAutoGameRate.CheckedChanged += (s, e) => {
                 if (!isUpdatingUI) SetAutoGameRateEnabled(chkAutoGameRate.Checked);
             };
@@ -332,19 +332,19 @@ namespace RazerBatteryTray
             btnManageGames.Cursor = Cursors.Hand;
             int btnMgrX = cPad + gameChkW + (int)(6 * dpiScale);
             int btnMgrW = secW - gameChkW - (int)(6 * dpiScale);
-            btnManageGames.Location = new Point(btnMgrX, gameSwY - (int)(1 * dpiScale));
-            btnManageGames.Size = new Size(btnMgrW, (int)(24 * dpiScale));
+            btnManageGames.Location = new Point(btnMgrX, gameSwY);
+            btnManageGames.Size = new Size(btnMgrW, (int)(26 * dpiScale));
             btnManageGames.Click += (s, e) => OpenGameProcessManager();
             cardPerformance.Controls.Add(btnManageGames);
 
             // Row 4: 电竞回报率选择
-            int gameRateY = (int)(138 * dpiScale);
+            int gameRateY = (int)(147 * dpiScale);
             lblGameRateTitle = new Label();
             lblGameRateTitle.Text = "电竞回报率";
             lblGameRateTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblGameRateTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblGameRateTitle.BackColor = Color.Transparent;
-            lblGameRateTitle.Location = new Point(cPad, gameRateY + (int)(4 * dpiScale));
+            lblGameRateTitle.Location = new Point(cPad, (int)(150 * dpiScale));
             lblGameRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             lblGameRateTitle.Visible = false;
             cardPerformance.Controls.Add(lblGameRateTitle);
@@ -366,13 +366,13 @@ namespace RazerBatteryTray
             }
 
             // Row 5: 提醒方式设置
-            int gameNotifY = (int)(170 * dpiScale);
+            int gameNotifY = (int)(184 * dpiScale);
             lblNotifyModeTitle = new Label();
             lblNotifyModeTitle.Text = "切换提醒:";
             lblNotifyModeTitle.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
             lblNotifyModeTitle.ForeColor = Color.FromArgb(140, 150, 170);
             lblNotifyModeTitle.BackColor = Color.Transparent;
-            lblNotifyModeTitle.Location = new Point(cPad, gameNotifY + (int)(2 * dpiScale));
+            lblNotifyModeTitle.Location = new Point(cPad, (int)(185 * dpiScale));
             lblNotifyModeTitle.Size = new Size((int)(62 * dpiScale), (int)(20 * dpiScale));
             lblNotifyModeTitle.Visible = false;
             cardPerformance.Controls.Add(lblNotifyModeTitle);
@@ -385,7 +385,7 @@ namespace RazerBatteryTray
             chkNotifyOsd.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             chkNotifyOsd.ForeColor = Color.FromArgb(170, 180, 200);
             chkNotifyOsd.Location = new Point(notifStartX, gameNotifY);
-            chkNotifyOsd.Size = new Size(notifW, (int)(20 * dpiScale));
+            chkNotifyOsd.Size = new Size(notifW, (int)(22 * dpiScale));
             chkNotifyOsd.Visible = false;
             chkNotifyOsd.CheckedChanged += (s, e) => {
                 if (!isUpdatingUI) { gameRateNotifyOsd = chkNotifyOsd.Checked; SaveConfig(); }
@@ -397,7 +397,7 @@ namespace RazerBatteryTray
             chkNotifyToast.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             chkNotifyToast.ForeColor = Color.FromArgb(170, 180, 200);
             chkNotifyToast.Location = new Point(notifStartX + notifW, gameNotifY);
-            chkNotifyToast.Size = new Size(notifW, (int)(20 * dpiScale));
+            chkNotifyToast.Size = new Size(notifW, (int)(22 * dpiScale));
             chkNotifyToast.Visible = false;
             chkNotifyToast.CheckedChanged += (s, e) => {
                 if (!isUpdatingUI) { gameRateNotifyToast = chkNotifyToast.Checked; SaveConfig(); }
@@ -409,7 +409,7 @@ namespace RazerBatteryTray
             chkNotifySound.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             chkNotifySound.ForeColor = Color.FromArgb(170, 180, 200);
             chkNotifySound.Location = new Point(notifStartX + notifW * 2, gameNotifY);
-            chkNotifySound.Size = new Size(notifW, (int)(20 * dpiScale));
+            chkNotifySound.Size = new Size(notifW, (int)(22 * dpiScale));
             chkNotifySound.Visible = false;
             chkNotifySound.CheckedChanged += (s, e) => {
                 if (!isUpdatingUI) { gameRateNotifySound = chkNotifySound.Checked; SaveConfig(); }
@@ -806,34 +806,44 @@ namespace RazerBatteryTray
             // Row 1: 托盘图标样式 (Capsule / Badge)
             int row1Y = (int)(40 * dpiScale);
             int lblTitleW = (int)(95 * dpiScale);
+            int card3SegH = (int)(28 * dpiScale);
 
             lblStyleTitle = new Label();
             lblStyleTitle.Text = "托盘图标样式";
             lblStyleTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblStyleTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblStyleTitle.BackColor = Color.Transparent;
-            lblStyleTitle.Location = new Point(cPad, row1Y + (int)(4 * dpiScale));
+            lblStyleTitle.Location = new Point(cPad, row1Y + (int)(2 * dpiScale));
             lblStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
             cardSettings.Controls.Add(lblStyleTitle);
 
-            int seg1W = (secW - lblTitleW - (int)(8 * dpiScale)) / 2;
+            int seg1Gap = (int)(6 * dpiScale);
+            int seg1W = (secW - lblTitleW - (seg1Gap * 2)) / 3;
             int seg1X = cPad + lblTitleW;
 
             btnStyleCapsule = new ModernSegmentButton();
-            btnStyleCapsule.Text = "现代胶囊电池";
+            btnStyleCapsule.Text = "胶囊电池";
             btnStyleCapsule.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnStyleCapsule.Location = new Point(seg1X, row1Y);
-            btnStyleCapsule.Size = new Size(seg1W, segH);
+            btnStyleCapsule.Size = new Size(seg1W, card3SegH);
             btnStyleCapsule.Click += (s, e) => SetTrayStyle(0, false);
             cardSettings.Controls.Add(btnStyleCapsule);
 
             btnStyleNum = new ModernSegmentButton();
-            btnStyleNum.Text = "醒目数字能量表";
+            btnStyleNum.Text = "数字能量";
             btnStyleNum.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnStyleNum.Location = new Point(seg1X + seg1W + (int)(8 * dpiScale), row1Y);
-            btnStyleNum.Size = new Size(seg1W, segH);
+            btnStyleNum.Location = new Point(seg1X + seg1W + seg1Gap, row1Y);
+            btnStyleNum.Size = new Size(seg1W, card3SegH);
             btnStyleNum.Click += (s, e) => SetTrayStyle(1, false);
             cardSettings.Controls.Add(btnStyleNum);
+
+            btnStylePureNum = new ModernSegmentButton();
+            btnStylePureNum.Text = "极简纯数字";
+            btnStylePureNum.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
+            btnStylePureNum.Location = new Point(seg1X + (seg1W + seg1Gap) * 2, row1Y);
+            btnStylePureNum.Size = new Size(seg1W, card3SegH);
+            btnStylePureNum.Click += (s, e) => SetTrayStyle(2, false);
+            cardSettings.Controls.Add(btnStylePureNum);
 
             // Row 2: 自动刷新频率 (30s / 1m / 5m)
             int row2Y = (int)(76 * dpiScale);
@@ -843,7 +853,7 @@ namespace RazerBatteryTray
             lblIntervalTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblIntervalTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblIntervalTitle.BackColor = Color.Transparent;
-            lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(4 * dpiScale));
+            lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(2 * dpiScale));
             lblIntervalTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
             cardSettings.Controls.Add(lblIntervalTitle);
 
@@ -854,7 +864,7 @@ namespace RazerBatteryTray
             btnInt30s.Text = "30 秒";
             btnInt30s.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnInt30s.Location = new Point(seg1X, row2Y);
-            btnInt30s.Size = new Size(seg2W, segH);
+            btnInt30s.Size = new Size(seg2W, card3SegH);
             btnInt30s.Click += (s, e) => SetInterval(30000, false);
             cardSettings.Controls.Add(btnInt30s);
 
@@ -862,7 +872,7 @@ namespace RazerBatteryTray
             btnInt1m.Text = "1 分钟";
             btnInt1m.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnInt1m.Location = new Point(seg1X + seg2W + seg2Gap, row2Y);
-            btnInt1m.Size = new Size(seg2W, segH);
+            btnInt1m.Size = new Size(seg2W, card3SegH);
             btnInt1m.Click += (s, e) => SetInterval(60000, false);
             cardSettings.Controls.Add(btnInt1m);
 
@@ -870,7 +880,7 @@ namespace RazerBatteryTray
             btnInt5m.Text = "5 分钟";
             btnInt5m.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnInt5m.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row2Y);
-            btnInt5m.Size = new Size(seg2W, segH);
+            btnInt5m.Size = new Size(seg2W, card3SegH);
             btnInt5m.Click += (s, e) => SetInterval(300000, false);
             cardSettings.Controls.Add(btnInt5m);
 
@@ -882,7 +892,7 @@ namespace RazerBatteryTray
             lblOsdStyleTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblOsdStyleTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblOsdStyleTitle.BackColor = Color.Transparent;
-            lblOsdStyleTitle.Location = new Point(cPad, row3Y + (int)(4 * dpiScale));
+            lblOsdStyleTitle.Location = new Point(cPad, row3Y + (int)(2 * dpiScale));
             lblOsdStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
             cardSettings.Controls.Add(lblOsdStyleTitle);
 
@@ -890,7 +900,7 @@ namespace RazerBatteryTray
             btnOsdStyleCapsule.Text = "居中胶囊";
             btnOsdStyleCapsule.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnOsdStyleCapsule.Location = new Point(seg1X, row3Y);
-            btnOsdStyleCapsule.Size = new Size(seg2W, segH);
+            btnOsdStyleCapsule.Size = new Size(seg2W, card3SegH);
             btnOsdStyleCapsule.Click += (s, e) => SetOsdStyle(0, true);
             cardSettings.Controls.Add(btnOsdStyleCapsule);
 
@@ -898,7 +908,7 @@ namespace RazerBatteryTray
             btnOsdStyleGauge.Text = "阶梯能量";
             btnOsdStyleGauge.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnOsdStyleGauge.Location = new Point(seg1X + seg2W + seg2Gap, row3Y);
-            btnOsdStyleGauge.Size = new Size(seg2W, segH);
+            btnOsdStyleGauge.Size = new Size(seg2W, card3SegH);
             btnOsdStyleGauge.Click += (s, e) => SetOsdStyle(1, true);
             cardSettings.Controls.Add(btnOsdStyleGauge);
 
@@ -906,14 +916,14 @@ namespace RazerBatteryTray
             btnOsdStyleCompact.Text = "顶置微标";
             btnOsdStyleCompact.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnOsdStyleCompact.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row3Y);
-            btnOsdStyleCompact.Size = new Size(seg2W, segH);
+            btnOsdStyleCompact.Size = new Size(seg2W, card3SegH);
             btnOsdStyleCompact.Click += (s, e) => SetOsdStyle(2, true);
             cardSettings.Controls.Add(btnOsdStyleCompact);
 
             // Row 4: Modern subtle divider
             divSettings = new SubtleDivider();
             divSettings.Location = new Point(cPad, (int)(150 * dpiScale));
-            divSettings.Size = new Size(secW, (int)(8 * dpiScale));
+            divSettings.Size = new Size(secW, (int)(6 * dpiScale));
             cardSettings.Controls.Add(divSettings);
 
             // Row 5: Checkboxes in 2x2 grid
@@ -925,7 +935,7 @@ namespace RazerBatteryTray
 
             chkAutoStart = new ModernCheckBox();
             chkAutoStart.Text = "开机自动启动";
-            chkAutoStart.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+            chkAutoStart.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkAutoStart.Location = new Point(cPad, chkY1);
             chkAutoStart.Size = new Size(chkW, chkH);
             chkAutoStart.CheckedChanged += (s, e) => {
@@ -936,7 +946,7 @@ namespace RazerBatteryTray
 
             chkAutoStartShowUI = new ModernCheckBox();
             chkAutoStartShowUI.Text = "开机弹出主窗口";
-            chkAutoStartShowUI.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+            chkAutoStartShowUI.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkAutoStartShowUI.Location = new Point(cPad + chkW + chkGap, chkY1);
             chkAutoStartShowUI.Size = new Size(chkW, chkH);
             chkAutoStartShowUI.CheckedChanged += (s, e) => {
@@ -947,7 +957,7 @@ namespace RazerBatteryTray
 
             chkLowAlert = new ModernCheckBox();
             chkLowAlert.Text = "低电量提醒 (≤20%)";
-            chkLowAlert.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+            chkLowAlert.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkLowAlert.Location = new Point(cPad, chkY2);
             chkLowAlert.Size = new Size(chkW, chkH);
             chkLowAlert.CheckedChanged += (s, e) => {
@@ -958,7 +968,7 @@ namespace RazerBatteryTray
 
             chkDpiOsd = new ModernCheckBox();
             chkDpiOsd.Text = "DPI 切换屏幕提示 (OSD)";
-            chkDpiOsd.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+            chkDpiOsd.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkDpiOsd.Location = new Point(cPad + chkW + chkGap, chkY2);
             chkDpiOsd.Size = new Size(chkW, chkH);
             chkDpiOsd.CheckedChanged += (s, e) => {
@@ -972,7 +982,7 @@ namespace RazerBatteryTray
             lblSettingsTip.Text = "注：切换线缆/接收器或按键调 DPI 时将自动即时同步，无需等待计时周期";
             lblSettingsTip.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             lblSettingsTip.ForeColor = Color.FromArgb(120, 128, 142);
-            lblSettingsTip.BackColor = Color.Transparent;
+            lblSettingsTip.BackColor = cardSettings.CardColor;
             lblSettingsTip.Location = new Point(cPad, (int)(218 * dpiScale));
             lblSettingsTip.AutoSize = true;
             cardSettings.Controls.Add(lblSettingsTip);
@@ -1016,7 +1026,7 @@ namespace RazerBatteryTray
             this.Controls.Add(btnHideToTray);
 
             int clientH = card4Y + btnH + (int)(16 * dpiScale);
-            this.ClientSize = new Size(baseW, clientH);
+            UpdateMainFormClientSize(baseW, clientH);
         }
 
         private void RelayoutDpiButtons()
@@ -1025,7 +1035,7 @@ namespace RazerBatteryTray
 
             int cPad = (int)(18 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
-            int r1Y = (int)(40 * dpiScale);
+            int r1Y = (int)(38 * dpiScale);
             int lblW = (int)(86 * dpiScale);
             int segH = (int)(28 * dpiScale);
 
@@ -1048,6 +1058,14 @@ namespace RazerBatteryTray
                     btnDpiStages[i].Text = dpiStageList[i].ToString();
                     btnDpiStages[i].Location = new Point(dpiStartX + i * (stageW + gap), r1Y);
                     btnDpiStages[i].Size = new Size(stageW, segH);
+                    if (selectedDevice != null && selectedDevice.IsXyIndependent && selectedDevice.DpiStagesY != null && selectedDevice.DpiStagesY.Length > i)
+                    {
+                        toolTipTop.SetToolTip(btnDpiStages[i], string.Format("第 {0} 档: X={1}, Y={2} DPI", i + 1, dpiStageList[i], selectedDevice.DpiStagesY[i]));
+                    }
+                    else
+                    {
+                        toolTipTop.SetToolTip(btnDpiStages[i], string.Format("第 {0} 档: {1} DPI", i + 1, dpiStageList[i]));
+                    }
                     btnDpiStages[i].Invalidate();
                 }
                 else
@@ -1060,18 +1078,119 @@ namespace RazerBatteryTray
             btnDpiManage.Location = new Point(dpiStartX + count * (stageW + gap), r1Y);
             btnDpiManage.Size = new Size(manageBtnW, segH);
 
-            if (dpiMenu != null && selectedDevice != null && selectedDevice.Brand == "Razer")
+            if (dpiMenu != null && selectedDevice != null && (selectedDevice.Brand == "Razer" || selectedDevice.Brand == "Valkyrie"))
             {
                 dpiMenu.DropDownItems.Clear();
                 for (int i = 0; i < dpiStageList.Count; i++)
                 {
                     int stageIdx = i;
-                    int val = dpiStageList[i];
-                    var sub = new ToolStripMenuItem(string.Format("档位 {0}: {1} DPI", i + 1, val), null, (s, e) => SwitchDpiStageByIndex(stageIdx));
-                    sub.Tag = val;
-                    if (selectedDevice.Dpi == val || (selectedDevice.DpiStage == (i + 1))) sub.Checked = true;
+                    int valX = dpiStageList[i];
+                    int valY = (selectedDevice.DpiStagesY != null && selectedDevice.DpiStagesY.Length > i) ? selectedDevice.DpiStagesY[i] : valX;
+                    string itemText = (selectedDevice.IsXyIndependent && valX != valY)
+                        ? string.Format("档位 {0}: {1} × {2} DPI", i + 1, valX, valY)
+                        : string.Format("档位 {0}: {1} DPI", i + 1, valX);
+                    var sub = new ToolStripMenuItem(itemText, null, (s, e) => SwitchDpiStageByIndex(stageIdx));
+                    sub.Tag = valX;
+                    if (selectedDevice.Dpi == valX || (selectedDevice.DpiStage == (i + 1))) sub.Checked = true;
                     dpiMenu.DropDownItems.Add(sub);
                 }
+            }
+        }
+
+        private void RelayoutPerformanceControls()
+        {
+            if (cardPerformance == null) return;
+            int cPad = (int)(18 * dpiScale);
+            int secW = cardPerformance.ClientSize.Width - (cPad * 2);
+            int lblW = (int)(86 * dpiScale);
+            int segH = (int)(28 * dpiScale);
+
+            int r1Y = (int)(38 * dpiScale);
+            if (lblDpiTitle != null)
+            {
+                lblDpiTitle.Location = new Point(cPad, (int)(41 * dpiScale));
+                lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            }
+            RelayoutDpiButtons();
+
+            int r2Y = (int)(75 * dpiScale);
+            if (lblRateTitle != null)
+            {
+                lblRateTitle.Location = new Point(cPad, (int)(78 * dpiScale));
+                lblRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            }
+
+            int hzStartX = cPad + lblW;
+            int hzGap = (int)(6 * dpiScale);
+            int hzSegW = (secW - lblW - (hzGap * 3)) / 4;
+            if (btnRates != null)
+            {
+                for (int i = 0; i < btnRates.Length; i++)
+                {
+                    if (btnRates[i] != null)
+                    {
+                        btnRates[i].Location = new Point(hzStartX + i * (hzSegW + hzGap), r2Y);
+                        btnRates[i].Size = new Size(hzSegW, segH);
+                    }
+                }
+            }
+
+            int gameSwY = (int)(112 * dpiScale);
+            int gameChkW = (int)(180 * dpiScale);
+            if (chkAutoGameRate != null)
+            {
+                chkAutoGameRate.Location = new Point(cPad, gameSwY);
+                chkAutoGameRate.Size = new Size(gameChkW, (int)(26 * dpiScale));
+            }
+            if (btnManageGames != null)
+            {
+                int btnMgrX = cPad + gameChkW + (int)(6 * dpiScale);
+                int btnMgrW = secW - gameChkW - (int)(6 * dpiScale);
+                btnManageGames.Location = new Point(btnMgrX, gameSwY);
+                btnManageGames.Size = new Size(btnMgrW, (int)(26 * dpiScale));
+                btnManageGames.CornerRadius = (int)(5 * dpiScale);
+            }
+
+            int gameRateY = (int)(147 * dpiScale);
+            if (lblGameRateTitle != null)
+            {
+                lblGameRateTitle.Location = new Point(cPad, (int)(150 * dpiScale));
+                lblGameRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            }
+            if (btnGameRates != null)
+            {
+                for (int i = 0; i < btnGameRates.Length; i++)
+                {
+                    if (btnGameRates[i] != null)
+                    {
+                        btnGameRates[i].Location = new Point(hzStartX + i * (hzSegW + hzGap), gameRateY);
+                        btnGameRates[i].Size = new Size(hzSegW, segH);
+                    }
+                }
+            }
+
+            int gameNotifY = (int)(184 * dpiScale);
+            if (lblNotifyModeTitle != null)
+            {
+                lblNotifyModeTitle.Location = new Point(cPad, (int)(185 * dpiScale));
+                lblNotifyModeTitle.Size = new Size((int)(62 * dpiScale), (int)(20 * dpiScale));
+            }
+            int notifStartX = cPad + (int)(64 * dpiScale);
+            int notifW = (secW - (int)(64 * dpiScale)) / 3;
+            if (chkNotifyOsd != null)
+            {
+                chkNotifyOsd.Location = new Point(notifStartX, gameNotifY);
+                chkNotifyOsd.Size = new Size(notifW, (int)(22 * dpiScale));
+            }
+            if (chkNotifyToast != null)
+            {
+                chkNotifyToast.Location = new Point(notifStartX + notifW, gameNotifY);
+                chkNotifyToast.Size = new Size(notifW, (int)(22 * dpiScale));
+            }
+            if (chkNotifySound != null)
+            {
+                chkNotifySound.Location = new Point(notifStartX + notifW * 2, gameNotifY);
+                chkNotifySound.Size = new Size(notifW, (int)(22 * dpiScale));
             }
         }
 
@@ -1099,12 +1218,16 @@ namespace RazerBatteryTray
             if (curDev != null && curDev.Brand == "Razer")
             {
                 string devId = curDev.DeviceId;
+                int[] stagesX = (curDev.DpiStages != null && curDev.DpiStages.Length > 0) ? curDev.DpiStages : dpiStageList.ToArray();
+                int[] stagesY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length == stagesX.Length) ? curDev.DpiStagesY : stagesX;
+                int targetDpiY = (stagesY != null && stagesY.Length > index) ? stagesY[index] : targetDpi;
                 new Thread(() => {
                     bool ok = RazerDeviceHelper.SetRazerDpiStage(targetStage, devId);
                     this.BeginInvoke(new Action(() => {
                         if (curDev != null)
                         {
                             curDev.Dpi = targetDpi;
+                            curDev.DpiY = targetDpiY;
                             curDev.DpiStage = targetStage;
                         }
                         HighlightDpiStage(targetStage);
@@ -1112,10 +1235,51 @@ namespace RazerBatteryTray
                     }));
                 }) { IsBackground = true }.Start();
             }
+            else if (curDev != null && curDev.Brand == "Valkyrie")
+            {
+                int[] stagesX = (curDev.DpiStages != null && curDev.DpiStages.Length > 0) ? curDev.DpiStages : dpiStageList.ToArray();
+                int[] stagesY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length == stagesX.Length) ? curDev.DpiStagesY : stagesX;
+                int targetDpiY = (stagesY != null && stagesY.Length > index) ? stagesY[index] : targetDpi;
+                new Thread(() => {
+                    bool ok = ValkyrieDeviceHelper.UpdateValkyrieHardwareStages(targetStage, stagesX, stagesY);
+                    this.BeginInvoke(new Action(() => {
+                        if (curDev != null)
+                        {
+                            curDev.Dpi = targetDpi;
+                            curDev.DpiY = targetDpiY;
+                            curDev.DpiStage = targetStage;
+                        }
+                        HighlightDpiStage(targetStage);
+                        OnDpiChanged("Valkyrie", targetDpi, targetStage, dpiStageList.Count);
+                    }));
+                }) { IsBackground = true }.Start();
+            }
             else
             {
                 SetDpiFromUI(targetDpi);
             }
+        }
+
+        private void UpdateMainFormClientSize(int baseW, int targetClientH)
+        {
+            Screen screen = Screen.FromRectangle(this.Bounds);
+            Rectangle workArea = (screen != null) ? screen.WorkingArea : Screen.PrimaryScreen.WorkingArea;
+
+            // 彻底禁用原生滚动条，保持精致卡片视觉设计
+            this.AutoScroll = false;
+            this.AutoScrollMinSize = Size.Empty;
+            this.ClientSize = new Size(baseW, targetClientH);
+
+            int newTop = this.Top;
+            if (newTop + this.Height > workArea.Bottom)
+            {
+                newTop = Math.Max(workArea.Top + (int)(8 * dpiScale), workArea.Bottom - this.Height);
+            }
+            if (newTop < workArea.Top)
+            {
+                newTop = workArea.Top + (int)(8 * dpiScale);
+            }
+            this.Top = newTop;
         }
 
         private void AdjustPerformanceCardHeight(int newCard2H)
@@ -1144,9 +1308,11 @@ namespace RazerBatteryTray
 
                 btnRefresh.Location = new Point(padX, card4Y);
                 btnHideToTray.Location = new Point(padX + btnW + btnGap, card4Y);
+                btnRefresh.Size = new Size(btnW, btnH);
+                btnHideToTray.Size = new Size(btnW, btnH);
 
                 int clientH = card4Y + btnH + (int)(16 * dpiScale);
-                this.ClientSize = new Size(baseW, clientH);
+                UpdateMainFormClientSize(baseW, clientH);
             }
             finally
             {
@@ -1158,7 +1324,8 @@ namespace RazerBatteryTray
             int spanH = maxY - minY + (int)(16 * dpiScale);
             if (spanH > 0)
             {
-                this.Invalidate(new Rectangle(0, minY, this.ClientSize.Width, spanH), false);
+                this.Invalidate(new Rectangle(0, minY, this.ClientSize.Width, spanH), true);
+                if (cardSettings != null) cardSettings.Invalidate();
             }
         }
 
@@ -1411,7 +1578,7 @@ namespace RazerBatteryTray
             var dev = selectedDevice;
             if (dev != null && (dev.Brand == "Razer" || dev.Brand == "Rapoo"))
             {
-                int targetH = autoGameRateEnabled ? (int)(208 * dpiScale) : (int)(142 * dpiScale);
+                int targetH = autoGameRateEnabled ? (int)(218 * dpiScale) : (int)(148 * dpiScale);
                 AnimatePerformanceCardHeight(targetH);
             }
         }
@@ -1427,44 +1594,70 @@ namespace RazerBatteryTray
         private void OpenDpiManagementDialog()
         {
             var curDev = selectedDevice;
-            if (curDev == null || curDev.Brand != "Razer") return;
+            if (curDev == null || (curDev.Brand != "Razer" && curDev.Brand != "Valkyrie")) return;
 
             int curStage = curDev.DpiStage > 0 ? curDev.DpiStage : 1;
-            int[] stages = (curDev.DpiStages != null && curDev.DpiStages.Length > 0) ? curDev.DpiStages : dpiStageList.ToArray();
-            string devName = !string.IsNullOrEmpty(curDev.DisplayName) ? curDev.DisplayName : "Razer Mouse";
-            int pid = 0;
-            if (!string.IsNullOrEmpty(curDev.HardwareId) && curDev.HardwareId.Contains(":"))
+            int[] stagesX = (curDev.DpiStages != null && curDev.DpiStages.Length > 0) ? curDev.DpiStages : dpiStageList.ToArray();
+            int[] stagesY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length == stagesX.Length) ? curDev.DpiStagesY : stagesX;
+            bool isXy = curDev.IsXyIndependent;
+            double xyRatio = (curDev.XyRatio > 0) ? curDev.XyRatio : 1.0;
+            string devName = !string.IsNullOrEmpty(curDev.DisplayName) ? curDev.DisplayName : (curDev.Brand == "Valkyrie" ? "Valkyrie Mouse" : "Razer Mouse");
+
+            RazerDeviceHelper.RazerDpiCapability cap;
+            if (curDev.Brand == "Valkyrie")
             {
-                string[] parts = curDev.HardwareId.Split(':');
-                if (parts.Length >= 3)
+                cap = new RazerDeviceHelper.RazerDpiCapability
                 {
-                    int.TryParse(parts[2], System.Globalization.NumberStyles.HexNumber, null, out pid);
+                    MinDpi = 100,
+                    MaxDpi = 26000,
+                    Step = 50,
+                    Description = "瓦尔基里高精度电竞光学传感器 (PAW3395/PAW3950)"
+                };
+            }
+            else
+            {
+                int pid = 0;
+                if (!string.IsNullOrEmpty(curDev.HardwareId) && curDev.HardwareId.Contains(":"))
+                {
+                    string[] parts = curDev.HardwareId.Split(':');
+                    if (parts.Length >= 3)
+                    {
+                        int.TryParse(parts[2], System.Globalization.NumberStyles.HexNumber, null, out pid);
+                    }
                 }
+                cap = RazerDeviceHelper.GetDpiCapability(devName, pid);
             }
 
-            var cap = RazerDeviceHelper.GetDpiCapability(devName, pid);
-
-            using (var dlg = new DpiManagementDialog(devName, stages, curStage, cap))
+            using (var dlg = new DpiManagementDialog(devName, stagesX, stagesY, isXy, xyRatio, curStage, cap))
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    int[] newStages = dlg.Stages;
-                    if (newStages == null || newStages.Length == 0) return;
+                    int[] newStagesX = dlg.Stages;
+                    int[] newStagesY = dlg.StagesY;
+                    if (newStagesX == null || newStagesX.Length == 0) return;
+                    if (newStagesY == null || newStagesY.Length != newStagesX.Length) newStagesY = newStagesX;
 
-                    int activeStage = Math.Max(1, Math.Min(dlg.ActiveStage, newStages.Length));
-                    int activeDpi = newStages[activeStage - 1];
+                    int activeStage = Math.Max(1, Math.Min(dlg.ActiveStage, newStagesX.Length));
+                    int activeDpiX = newStagesX[activeStage - 1];
+                    int activeDpiY = newStagesY[activeStage - 1];
+                    bool newIsXy = dlg.IsXyIndependent;
+                    double newRatio = dlg.XyRatio;
 
                     // 1. Immediately apply to in-memory state on UI thread
-                    dpiStageList = new List<int>(newStages);
-                    dpiStageValues = newStages;
+                    dpiStageList = new List<int>(newStagesX);
+                    dpiStageValues = newStagesX;
                     SaveCustomDpiStages();
 
                     if (curDev != null)
                     {
-                        curDev.DpiStages = newStages;
-                        curDev.DpiStageCount = newStages.Length;
+                        curDev.DpiStages = newStagesX;
+                        curDev.DpiStagesY = newStagesY;
+                        curDev.IsXyIndependent = newIsXy;
+                        curDev.XyRatio = newRatio;
+                        curDev.DpiStageCount = newStagesX.Length;
                         curDev.DpiStage = activeStage;
-                        curDev.Dpi = activeDpi;
+                        curDev.Dpi = activeDpiX;
+                        curDev.DpiY = activeDpiY;
                     }
 
                     // 2. Immediately relayout, re-render and highlight main form DPI buttons
@@ -1480,13 +1673,21 @@ namespace RazerBatteryTray
                     if (cardPerformance != null) cardPerformance.Invalidate();
 
                     string targetDevId = curDev != null ? curDev.DeviceId : null;
-                    OnDpiChanged("Razer", activeDpi, activeStage, newStages.Length, targetDevId);
+                    string devBrand = curDev != null ? curDev.Brand : "Razer";
+                    OnDpiChanged(devBrand, activeDpiX, activeStage, newStagesX.Length, targetDevId);
                     UpdatePerformanceSection(curDev, curDev.BrandColor);
                     UpdateStatusDisplay();
 
                     // 3. Persist to hardware in background thread
                     new Thread(() => {
-                        RazerDeviceHelper.UpdateRazerHardwareStages(activeStage, newStages, targetDevId);
+                        if (devBrand == "Valkyrie")
+                        {
+                            ValkyrieDeviceHelper.UpdateValkyrieHardwareStages(activeStage, newStagesX, newStagesY);
+                        }
+                        else
+                        {
+                            RazerDeviceHelper.UpdateRazerHardwareStages(activeStage, newStagesX, newStagesY, targetDevId);
+                        }
                     }) { IsBackground = true }.Start();
                 }
             }
@@ -1714,6 +1915,272 @@ namespace RazerBatteryTray
                     UpdateTrayDeviceMenuItems();
                 }
             }
+        }
+
+        internal void ApplyDpiScaleToControls()
+        {
+            this.SuspendLayout();
+            try
+            {
+                int padX = (int)(18 * dpiScale);
+                int baseW = (int)(470 * dpiScale);
+                int cardW = baseW - (padX * 2);
+
+                // Top bar
+                int barH = (int)(38 * dpiScale);
+                int btnSize = barH;
+                int topGap = (int)(6 * dpiScale);
+                int selectorW = cardW - (btnSize * 3) - (topGap * 3);
+
+                if (focusDeviceSelector != null)
+                {
+                    focusDeviceSelector.DpiScale = dpiScale;
+                    focusDeviceSelector.Location = new Point(padX, (int)(12 * dpiScale));
+                    focusDeviceSelector.Size = new Size(selectorW, barH);
+                }
+                if (btnTopPriority != null)
+                {
+                    btnTopPriority.CornerRadius = (int)(8 * dpiScale);
+                    btnTopPriority.Location = new Point(padX + selectorW + topGap, (int)(12 * dpiScale));
+                    btnTopPriority.Size = new Size(btnSize, barH);
+                }
+                if (btnTopAddDevice != null)
+                {
+                    btnTopAddDevice.CornerRadius = (int)(8 * dpiScale);
+                    btnTopAddDevice.Location = new Point(padX + selectorW + topGap + btnSize + topGap, (int)(12 * dpiScale));
+                    btnTopAddDevice.Size = new Size(btnSize, barH);
+                }
+                if (btnTopAbout != null)
+                {
+                    btnTopAbout.CornerRadius = (int)(8 * dpiScale);
+                    btnTopAbout.Location = new Point(padX + selectorW + topGap + (btnSize + topGap) * 2, (int)(12 * dpiScale));
+                    btnTopAbout.Size = new Size(btnSize, barH);
+                }
+
+                // Card 1
+                int card1Y = (int)(12 * dpiScale) + barH + (int)(10 * dpiScale);
+                int card1H = (int)(176 * dpiScale);
+                if (cardBattery != null)
+                {
+                    cardBattery.Location = new Point(padX, card1Y);
+                    cardBattery.Size = new Size(cardW, card1H);
+                    cardBattery.CornerRadius = (int)(10 * dpiScale);
+
+                    int badgeW = (int)(108 * dpiScale);
+                    int badgeH = (int)(26 * dpiScale);
+                    int badgeX = cardW - badgeW - (int)(16 * dpiScale);
+                    int badgeY = (int)(14 * dpiScale);
+                    if (badgePrimary != null)
+                    {
+                        badgePrimary.Location = new Point(badgeX, badgeY);
+                        badgePrimary.Size = new Size(badgeW, badgeH);
+                    }
+                    int nameX = (int)(20 * dpiScale);
+                    int nameY = (int)(14 * dpiScale);
+                    int nameMaxW = badgeX - nameX - (int)(10 * dpiScale);
+                    if (lblDeviceName != null)
+                    {
+                        lblDeviceName.Location = new Point(nameX, nameY);
+                        lblDeviceName.Size = new Size(nameMaxW, (int)(24 * dpiScale));
+                    }
+                    if (lblBatteryBig != null)
+                    {
+                        lblBatteryBig.Location = new Point((int)(18 * dpiScale), (int)(46 * dpiScale));
+                    }
+                    if (pillStatus != null)
+                    {
+                        pillStatus.Location = new Point((int)(150 * dpiScale), (int)(56 * dpiScale));
+                        pillStatus.Size = new Size((int)(80 * dpiScale), (int)(32 * dpiScale));
+                    }
+                    if (barBattery != null)
+                    {
+                        barBattery.Location = new Point((int)(20 * dpiScale), (int)(118 * dpiScale));
+                        barBattery.Size = new Size(cardW - (int)(40 * dpiScale), (int)(12 * dpiScale));
+                    }
+                    if (lblUpdateTime != null)
+                    {
+                        lblUpdateTime.Location = new Point((int)(20 * dpiScale), (int)(142 * dpiScale));
+                    }
+                }
+
+                // Card 2
+                int card2Y = card1Y + card1H + (int)(12 * dpiScale);
+                int card2H = autoGameRateEnabled ? (int)(218 * dpiScale) : (int)(148 * dpiScale);
+                if (cardPerformance != null)
+                {
+                    cardPerformance.Location = new Point(padX, card2Y);
+                    cardPerformance.Size = new Size(cardW, card2H);
+                    cardPerformance.CornerRadius = (int)(10 * dpiScale);
+                }
+
+                // Card 3
+                int cPad = (int)(18 * dpiScale);
+                int secW = cardW - (cPad * 2);
+                int card3H = (int)(244 * dpiScale);
+                if (cardSettings != null)
+                {
+                    cardSettings.Width = cardW;
+                    cardSettings.Height = card3H;
+                    cardSettings.CornerRadius = (int)(10 * dpiScale);
+
+                    int row1Y = (int)(40 * dpiScale);
+                    int lblTitleW = (int)(95 * dpiScale);
+                    int seg1Gap = (int)(6 * dpiScale);
+                    int seg1W = (secW - lblTitleW - (seg1Gap * 2)) / 3;
+                    int seg1X = cPad + lblTitleW;
+                    int segH = (int)(28 * dpiScale);
+
+                    if (lblSettingsTitle != null) lblSettingsTitle.Location = new Point(cPad, (int)(14 * dpiScale));
+                    if (lblStyleTitle != null)
+                    {
+                        lblStyleTitle.Location = new Point(cPad, row1Y + (int)(2 * dpiScale));
+                        lblStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                    }
+                    if (btnStyleCapsule != null)
+                    {
+                        btnStyleCapsule.Location = new Point(seg1X, row1Y);
+                        btnStyleCapsule.Size = new Size(seg1W, segH);
+                    }
+                    if (btnStyleNum != null)
+                    {
+                        btnStyleNum.Location = new Point(seg1X + seg1W + seg1Gap, row1Y);
+                        btnStyleNum.Size = new Size(seg1W, segH);
+                    }
+                    if (btnStylePureNum != null)
+                    {
+                        btnStylePureNum.Location = new Point(seg1X + (seg1W + seg1Gap) * 2, row1Y);
+                        btnStylePureNum.Size = new Size(seg1W, segH);
+                    }
+
+                    int row2Y = (int)(76 * dpiScale);
+                    int seg2Gap = (int)(6 * dpiScale);
+                    int seg2W = (secW - lblTitleW - (seg2Gap * 2)) / 3;
+
+                    if (lblIntervalTitle != null)
+                    {
+                        lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(2 * dpiScale));
+                        lblIntervalTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                    }
+                    if (btnInt30s != null)
+                    {
+                        btnInt30s.Location = new Point(seg1X, row2Y);
+                        btnInt30s.Size = new Size(seg2W, segH);
+                    }
+                    if (btnInt1m != null)
+                    {
+                        btnInt1m.Location = new Point(seg1X + seg2W + seg2Gap, row2Y);
+                        btnInt1m.Size = new Size(seg2W, segH);
+                    }
+                    if (btnInt5m != null)
+                    {
+                        btnInt5m.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row2Y);
+                        btnInt5m.Size = new Size(seg2W, segH);
+                    }
+
+                    int row3Y = (int)(112 * dpiScale);
+                    if (lblOsdStyleTitle != null)
+                    {
+                        lblOsdStyleTitle.Location = new Point(cPad, row3Y + (int)(2 * dpiScale));
+                        lblOsdStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                    }
+                    if (btnOsdStyleCapsule != null)
+                    {
+                        btnOsdStyleCapsule.Location = new Point(seg1X, row3Y);
+                        btnOsdStyleCapsule.Size = new Size(seg2W, segH);
+                    }
+                    if (btnOsdStyleGauge != null)
+                    {
+                        btnOsdStyleGauge.Location = new Point(seg1X + seg2W + seg2Gap, row3Y);
+                        btnOsdStyleGauge.Size = new Size(seg2W, segH);
+                    }
+                    if (btnOsdStyleCompact != null)
+                    {
+                        btnOsdStyleCompact.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row3Y);
+                        btnOsdStyleCompact.Size = new Size(seg2W, segH);
+                    }
+
+                    if (divSettings != null)
+                    {
+                        divSettings.Location = new Point(cPad, (int)(150 * dpiScale));
+                        divSettings.Size = new Size(secW, (int)(6 * dpiScale));
+                    }
+
+                    int chkY1 = (int)(162 * dpiScale);
+                    int chkY2 = (int)(190 * dpiScale);
+                    int chkGap = (int)(14 * dpiScale);
+                    int chkW = (secW - chkGap) / 2;
+                    int chkH = (int)(24 * dpiScale);
+
+                    if (chkAutoStart != null)
+                    {
+                        chkAutoStart.Location = new Point(cPad, chkY1);
+                        chkAutoStart.Size = new Size(chkW, chkH);
+                    }
+                    if (chkAutoStartShowUI != null)
+                    {
+                        chkAutoStartShowUI.Location = new Point(cPad + chkW + chkGap, chkY1);
+                        chkAutoStartShowUI.Size = new Size(chkW, chkH);
+                    }
+                    if (chkLowAlert != null)
+                    {
+                        chkLowAlert.Location = new Point(cPad, chkY2);
+                        chkLowAlert.Size = new Size(chkW, chkH);
+                    }
+                    if (chkDpiOsd != null)
+                    {
+                        chkDpiOsd.Location = new Point(cPad + chkW + chkGap, chkY2);
+                        chkDpiOsd.Size = new Size(chkW, chkH);
+                    }
+
+                    if (lblSettingsTip != null)
+                    {
+                        lblSettingsTip.Location = new Point(cPad, (int)(218 * dpiScale));
+                    }
+                }
+
+                // Relayout Performance controls in Card 2
+                RelayoutPerformanceControls();
+
+                // Bottom row: Actions
+                int card3Y = (cardPerformance != null ? cardPerformance.Bottom : 0) + (int)(12 * dpiScale);
+                if (cardSettings != null) cardSettings.Location = new Point(padX, card3Y);
+
+                int card4Y = (cardSettings != null ? cardSettings.Bottom : 0) + (int)(14 * dpiScale);
+                int btnH = (int)(38 * dpiScale);
+                int btnGap = (int)(14 * dpiScale);
+                int btnW = (cardW - btnGap) / 2;
+
+                if (btnRefresh != null)
+                {
+                    btnRefresh.Location = new Point(padX, card4Y);
+                    btnRefresh.Size = new Size(btnW, btnH);
+                    btnRefresh.CornerRadius = (int)(8 * dpiScale);
+                }
+                if (btnHideToTray != null)
+                {
+                    btnHideToTray.Location = new Point(padX + btnW + btnGap, card4Y);
+                    btnHideToTray.Size = new Size(btnW, btnH);
+                    btnHideToTray.CornerRadius = (int)(8 * dpiScale);
+                }
+
+                int clientH = card4Y + btnH + (int)(16 * dpiScale);
+                UpdateMainFormClientSize(baseW, clientH);
+            }
+            finally
+            {
+                this.ResumeLayout(true);
+            }
+
+            if (selectedDevice != null)
+            {
+                try { UpdateUI(selectedDevice, true); } catch { }
+            }
+
+            this.Invalidate(true);
+            if (cardBattery != null) cardBattery.Invalidate(true);
+            if (cardPerformance != null) cardPerformance.Invalidate(true);
+            if (cardSettings != null) cardSettings.Invalidate(true);
+            this.Update();
         }
 
     }

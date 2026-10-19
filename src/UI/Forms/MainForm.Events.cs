@@ -31,6 +31,19 @@ namespace RazerBatteryTray
             {
                 ShowWindow();
             }
+            else if (m.Msg == NativeMethods.WM_DPICHANGED)
+            {
+                int newDpiX = m.WParam.ToInt32() & 0xFFFF;
+                float newScale = newDpiX / 96.0f;
+                if (newScale < 1.0f) newScale = 1.0f;
+
+                NativeMethods.RECT suggestedRect = (NativeMethods.RECT)Marshal.PtrToStructure(m.LParam, typeof(NativeMethods.RECT));
+                Rectangle suggestedBounds = Rectangle.FromLTRB(suggestedRect.Left, suggestedRect.Top, suggestedRect.Right, suggestedRect.Bottom);
+
+                HandleDpiChanged(newScale, suggestedBounds);
+                m.Result = IntPtr.Zero;
+                return;
+            }
             else if (m.Msg == WM_INPUT)
             {
                 HandleMouseWakeInput(m.LParam);
@@ -49,18 +62,32 @@ namespace RazerBatteryTray
             }
             base.WndProc(ref m);
         }
-        private void RegisterMouseWakeDetector()
+
+        private void EnableMouseWakeDetector(bool enable)
         {
             try
             {
                 RAWINPUTDEVICE[] rid = new RAWINPUTDEVICE[1];
                 rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
                 rid[0].usUsage = HID_USAGE_GENERIC_MOUSE;
-                rid[0].dwFlags = RIDEV_INPUTSINK;
-                rid[0].hwndTarget = this.Handle;
+                if (enable)
+                {
+                    rid[0].dwFlags = RIDEV_INPUTSINK;
+                    rid[0].hwndTarget = this.Handle;
+                }
+                else
+                {
+                    rid[0].dwFlags = NativeMethods.RIDEV_REMOVE;
+                    rid[0].hwndTarget = IntPtr.Zero;
+                }
                 RegisterRawInputDevices(rid, 1, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)));
             }
             catch { }
+        }
+
+        private void UnregisterMouseWakeDetector()
+        {
+            EnableMouseWakeDetector(false);
         }
 
         private static bool IsTargetMouseHardwarePath(string path, MouseBatteryInfo targetMouse)
@@ -159,6 +186,8 @@ namespace RazerBatteryTray
                         if (isMatch)
                         {
                             cur.IsSleeping = false;
+                            isMouseSleeping = false;
+                            EnableMouseWakeDetector(false);
                             UpdateTrayIcon(cur.BatteryPercent, cur.IsCharging, cur.IsConnected, false);
                             try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch { }
 

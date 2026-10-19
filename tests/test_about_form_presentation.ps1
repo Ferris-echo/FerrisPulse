@@ -42,12 +42,12 @@ try {
         exit 1
     }
 
-    # 验证样式属性
-    if ($form.FormBorderStyle -ne [System.Windows.Forms.FormBorderStyle]::None) {
-        Write-Error "FAIL: FormBorderStyle expected None, got $($form.FormBorderStyle)"
+    # 验证样式属性 (FixedDialog 触发 Windows 11 原生弹窗过渡动画)
+    if ($form.FormBorderStyle -ne [System.Windows.Forms.FormBorderStyle]::FixedDialog -and $form.FormBorderStyle -ne [System.Windows.Forms.FormBorderStyle]::None) {
+        Write-Error "FAIL: FormBorderStyle expected FixedDialog or None, got $($form.FormBorderStyle)"
         exit 1
     }
-    Write-Host "PASS: FormBorderStyle is None." -ForegroundColor Green
+    Write-Host "PASS: FormBorderStyle is $($form.FormBorderStyle)." -ForegroundColor Green
 
     # 递归查找子控件文本
     $allTexts = New-Object System.Collections.Generic.List[string]

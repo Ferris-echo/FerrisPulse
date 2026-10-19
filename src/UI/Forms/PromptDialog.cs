@@ -18,7 +18,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class PromptDialog : Form
+    public class PromptDialog : DpiAwareForm
     {
         private TextBox txtInput;
         private ModernButton btnOk;
@@ -31,13 +31,11 @@ namespace RazerBatteryTray
             set { if (txtInput != null) txtInput.Text = value; }
         }
 
-        protected override void OnHandleCreated(EventArgs e)
+        public PromptDialog(string title, string prompt, string defaultValue) : this(title, prompt, defaultValue, 0f)
         {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
         }
 
-        public PromptDialog(string title, string prompt, string defaultValue)
+        public PromptDialog(string title, string prompt, string defaultValue, float dpiScale) : base(dpiScale)
         {
             this.Text = title;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -47,14 +45,16 @@ namespace RazerBatteryTray
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(20, 24, 33);
             this.ForeColor = Color.White;
-            this.Size = new Size(380, 190);
+            int clientW = Scale(380);
+            int clientH = Scale(160);
+            this.ClientSize = new Size(clientW, clientH);
 
             lblPrompt = new Label();
             lblPrompt.Text = prompt;
             lblPrompt.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
             lblPrompt.ForeColor = Color.FromArgb(210, 215, 225);
-            lblPrompt.Location = new Point(20, 16);
-            lblPrompt.Size = new Size(325, 42);
+            lblPrompt.Location = new Point(Scale(20), Scale(16));
+            lblPrompt.Size = new Size(clientW - Scale(40), Scale(42));
             lblPrompt.BackColor = Color.Transparent;
             this.Controls.Add(lblPrompt);
 
@@ -64,9 +64,14 @@ namespace RazerBatteryTray
             txtInput.BackColor = Color.FromArgb(30, 36, 48);
             txtInput.ForeColor = Color.White;
             txtInput.BorderStyle = BorderStyle.FixedSingle;
-            txtInput.Location = new Point(22, 64);
-            txtInput.Size = new Size(320, 26);
+            txtInput.Location = new Point(Scale(22), Scale(64));
+            txtInput.Size = new Size(clientW - Scale(44), Scale(26));
             this.Controls.Add(txtInput);
+
+            int btnH = Scale(30);
+            int btnCancelW = Scale(76);
+            int btnOkW = Scale(80);
+            int btnY = clientH - btnH - Scale(18);
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
@@ -75,9 +80,9 @@ namespace RazerBatteryTray
             btnCancel.HoverColor = Color.FromArgb(50, 58, 72);
             btnCancel.PressedColor = Color.FromArgb(32, 38, 48);
             btnCancel.ForeColor = Color.FromArgb(200, 205, 215);
-            btnCancel.CornerRadius = 6;
-            btnCancel.Location = new Point(176, 106);
-            btnCancel.Size = new Size(76, 30);
+            btnCancel.CornerRadius = Scale(6);
+            btnCancel.Location = new Point(clientW - btnOkW - Scale(10) - btnCancelW - Scale(20), btnY);
+            btnCancel.Size = new Size(btnCancelW, btnH);
             btnCancel.Cursor = Cursors.Hand;
             btnCancel.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
             this.Controls.Add(btnCancel);
@@ -89,9 +94,9 @@ namespace RazerBatteryTray
             btnOk.HoverColor = Color.FromArgb(0, 230, 118);
             btnOk.PressedColor = Color.FromArgb(0, 160, 80);
             btnOk.ForeColor = Color.FromArgb(15, 20, 25);
-            btnOk.CornerRadius = 6;
-            btnOk.Location = new Point(262, 106);
-            btnOk.Size = new Size(80, 30);
+            btnOk.CornerRadius = Scale(6);
+            btnOk.Location = new Point(clientW - btnOkW - Scale(20), btnY);
+            btnOk.Size = new Size(btnOkW, btnH);
             btnOk.Cursor = Cursors.Hand;
             btnOk.Click += (s, e) => { this.DialogResult = DialogResult.OK; this.Close(); };
             this.Controls.Add(btnOk);
@@ -112,9 +117,9 @@ namespace RazerBatteryTray
             };
         }
 
-        public static bool Show(IWin32Window owner, string title, string prompt, string defaultValue, out string result)
+        public static bool Show(IWin32Window owner, string title, string prompt, string defaultValue, out string result, float dpiScale = 0f)
         {
-            using (var dlg = new PromptDialog(title, prompt, defaultValue))
+            using (var dlg = new PromptDialog(title, prompt, defaultValue, dpiScale))
             {
                 if (dlg.ShowDialog(owner) == DialogResult.OK)
                 {

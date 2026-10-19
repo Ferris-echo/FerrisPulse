@@ -21,9 +21,8 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class MouseRateTestDialog : Form
+    public class MouseRateTestDialog : DpiAwareForm
     {
-        private float dpiScale;
         private Label lblLiveRate;
         private Label lblPeakRate;
         private Label lblAvgRate;
@@ -38,15 +37,12 @@ namespace RazerBatteryTray
         private Queue<double> recentHz = new Queue<double>();
         private List<Point> trail = new List<Point>();
 
-        protected override void OnHandleCreated(EventArgs e)
+        public MouseRateTestDialog() : this(0f)
         {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
         }
 
-        public MouseRateTestDialog(float scale)
+        public MouseRateTestDialog(float scale) : base(scale)
         {
-            this.dpiScale = scale;
             this.Text = "FerrisPulse · 鼠标微秒级实时回报率 (Polling Rate) 测速台";
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -54,37 +50,37 @@ namespace RazerBatteryTray
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(16, 20, 28);
             this.ForeColor = Color.FromArgb(240, 245, 255);
-            this.ClientSize = new Size((int)(460 * scale), (int)(340 * scale));
+            this.ClientSize = new Size(Scale(460), Scale(340));
             this.KeyPreview = true;
 
-            int pad = (int)(16 * scale);
+            int pad = Scale(16);
 
             Label lblTitle = new Label();
             lblTitle.Text = "⚡ 鼠标硬件物理回报率实测 (在方框内划动鼠标即可测量)";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 230, 118);
-            lblTitle.SetBounds(pad, (int)(12 * scale), ClientSize.Width - (pad * 2), (int)(24 * scale));
+            lblTitle.SetBounds(pad, Scale(12), ClientSize.Width - (pad * 2), Scale(24));
             this.Controls.Add(lblTitle);
 
-            int cardW = (ClientSize.Width - (pad * 2) - (int)(16 * scale)) / 3;
-            int cardY = (int)(44 * scale);
-            int cardH = (int)(62 * scale);
+            int cardW = (ClientSize.Width - (pad * 2) - Scale(16)) / 3;
+            int cardY = Scale(44);
+            int cardH = Scale(62);
 
             Panel p1 = CreateMetricPanel("当前实时回报率", "0 Hz", out lblLiveRate, pad, cardY, cardW, cardH, Color.FromArgb(0, 230, 118));
-            Panel p2 = CreateMetricPanel("峰值回报率", "0 Hz", out lblPeakRate, pad + cardW + (int)(8 * scale), cardY, cardW, cardH, Color.FromArgb(0, 229, 255));
-            Panel p3 = CreateMetricPanel("平均回报率", "0 Hz", out lblAvgRate, pad + (cardW + (int)(8 * scale)) * 2, cardY, cardW, cardH, Color.FromArgb(255, 183, 77));
+            Panel p2 = CreateMetricPanel("峰值回报率", "0 Hz", out lblPeakRate, pad + cardW + Scale(8), cardY, cardW, cardH, Color.FromArgb(0, 229, 255));
+            Panel p3 = CreateMetricPanel("平均回报率", "0 Hz", out lblAvgRate, pad + (cardW + Scale(8)) * 2, cardY, cardW, cardH, Color.FromArgb(255, 183, 77));
             this.Controls.AddRange(new Control[] { p1, p2, p3 });
 
             motionCanvas = new Panel();
-            motionCanvas.SetBounds(pad, (int)(116 * scale), ClientSize.Width - (pad * 2), (int)(160 * scale));
+            motionCanvas.SetBounds(pad, Scale(116), ClientSize.Width - (pad * 2), Scale(160));
             motionCanvas.BackColor = Color.FromArgb(22, 26, 36);
             motionCanvas.MouseMove += MotionCanvas_MouseMove;
             motionCanvas.Paint += MotionCanvas_Paint;
             this.Controls.Add(motionCanvas);
 
-            int btnW = (int)(100 * scale);
-            int btnH = (int)(32 * scale);
-            int btnY = ClientSize.Height - btnH - (int)(12 * scale);
+            int btnW = Scale(100);
+            int btnH = Scale(32);
+            int btnY = ClientSize.Height - btnH - Scale(12);
 
             btnClear = new ModernButton();
             btnClear.Text = "清空数据";
@@ -93,7 +89,7 @@ namespace RazerBatteryTray
             btnClear.HoverColor = Color.FromArgb(48, 56, 76);
             btnClear.BorderColor = Color.FromArgb(60, 70, 96);
             btnClear.TextColor = Color.FromArgb(190, 200, 220);
-            btnClear.CornerRadius = (int)(6 * scale);
+            btnClear.CornerRadius = Scale(6);
             btnClear.SetBounds(pad, btnY, btnW, btnH);
             btnClear.Click += (s, e) => {
                 peakHz = 0;
@@ -115,7 +111,7 @@ namespace RazerBatteryTray
             btnClose.HoverColor = Color.FromArgb(0, 210, 105);
             btnClose.BorderColor = Color.FromArgb(0, 230, 118);
             btnClose.TextColor = Color.White;
-            btnClose.CornerRadius = (int)(6 * scale);
+            btnClose.CornerRadius = Scale(6);
             btnClose.SetBounds(ClientSize.Width - btnW - pad, btnY, btnW, btnH);
             btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(btnClose);

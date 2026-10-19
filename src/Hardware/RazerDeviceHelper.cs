@@ -31,22 +31,44 @@ namespace RazerBatteryTray
     public static class RazerDeviceHelper
     {
         internal static readonly object hidLock = new object();
+        private static readonly object stateCacheLock = new object();
         private static readonly Dictionary<string, RazerDeviceHardwareState> deviceHardwareStates =
             new Dictionary<string, RazerDeviceHardwareState>(StringComparer.OrdinalIgnoreCase);
 
-        public static RazerDeviceHardwareState GetDeviceState(string deviceId)
+        private static RazerDeviceHardwareState TryGetState(string normId)
         {
-            if (string.IsNullOrEmpty(deviceId)) return null;
-            string normId = NormalizeRazerDeviceId(deviceId);
-            lock (hidLock)
+            if (string.IsNullOrEmpty(normId)) return null;
+            lock (stateCacheLock)
             {
                 RazerDeviceHardwareState st;
                 if (deviceHardwareStates.TryGetValue(normId, out st))
                 {
                     return st;
                 }
+                return null;
             }
-            return null;
+        }
+
+        private static RazerDeviceHardwareState GetOrCreateState(string normId)
+        {
+            if (string.IsNullOrEmpty(normId)) return null;
+            lock (stateCacheLock)
+            {
+                RazerDeviceHardwareState st;
+                if (!deviceHardwareStates.TryGetValue(normId, out st))
+                {
+                    st = new RazerDeviceHardwareState { DeviceId = normId };
+                    deviceHardwareStates[normId] = st;
+                }
+                return st;
+            }
+        }
+
+        public static RazerDeviceHardwareState GetDeviceState(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return null;
+            string normId = NormalizeRazerDeviceId(deviceId);
+            return TryGetState(normId);
         }
 
         public static int NormalizeRazerPid(int pid)
@@ -202,9 +224,13 @@ namespace RazerBatteryTray
                 IsCharging = false,
                 LastUpdated = (stState != null && stState.LastUpdated != DateTime.MinValue) ? stState.LastUpdated : DateTime.Now,
                 Dpi = (stState != null && stState.Dpi > 0) ? stState.Dpi : 800,
+                DpiY = (stState != null && stState.DpiY > 0) ? stState.DpiY : ((stState != null && stState.Dpi > 0) ? stState.Dpi : 800),
                 DpiStage = (stState != null && stState.DpiStage > 0) ? stState.DpiStage : 1,
                 DpiStageCount = (stState != null && stState.DpiStageCount > 0) ? stState.DpiStageCount : 5,
                 DpiStages = (stState != null) ? stState.DpiStages : null,
+                DpiStagesY = (stState != null) ? stState.DpiStagesY : null,
+                IsXyIndependent = (stState != null) ? stState.IsXyIndependent : false,
+                XyRatio = (stState != null && stState.XyRatio > 0) ? stState.XyRatio : 1.0,
                 PollingRate = (stState != null && stState.PollingRate > 0) ? stState.PollingRate : 1000,
                 SupportedPollingRates = new int[] { 1000, 2000, 4000, 8000 }
             };
@@ -520,9 +546,13 @@ namespace RazerBatteryTray
         public static double CachedExactBatteryPercent = 0.0;
         public static string CachedDeviceName = "";
         public static int CachedDpi = 0;
+        public static int CachedDpiY = 0;
         public static int CachedDpiStage = 0;
         public static int CachedDpiStageCount = 0;
         public static int[] CachedDpiStages = null;
+        public static int[] CachedDpiStagesY = null;
+        public static bool CachedIsXyIndependent = false;
+        public static double CachedXyRatio = 1.0;
         public static int CachedPollingRate = 0;
         public static DateTime CachedLastUpdated = DateTime.MinValue;
 
@@ -582,6 +612,32 @@ namespace RazerBatteryTray
                             }
                         }
 
+                        var dpiY = rootKey.GetValue("DpiY");
+                        if (dpiY != null) CachedDpiY = (int)dpiY;
+
+                        var stStrY = rootKey.GetValue("DpiStagesY") as string;
+                        if (!string.IsNullOrEmpty(stStrY))
+                        {
+                            string[] partsY = stStrY.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                            CachedDpiStagesY = new int[partsY.Length];
+                            for (int i = 0; i < partsY.Length; i++)
+                            {
+                                int p;
+                                if (int.TryParse(partsY[i], out p)) CachedDpiStagesY[i] = p;
+                            }
+                        }
+
+                        var isXy = rootKey.GetValue("IsXyIndependent");
+                        if (isXy != null) CachedIsXyIndependent = ((int)isXy == 1);
+
+                        var xyRatio = rootKey.GetValue("XyRatio");
+                        if (xyRatio != null)
+                        {
+                            double r;
+                            if (double.TryParse(xyRatio.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out r))
+                                CachedXyRatio = r;
+                        }
+
                         var poll = rootKey.GetValue("PollingRate");
                         if (poll != null) CachedPollingRate = (int)poll;
 
@@ -630,6 +686,28 @@ namespace RazerBatteryTray
                                             if (int.TryParse(parts[i], out p)) state.DpiStages[i] = p;
                                         }
                                     }
+                                    var sdpiY = devKey.GetValue("DpiY");
+                                    if (sdpiY != null) state.DpiY = (int)sdpiY;
+                                    var sstStrY = devKey.GetValue("DpiStagesY") as string;
+                                    if (!string.IsNullOrEmpty(sstStrY))
+                                    {
+                                        string[] partsY = sstStrY.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                                        state.DpiStagesY = new int[partsY.Length];
+                                        for (int i = 0; i < partsY.Length; i++)
+                                        {
+                                            int p;
+                                            if (int.TryParse(partsY[i], out p)) state.DpiStagesY[i] = p;
+                                        }
+                                    }
+                                    var sisXy = devKey.GetValue("IsXyIndependent");
+                                    if (sisXy != null) state.IsXyIndependent = ((int)sisXy == 1);
+                                    var sratio = devKey.GetValue("XyRatio");
+                                    if (sratio != null)
+                                    {
+                                        double r;
+                                        if (double.TryParse(sratio.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out r))
+                                            state.XyRatio = r;
+                                    }
                                     var spoll = devKey.GetValue("PollingRate");
                                     if (spoll != null) state.PollingRate = (int)spoll;
                                     var sdt = devKey.GetValue("LastUpdated") as string;
@@ -638,7 +716,10 @@ namespace RazerBatteryTray
                                         DateTime dt;
                                         if (DateTime.TryParse(sdt, out dt)) state.LastUpdated = dt;
                                     }
-                                    deviceHardwareStates[normId] = state;
+                                    lock (stateCacheLock)
+                                    {
+                                        deviceHardwareStates[normId] = state;
+                                    }
                                 }
                             }
                         }
@@ -656,7 +737,14 @@ namespace RazerBatteryTray
                 {
                     if (rootKey != null)
                     {
-                        foreach (var kvp in deviceHardwareStates)
+                        KeyValuePair<string, RazerDeviceHardwareState>[] statesCopy;
+                        lock (stateCacheLock)
+                        {
+                            var list = new List<KeyValuePair<string, RazerDeviceHardwareState>>(deviceHardwareStates.Count);
+                            foreach (var kvp in deviceHardwareStates) list.Add(kvp);
+                            statesCopy = list.ToArray();
+                        }
+                        foreach (var kvp in statesCopy)
                         {
                             var st = kvp.Value;
                             if (st == null) continue;
@@ -669,6 +757,7 @@ namespace RazerBatteryTray
                                     if (st.ExactBatteryPercent > 0) devKey.SetValue("ExactBatteryPercent", st.ExactBatteryPercent.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
                                     if (!string.IsNullOrEmpty(st.DeviceName)) devKey.SetValue("DeviceName", st.DeviceName);
                                     if (st.Dpi > 0) devKey.SetValue("Dpi", st.Dpi);
+                                    if (st.DpiY > 0) devKey.SetValue("DpiY", st.DpiY);
                                     if (st.DpiStage > 0) devKey.SetValue("DpiStage", st.DpiStage);
                                     if (st.DpiStageCount > 0) devKey.SetValue("DpiStageCount", st.DpiStageCount);
                                     if (st.DpiStages != null && st.DpiStages.Length > 0)
@@ -676,6 +765,13 @@ namespace RazerBatteryTray
                                         string stStr = string.Join(",", Array.ConvertAll(st.DpiStages, s => s.ToString()));
                                         devKey.SetValue("DpiStages", stStr);
                                     }
+                                    if (st.DpiStagesY != null && st.DpiStagesY.Length > 0)
+                                    {
+                                        string stStrY = string.Join(",", Array.ConvertAll(st.DpiStagesY, s => s.ToString()));
+                                        devKey.SetValue("DpiStagesY", stStrY);
+                                    }
+                                    devKey.SetValue("IsXyIndependent", st.IsXyIndependent ? 1 : 0);
+                                    devKey.SetValue("XyRatio", st.XyRatio.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                                     if (st.PollingRate > 0) devKey.SetValue("PollingRate", st.PollingRate);
                                     if (st.LastUpdated != DateTime.MinValue) devKey.SetValue("LastUpdated", st.LastUpdated.ToString("o"));
                                 }
@@ -686,6 +782,7 @@ namespace RazerBatteryTray
                         if (CachedExactBatteryPercent > 0) rootKey.SetValue("ExactBatteryPercent", CachedExactBatteryPercent.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
                         if (!string.IsNullOrEmpty(CachedDeviceName)) rootKey.SetValue("DeviceName", CachedDeviceName);
                         if (CachedDpi > 0) rootKey.SetValue("Dpi", CachedDpi);
+                        if (CachedDpiY > 0) rootKey.SetValue("DpiY", CachedDpiY);
                         if (CachedDpiStage > 0) rootKey.SetValue("DpiStage", CachedDpiStage);
                         if (CachedDpiStageCount > 0) rootKey.SetValue("DpiStageCount", CachedDpiStageCount);
                         if (CachedDpiStages != null && CachedDpiStages.Length > 0)
@@ -693,6 +790,13 @@ namespace RazerBatteryTray
                             string stStr = string.Join(",", Array.ConvertAll(CachedDpiStages, s => s.ToString()));
                             rootKey.SetValue("DpiStages", stStr);
                         }
+                        if (CachedDpiStagesY != null && CachedDpiStagesY.Length > 0)
+                        {
+                            string stStrY = string.Join(",", Array.ConvertAll(CachedDpiStagesY, s => s.ToString()));
+                            rootKey.SetValue("DpiStagesY", stStrY);
+                        }
+                        rootKey.SetValue("IsXyIndependent", CachedIsXyIndependent ? 1 : 0);
+                        rootKey.SetValue("XyRatio", CachedXyRatio.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                         if (CachedPollingRate > 0) rootKey.SetValue("PollingRate", CachedPollingRate);
                         if (CachedLastUpdated != DateTime.MinValue) rootKey.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                     }
@@ -1043,12 +1147,7 @@ namespace RazerBatteryTray
                                                     }
                                                 }
 
-                                                RazerDeviceHardwareState stState;
-                                                if (!deviceHardwareStates.TryGetValue(normId, out stState))
-                                                {
-                                                    stState = new RazerDeviceHardwareState { DeviceId = normId };
-                                                    deviceHardwareStates[normId] = stState;
-                                                }
+                                                RazerDeviceHardwareState stState = GetOrCreateState(normId);
 
                                                 if (querySuccess)
                                                 {
@@ -1185,8 +1284,8 @@ namespace RazerBatteryTray
                         if (primary.PollingRate > 0) CachedPollingRate = primary.PollingRate;
                         CachedLastUpdated = primary.LastUpdated;
 
-                        RazerDeviceHardwareState pState;
-                        if (deviceHardwareStates.TryGetValue(primary.DeviceId, out pState))
+                        RazerDeviceHardwareState pState = TryGetState(primary.DeviceId);
+                        if (pState != null)
                         {
                             cachedRazerDpiPath = pState.DevicePath;
                             cachedRazerReportLength = pState.ReportLength;
@@ -1221,20 +1320,16 @@ namespace RazerBatteryTray
 
             lock (hidLock)
             {
-                // 1. Ultra-fast Path: Use cached device path directly (~1ms response, zero SetupDi overhead)
-                if (!string.IsNullOrEmpty(normTargetId) && deviceHardwareStates.ContainsKey(normTargetId))
+                var st = TryGetState(normTargetId);
+                if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    var st = deviceHardwareStates[normTargetId];
-                    if (!string.IsNullOrEmpty(st.DevicePath))
+                    if (TryQueryRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, out curDpi, out activeStage, out stageCount))
                     {
-                        if (TryQueryRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, out curDpi, out activeStage, out stageCount))
-                        {
-                            st.Dpi = curDpi;
-                            st.DpiStage = activeStage;
-                            st.DpiStageCount = stageCount;
-                            st.LastUpdated = DateTime.Now;
-                            return true;
-                        }
+                        st.Dpi = curDpi;
+                        st.DpiStage = activeStage;
+                        st.DpiStageCount = stageCount;
+                        st.LastUpdated = DateTime.Now;
+                        return true;
                     }
                 }
                 else if (!string.IsNullOrEmpty(cachedRazerDpiPath))
@@ -1314,18 +1409,18 @@ namespace RazerBatteryTray
                                                     cachedRazerReportLength = caps.FeatureReportByteLength;
                                                     cachedRazerPrepended = prepended;
 
-                                                    RazerDeviceHardwareState st;
-                                                    if (!deviceHardwareStates.TryGetValue(curNormId, out st))
-                                                    {
-                                                        st = new RazerDeviceHardwareState { DeviceId = curNormId };
-                                                        deviceHardwareStates[curNormId] = st;
-                                                    }
+                                                    st = GetOrCreateState(curNormId);
                                                     st.DevicePath = devicePath;
                                                     st.ReportLength = caps.FeatureReportByteLength;
                                                     st.IsPrepended = prepended;
                                                     st.Dpi = curDpi;
+                                                    st.DpiY = (CachedDpiY > 0) ? CachedDpiY : curDpi;
                                                     st.DpiStage = activeStage;
                                                     st.DpiStageCount = stageCount;
+                                                    st.DpiStages = CachedDpiStages;
+                                                    st.DpiStagesY = CachedDpiStagesY;
+                                                    st.IsXyIndependent = CachedIsXyIndependent;
+                                                    st.XyRatio = CachedXyRatio;
                                                     st.LastUpdated = DateTime.Now;
 
                                                     Marshal.FreeHGlobal(detailBuffer);
@@ -1417,25 +1512,41 @@ namespace RazerBatteryTray
                                 int readCount = resp[offset + 10];
                                 if (readCount >= 1 && readCount <= 5 && readStage >= 1 && readStage <= readCount)
                                 {
-                                    int readDpi = 0;
+                                    int readDpiX = 0;
+                                    int readDpiY = 0;
+                                    int[] readStagesX = new int[readCount];
+                                    int[] readStagesY = new int[readCount];
+                                    bool anyDiff = false;
                                     for (int s = 0; s < readCount; s++)
                                     {
                                         int stOffset = offset + 11 + (s * 7);
+                                        int sx = (resp[stOffset + 1] << 8) | resp[stOffset + 2];
+                                        int sy = (resp[stOffset + 3] << 8) | resp[stOffset + 4];
+                                        if (sy <= 0) sy = sx;
+                                        readStagesX[s] = sx;
+                                        readStagesY[s] = sy;
+                                        if (sx != sy) anyDiff = true;
+
                                         int stNum = resp[stOffset];
                                         if (stNum == readStage)
                                         {
-                                            readDpi = (resp[stOffset + 1] << 8) | resp[stOffset + 2];
-                                            break;
+                                            readDpiX = sx;
+                                            readDpiY = sy;
                                         }
                                     }
-                                    if (readDpi >= 100 && readDpi <= 40000)
+                                    if (readDpiX >= 100 && readDpiX <= 40000)
                                     {
-                                        curDpi = readDpi;
+                                        curDpi = readDpiX;
                                         activeStage = readStage;
                                         stageCount = readCount;
                                         CachedDpi = curDpi;
+                                        CachedDpiY = (readDpiY > 0) ? readDpiY : curDpi;
                                         CachedDpiStage = activeStage;
                                         CachedDpiStageCount = stageCount;
+                                        CachedDpiStages = readStagesX;
+                                        CachedDpiStagesY = readStagesY;
+                                        CachedIsXyIndependent = (CachedDpi != CachedDpiY) || anyDiff;
+                                        CachedXyRatio = (CachedDpi > 0) ? ((double)CachedDpiY / CachedDpi) : 1.0;
                                         return true;
                                     }
                                 }
@@ -1472,13 +1583,18 @@ namespace RazerBatteryTray
 
                             if (status == 0x02 && cmdClass == 0x04 && cmdId == 0x85)
                             {
-                                int readDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
-                                if (readDpi >= 100 && readDpi <= 40000)
+                                int readDpiX = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
+                                int readDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
+                                if (readDpiY <= 0) readDpiY = readDpiX;
+                                if (readDpiX >= 100 && readDpiX <= 40000)
                                 {
-                                    curDpi = readDpi;
+                                    curDpi = readDpiX;
                                     activeStage = (CachedDpiStage > 0 ? CachedDpiStage : 1);
                                     stageCount = (CachedDpiStageCount > 0 ? CachedDpiStageCount : 5);
                                     CachedDpi = curDpi;
+                                    CachedDpiY = readDpiY;
+                                    CachedIsXyIndependent = (CachedDpi != CachedDpiY);
+                                    CachedXyRatio = (CachedDpi > 0) ? ((double)CachedDpiY / CachedDpi) : 1.0;
                                     return true;
                                 }
                             }
@@ -1500,20 +1616,17 @@ namespace RazerBatteryTray
 
             lock (hidLock)
             {
-                if (!string.IsNullOrEmpty(normTargetId) && deviceHardwareStates.ContainsKey(normTargetId))
+                var st = TryGetState(normTargetId);
+                if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    var st = deviceHardwareStates[normTargetId];
-                    if (!string.IsNullOrEmpty(st.DevicePath))
+                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                    if (TrySetRazerDpiStageByPath(st.DevicePath, st.ReportLength, st.IsPrepended, targetStage, preferredTid))
                     {
-                        byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                        if (TrySetRazerDpiStageByPath(st.DevicePath, st.ReportLength, st.IsPrepended, targetStage, preferredTid))
-                        {
-                            st.DpiStage = targetStage;
-                            st.LastUpdated = DateTime.Now;
-                            CachedDpiStage = targetStage;
-                            SaveHardwareCache();
-                            return true;
-                        }
+                        st.DpiStage = targetStage;
+                        st.LastUpdated = DateTime.Now;
+                        CachedDpiStage = targetStage;
+                        SaveHardwareCache();
+                        return true;
                     }
                 }
 
@@ -1573,12 +1686,7 @@ namespace RazerBatteryTray
                                                 }
 
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
-                                                RazerDeviceHardwareState st;
-                                                if (!deviceHardwareStates.TryGetValue(curNormId, out st))
-                                                {
-                                                    st = new RazerDeviceHardwareState { DeviceId = curNormId };
-                                                    deviceHardwareStates[curNormId] = st;
-                                                }
+                                                st = GetOrCreateState(curNormId);
                                                 byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
                                                 if (TrySetRazerDpiStageByHandle(handle, caps.FeatureReportByteLength, prepended, targetStage, preferredTid))
                                                 {
@@ -1736,36 +1844,47 @@ namespace RazerBatteryTray
 
         public static bool UpdateRazerHardwareStages(int activeStage, int[] stages, string targetDeviceId = null)
         {
-            if (stages == null || stages.Length == 0) return false;
-            int count = Math.Max(1, Math.Min(5, stages.Length));
+            return UpdateRazerHardwareStages(activeStage, stages, stages, targetDeviceId);
+        }
+
+        public static bool UpdateRazerHardwareStages(int activeStage, int[] stagesX, int[] stagesY, string targetDeviceId = null)
+        {
+            if (stagesX == null || stagesX.Length == 0) return false;
+            if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
+            int count = Math.Max(1, Math.Min(5, stagesX.Length));
             if (activeStage < 1 || activeStage > count) activeStage = 1;
 
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             lock (hidLock)
             {
-                if (!string.IsNullOrEmpty(normTargetId) && deviceHardwareStates.ContainsKey(normTargetId))
+                var st = TryGetState(normTargetId);
+                if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    var st = deviceHardwareStates[normTargetId];
-                    if (!string.IsNullOrEmpty(st.DevicePath))
+                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                    if (TryUpdateRazerHardwareStagesByPath(st.DevicePath, st.ReportLength, st.IsPrepended, activeStage, stagesX, stagesY, count, preferredTid))
                     {
-                        byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                        if (TryUpdateRazerHardwareStagesByPath(st.DevicePath, st.ReportLength, st.IsPrepended, activeStage, stages, count, preferredTid))
-                        {
-                            st.DpiStage = activeStage;
-                            st.DpiStageCount = count;
-                            st.DpiStages = stages;
-                            st.Dpi = stages[activeStage - 1];
-                            st.LastUpdated = DateTime.Now;
+                        st.DpiStage = activeStage;
+                        st.DpiStageCount = count;
+                        st.DpiStages = stagesX;
+                        st.DpiStagesY = stagesY;
+                        st.Dpi = stagesX[activeStage - 1];
+                        st.DpiY = stagesY[activeStage - 1];
+                        st.IsXyIndependent = (st.Dpi != st.DpiY);
+                        st.XyRatio = (st.Dpi > 0) ? ((double)st.DpiY / st.Dpi) : 1.0;
+                        st.LastUpdated = DateTime.Now;
 
-                            CachedDpiStage = activeStage;
-                            CachedDpiStageCount = count;
-                            CachedDpiStages = stages;
-                            CachedDpi = stages[activeStage - 1];
-                            CachedLastUpdated = DateTime.Now;
-                            SaveHardwareCache();
-                            return true;
-                        }
+                        CachedDpiStage = activeStage;
+                        CachedDpiStageCount = count;
+                        CachedDpiStages = stagesX;
+                        CachedDpiStagesY = stagesY;
+                        CachedDpi = stagesX[activeStage - 1];
+                        CachedDpiY = stagesY[activeStage - 1];
+                        CachedIsXyIndependent = (CachedDpi != CachedDpiY);
+                        CachedXyRatio = (CachedDpi > 0) ? ((double)CachedDpiY / CachedDpi) : 1.0;
+                        CachedLastUpdated = DateTime.Now;
+                        SaveHardwareCache();
+                        return true;
                     }
                 }
 
@@ -1825,28 +1944,31 @@ namespace RazerBatteryTray
                                                 }
 
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
-                                                RazerDeviceHardwareState st;
-                                                if (!deviceHardwareStates.TryGetValue(curNormId, out st))
-                                                {
-                                                    st = new RazerDeviceHardwareState { DeviceId = curNormId };
-                                                    deviceHardwareStates[curNormId] = st;
-                                                }
+                                                st = GetOrCreateState(curNormId);
                                                 byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                                                if (TryUpdateRazerHardwareStagesByHandle(handle, caps.FeatureReportByteLength, prepended, activeStage, stages, count, preferredTid))
+                                                if (TryUpdateRazerHardwareStagesByHandle(handle, caps.FeatureReportByteLength, prepended, activeStage, stagesX, stagesY, count, preferredTid))
                                                 {
                                                     st.DevicePath = devicePath;
                                                     st.ReportLength = caps.FeatureReportByteLength;
                                                     st.IsPrepended = prepended;
                                                     st.DpiStage = activeStage;
                                                     st.DpiStageCount = count;
-                                                    st.DpiStages = stages;
-                                                    st.Dpi = stages[activeStage - 1];
+                                                    st.DpiStages = stagesX;
+                                                    st.DpiStagesY = stagesY;
+                                                    st.Dpi = stagesX[activeStage - 1];
+                                                    st.DpiY = stagesY[activeStage - 1];
+                                                    st.IsXyIndependent = (st.Dpi != st.DpiY);
+                                                    st.XyRatio = (st.Dpi > 0) ? ((double)st.DpiY / st.Dpi) : 1.0;
                                                     st.LastUpdated = DateTime.Now;
 
                                                     CachedDpiStage = activeStage;
                                                     CachedDpiStageCount = count;
-                                                    CachedDpiStages = stages;
-                                                    CachedDpi = stages[activeStage - 1];
+                                                    CachedDpiStages = stagesX;
+                                                    CachedDpiStagesY = stagesY;
+                                                    CachedDpi = stagesX[activeStage - 1];
+                                                    CachedDpiY = stagesY[activeStage - 1];
+                                                    CachedIsXyIndependent = (CachedDpi != CachedDpiY);
+                                                    CachedXyRatio = (CachedDpi > 0) ? ((double)CachedDpiY / CachedDpi) : 1.0;
                                                     CachedLastUpdated = DateTime.Now;
                                                     SaveHardwareCache();
 
@@ -1874,13 +1996,13 @@ namespace RazerBatteryTray
             return false;
         }
 
-        private static bool TryUpdateRazerHardwareStagesByPath(string path, int reportLength, bool prepended, int activeStage, int[] stages, int count, byte preferredTid = 0x1F)
+        private static bool TryUpdateRazerHardwareStagesByPath(string path, int reportLength, bool prepended, int activeStage, int[] stagesX, int[] stagesY, int count, byte preferredTid = 0x1F)
         {
             IntPtr handle = CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
             try
             {
-                return TryUpdateRazerHardwareStagesByHandle(handle, reportLength, prepended, activeStage, stages, count, preferredTid);
+                return TryUpdateRazerHardwareStagesByHandle(handle, reportLength, prepended, activeStage, stagesX, stagesY, count, preferredTid);
             }
             finally
             {
@@ -1888,7 +2010,7 @@ namespace RazerBatteryTray
             }
         }
 
-        private static bool TryUpdateRazerHardwareStagesByHandle(IntPtr handle, int reportLength, bool prepended, int activeStage, int[] stages, int count, byte preferredTid = 0x1F)
+        private static bool TryUpdateRazerHardwareStagesByHandle(IntPtr handle, int reportLength, bool prepended, int activeStage, int[] stagesX, int[] stagesY, int count, byte preferredTid = 0x1F)
         {
             int offset = prepended ? 1 : 0;
             byte[] tids = GetAdaptiveTransactionIds(preferredTid);
@@ -1917,11 +2039,12 @@ namespace RazerBatteryTray
                 {
                     int stOffset = 3 + (s * 7);
                     fullPayload[stOffset] = (byte)(s + 1);
-                    int dpi = Math.Max(100, Math.Min(35000, stages[s]));
-                    fullPayload[stOffset + 1] = (byte)((dpi >> 8) & 0xFF);
-                    fullPayload[stOffset + 2] = (byte)(dpi & 0xFF);
-                    fullPayload[stOffset + 3] = (byte)((dpi >> 8) & 0xFF);
-                    fullPayload[stOffset + 4] = (byte)(dpi & 0xFF);
+                    int dpiX = Math.Max(100, Math.Min(35000, stagesX[s]));
+                    int dpiY = (stagesY != null && s < stagesY.Length) ? Math.Max(100, Math.Min(35000, stagesY[s])) : dpiX;
+                    fullPayload[stOffset + 1] = (byte)((dpiX >> 8) & 0xFF);
+                    fullPayload[stOffset + 2] = (byte)(dpiX & 0xFF);
+                    fullPayload[stOffset + 3] = (byte)((dpiY >> 8) & 0xFF);
+                    fullPayload[stOffset + 4] = (byte)(dpiY & 0xFF);
                     fullPayload[stOffset + 5] = 0x00;
                     fullPayload[stOffset + 6] = 0x00;
                 }
@@ -1941,8 +2064,9 @@ namespace RazerBatteryTray
 
             // Phase 2: Dual-Protocol Fallback for mice without onboard stage memory (e.g. DeathAdder Essential, Viper Mini)
             // Directly write active stage DPI into optical sensor register via 0x04 0x05
-            int activeDpi = (activeStage >= 1 && activeStage <= stages.Length) ? stages[activeStage - 1] : stages[0];
-            if (TrySetRazerDpiByHandle(handle, reportLength, prepended, activeDpi, preferredTid))
+            int activeDpiX = (activeStage >= 1 && activeStage <= stagesX.Length) ? stagesX[activeStage - 1] : stagesX[0];
+            int activeDpiY = (stagesY != null && activeStage >= 1 && activeStage <= stagesY.Length) ? stagesY[activeStage - 1] : activeDpiX;
+            if (TrySetRazerDpiByHandle(handle, reportLength, prepended, activeDpiX, activeDpiY, preferredTid))
             {
                 return true;
             }
@@ -1952,24 +2076,34 @@ namespace RazerBatteryTray
 
         public static bool SetRazerDpi(int dpi, string targetDeviceId = null)
         {
+            return SetRazerDpi(dpi, dpi, targetDeviceId);
+        }
+
+        public static bool SetRazerDpi(int dpiX, int dpiY, string targetDeviceId = null)
+        {
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             lock (hidLock)
             {
-                if (!string.IsNullOrEmpty(normTargetId) && deviceHardwareStates.ContainsKey(normTargetId))
+                var st = TryGetState(normTargetId);
+                if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    var st = deviceHardwareStates[normTargetId];
-                    if (!string.IsNullOrEmpty(st.DevicePath))
+                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                    if (TrySetRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, dpiX, dpiY, preferredTid))
                     {
-                        byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                        if (TrySetRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, dpi, preferredTid))
-                        {
-                            st.Dpi = dpi;
-                            st.LastUpdated = DateTime.Now;
-                            CachedDpi = dpi;
-                            SaveHardwareCache();
-                            return true;
-                        }
+                        st.Dpi = dpiX;
+                        st.DpiY = dpiY;
+                        st.IsXyIndependent = (dpiX != dpiY);
+                        st.XyRatio = (dpiX > 0) ? ((double)dpiY / dpiX) : 1.0;
+                        st.LastUpdated = DateTime.Now;
+
+                        CachedDpi = dpiX;
+                        CachedDpiY = dpiY;
+                        CachedIsXyIndependent = (dpiX != dpiY);
+                        CachedXyRatio = (dpiX > 0) ? ((double)dpiY / dpiX) : 1.0;
+                        CachedLastUpdated = DateTime.Now;
+                        SaveHardwareCache();
+                        return true;
                     }
                 }
 
@@ -2029,25 +2163,27 @@ namespace RazerBatteryTray
                                                 }
 
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
-                                                RazerDeviceHardwareState st;
-                                                if (!deviceHardwareStates.TryGetValue(curNormId, out st))
-                                                {
-                                                    st = new RazerDeviceHardwareState { DeviceId = curNormId };
-                                                    deviceHardwareStates[curNormId] = st;
-                                                }
+                                                st = GetOrCreateState(curNormId);
                                                 byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                                                if (TrySetRazerDpiByHandle(handle, caps.FeatureReportByteLength, prepended, dpi, preferredTid))
+                                                if (TrySetRazerDpiByHandle(handle, caps.FeatureReportByteLength, prepended, dpiX, dpiY, preferredTid))
                                                 {
                                                     st.DevicePath = devicePath;
                                                     st.ReportLength = caps.FeatureReportByteLength;
                                                     st.IsPrepended = prepended;
-                                                    st.Dpi = dpi;
+                                                    st.Dpi = dpiX;
+                                                    st.DpiY = dpiY;
+                                                    st.IsXyIndependent = (dpiX != dpiY);
+                                                    st.XyRatio = (dpiX > 0) ? ((double)dpiY / dpiX) : 1.0;
                                                     st.LastUpdated = DateTime.Now;
 
                                                     cachedRazerDpiPath = devicePath;
                                                     cachedRazerReportLength = caps.FeatureReportByteLength;
                                                     cachedRazerPrepended = prepended;
-                                                    CachedDpi = dpi;
+                                                    CachedDpi = dpiX;
+                                                    CachedDpiY = dpiY;
+                                                    CachedIsXyIndependent = (dpiX != dpiY);
+                                                    CachedXyRatio = (dpiX > 0) ? ((double)dpiY / dpiX) : 1.0;
+                                                    CachedLastUpdated = DateTime.Now;
                                                     SaveHardwareCache();
 
                                                     Marshal.FreeHGlobal(detailBuffer);
@@ -2074,13 +2210,13 @@ namespace RazerBatteryTray
             return false;
         }
 
-        private static bool TrySetRazerDpiByPath(string path, int reportLength, bool prepended, int dpi, byte preferredTid = 0x1F)
+        private static bool TrySetRazerDpiByPath(string path, int reportLength, bool prepended, int dpiX, int dpiY, byte preferredTid = 0x1F)
         {
             IntPtr handle = CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
             try
             {
-                return TrySetRazerDpiByHandle(handle, reportLength, prepended, dpi, preferredTid);
+                return TrySetRazerDpiByHandle(handle, reportLength, prepended, dpiX, dpiY, preferredTid);
             }
             finally
             {
@@ -2088,15 +2224,15 @@ namespace RazerBatteryTray
             }
         }
 
-        private static bool TrySetRazerDpiByHandle(IntPtr handle, int reportLength, bool prepended, int dpi, byte preferredTid = 0x1F)
+        private static bool TrySetRazerDpiByHandle(IntPtr handle, int reportLength, bool prepended, int dpiX, int dpiY, byte preferredTid = 0x1F)
         {
             int offset = prepended ? 1 : 0;
             byte[] args = new byte[7];
             args[0] = 0x01; // VARSTORE
-            args[1] = (byte)((dpi >> 8) & 0xFF);
-            args[2] = (byte)(dpi & 0xFF);
-            args[3] = (byte)((dpi >> 8) & 0xFF);
-            args[4] = (byte)(dpi & 0xFF);
+            args[1] = (byte)((dpiX >> 8) & 0xFF);
+            args[2] = (byte)(dpiX & 0xFF);
+            args[3] = (byte)((dpiY >> 8) & 0xFF);
+            args[4] = (byte)(dpiY & 0xFF);
             args[5] = 0x00;
             args[6] = 0x00;
 
@@ -2135,20 +2271,17 @@ namespace RazerBatteryTray
 
             lock (hidLock)
             {
-                if (!string.IsNullOrEmpty(normTargetId) && deviceHardwareStates.ContainsKey(normTargetId))
+                var st = TryGetState(normTargetId);
+                if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    var st = deviceHardwareStates[normTargetId];
-                    if (!string.IsNullOrEmpty(st.DevicePath))
+                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                    if (TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid))
                     {
-                        byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                        if (TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid))
-                        {
-                            st.PollingRate = hz;
-                            st.LastUpdated = DateTime.Now;
-                            CachedPollingRate = hz;
-                            SaveHardwareCache();
-                            return true;
-                        }
+                        st.PollingRate = hz;
+                        st.LastUpdated = DateTime.Now;
+                        CachedPollingRate = hz;
+                        SaveHardwareCache();
+                        return true;
                     }
                 }
 
@@ -2208,12 +2341,7 @@ namespace RazerBatteryTray
                                                 }
 
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
-                                                RazerDeviceHardwareState st;
-                                                if (!deviceHardwareStates.TryGetValue(curNormId, out st))
-                                                {
-                                                    st = new RazerDeviceHardwareState { DeviceId = curNormId };
-                                                    deviceHardwareStates[curNormId] = st;
-                                                }
+                                                st = GetOrCreateState(curNormId);
                                                 byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
                                                 if (TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, rateByte, preferredTid))
                                                 {

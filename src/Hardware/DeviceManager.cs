@@ -413,6 +413,22 @@ namespace RazerBatteryTray
             catch { }
         }
 
+        public static void CleanupDuplicateValkyrieDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c.DeviceId != null && (c.DeviceId.StartsWith("HID:374A:", StringComparison.OrdinalIgnoreCase) || c.DeviceId.StartsWith("HID:347A:", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void UpdateCustomDeviceBattery(string deviceId, int battery, DateTime lastSeen)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
@@ -436,6 +452,7 @@ namespace RazerBatteryTray
 
             CleanupDuplicateLogitechDevices();
             CleanupDuplicateRazerDevices();
+            CleanupDuplicateValkyrieDevices();
 
             List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
 
@@ -524,6 +541,28 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.8 Query Valkyrie (Keyboards, Mice, 2.4G Dongles)
+            try
+            {
+                var vkDevices = ValkyrieDeviceHelper.QueryAllValkyrieDevices();
+                if (vkDevices != null && vkDevices.Count > 0)
+                {
+                    foreach (var dev in vkDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 3. Query Custom Devices (Bluetooth / Generic HID)
             try
             {
@@ -539,6 +578,10 @@ namespace RazerBatteryTray
                                    NuphyDeviceHelper.IsNuphyDevice(cfg.DeviceId) ||
                                    NuphyDeviceHelper.IsNuphyDevice(cfg.OriginalName);
 
+                    bool isValkyrie = ValkyrieDeviceHelper.IsValkyrieDevice(cfg.HardwareFingerprint) ||
+                                      ValkyrieDeviceHelper.IsValkyrieDevice(cfg.DeviceId) ||
+                                      ValkyrieDeviceHelper.IsValkyrieDevice(cfg.OriginalName);
+
                     bool isRazer = (cfg.DeviceId != null && cfg.DeviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase)) ||
                                    (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase));
 
@@ -548,7 +591,8 @@ namespace RazerBatteryTray
                     // Check if already in list (either direct DeviceId match or normalized Razer match)
                     var existDev = list.Find(x => {
                         if (x.DeviceId.Equals(cfg.DeviceId, StringComparison.OrdinalIgnoreCase) ||
-                            (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && x.DeviceId.Equals(cfg.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && x.DeviceId.Equals(cfg.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrEmpty(x.HardwareFingerprint) && x.HardwareFingerprint.Equals(cfg.DeviceId, StringComparison.OrdinalIgnoreCase)))
                         {
                             return true;
                         }
@@ -611,6 +655,18 @@ namespace RazerBatteryTray
                         continue;
                     }
 
+                    if (isValkyrie && list.Exists(x => x.Brand == "Valkyrie" || x.Brand == "瓦尔基里"))
+                    {
+                        var existVk = list.Find(x => x.Brand == "Valkyrie" || x.Brand == "瓦尔基里");
+                        if (existVk != null)
+                        {
+                            existVk.IsCustom = true;
+                            if (cfg.Category != DeviceCategory.Generic) existVk.Category = cfg.Category;
+                            if (!string.IsNullOrEmpty(cfg.CustomName)) existVk.CustomName = cfg.CustomName;
+                        }
+                        continue;
+                    }
+
                     int batt = -1;
                     string friendlyName = null;
                     bool connected = false;
@@ -656,6 +712,14 @@ namespace RazerBatteryTray
                                 batt = LogitechDeviceHelper.GetCachedBatteryForDevice(cfg.DeviceId);
                             }
                         }
+                        else if (isValkyrie)
+                        {
+                            bool isKb = cfg.DeviceId != null && cfg.DeviceId.EndsWith(":KB");
+                            int cachedVk = isKb ? ValkyrieDeviceHelper.CachedKbBattery : ValkyrieDeviceHelper.CachedMouseBattery;
+                            connected = false;
+                            batt = cachedVk > 0 ? cachedVk : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
+                            friendlyName = isKb ? ValkyrieDeviceHelper.CachedKbName : ValkyrieDeviceHelper.CachedMouseName;
+                        }
                         else
                         {
                             bool isChg = false;
@@ -682,7 +746,7 @@ namespace RazerBatteryTray
                     var devInfo = new MouseBatteryInfo();
                     devInfo.DeviceId = cfg.DeviceId;
                     devInfo.HardwareFingerprint = cfg.HardwareFingerprint;
-                    devInfo.Brand = isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : "Custom"));
+                    devInfo.Brand = isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : (isValkyrie ? "Valkyrie" : "Custom")));
                     devInfo.Category = cfg.Category;
                     devInfo.CustomName = cfg.CustomName;
                     devInfo.DeviceName = !string.IsNullOrEmpty(friendlyName) ? friendlyName : (!string.IsNullOrEmpty(cfg.OriginalName) ? cfg.OriginalName : cfg.CustomName);
@@ -697,6 +761,13 @@ namespace RazerBatteryTray
                     {
                         if (devInfo.Category == DeviceCategory.Generic) devInfo.Category = DeviceCategory.Mouse;
                         devInfo.IsCharging = LogitechDeviceHelper.CachedIsCharging;
+                    }
+                    else if (devInfo.Brand == "Valkyrie")
+                    {
+                        if (devInfo.Category == DeviceCategory.Generic)
+                        {
+                            devInfo.Category = (cfg.DeviceId != null && cfg.DeviceId.EndsWith(":KB")) ? DeviceCategory.Keyboard : DeviceCategory.Mouse;
+                        }
                     }
                     else if (devInfo.Brand == "Razer")
                     {
@@ -774,6 +845,13 @@ namespace RazerBatteryTray
                         {
                             int cachedLogi = LogitechDeviceHelper.GetCachedBatteryForDevice(cfg.DeviceId);
                             devInfo.BatteryPercent = cachedLogi > 0 ? cachedLogi : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
+                            devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
+                        }
+                        else if (isValkyrie)
+                        {
+                            bool isKb = cfg.DeviceId != null && cfg.DeviceId.EndsWith(":KB");
+                            int cachedVk = isKb ? ValkyrieDeviceHelper.CachedKbBattery : ValkyrieDeviceHelper.CachedMouseBattery;
+                            devInfo.BatteryPercent = cachedVk > 0 ? cachedVk : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
                             devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
                         }
                         else
@@ -875,6 +953,36 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+
+            // 3.66 Guarantee no duplicate Valkyrie devices in list
+            var vkList = list.FindAll(x => x.Brand == "Valkyrie" || ValkyrieDeviceHelper.IsValkyrieDevice(x.DeviceId));
+            if (vkList.Count > 1)
+            {
+                var vkGroups = new Dictionary<string, List<MouseBatteryInfo>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var d in vkList)
+                {
+                    string key = d.DeviceId ?? "";
+                    if (!vkGroups.ContainsKey(key)) vkGroups[key] = new List<MouseBatteryInfo>();
+                    vkGroups[key].Add(d);
+                }
+                foreach (var kvp in vkGroups)
+                {
+                    if (kvp.Value.Count > 1)
+                    {
+                        var best = kvp.Value.Find(x => x.IsConnected && x.BatteryPercent > 0) ??
+                                   kvp.Value.Find(x => x.IsConnected) ??
+                                   kvp.Value.Find(x => x.IsDonglePresent) ??
+                                   kvp.Value[0];
+                        for (int i = list.Count - 1; i >= 0; i--)
+                        {
+                            if (kvp.Value.Contains(list[i]) && list[i] != best)
+                            {
+                                list.RemoveAt(i);
+                            }
+                        }
+                    }
+                }
+            }
 
             // 3.7 Filter out user-hidden devices
             list.RemoveAll(d => IsDeviceHidden(d.DeviceId));

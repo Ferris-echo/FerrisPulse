@@ -194,9 +194,17 @@ namespace RazerBatteryTray
             nuphySleepMenuItem.Click += (s, e) => {
                 var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
                 bool newEn = !cur.SleepEnabled;
-                NuphyDeviceHelper.SetAutoSleep(newEn);
-                ApplyNuphySettingsToUI();
-                UpdateTrayDeviceMenuItems();
+                ThreadPool.QueueUserWorkItem(_ => {
+                    NuphyDeviceHelper.SetAutoSleep(newEn);
+                    try
+                    {
+                        this.BeginInvoke(new Action(() => {
+                            ApplyNuphySettingsToUI();
+                            UpdateTrayDeviceMenuItems();
+                        }));
+                    }
+                    catch { }
+                });
             };
             nuphySleepMenuItem.Visible = false;
             contextMenu.Items.Add(nuphySleepMenuItem);
@@ -205,9 +213,17 @@ namespace RazerBatteryTray
             nuphyWinLockMenuItem.Click += (s, e) => {
                 var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
                 bool newLock = !cur.WinLock;
-                NuphyDeviceHelper.SetWinLock(newLock);
-                ApplyNuphySettingsToUI();
-                UpdateTrayDeviceMenuItems();
+                ThreadPool.QueueUserWorkItem(_ => {
+                    NuphyDeviceHelper.SetWinLock(newLock);
+                    try
+                    {
+                        this.BeginInvoke(new Action(() => {
+                            ApplyNuphySettingsToUI();
+                            UpdateTrayDeviceMenuItems();
+                        }));
+                    }
+                    catch { }
+                });
             };
             nuphyWinLockMenuItem.Visible = false;
             contextMenu.Items.Add(nuphyWinLockMenuItem);
@@ -220,9 +236,17 @@ namespace RazerBatteryTray
                 int bVal = brightPresets[i];
                 var sub = new ToolStripMenuItem(bVal == 0 ? "关闭背光 (0%)" : (bVal + "% 亮度"));
                 sub.Click += (s, e) => {
-                    NuphyDeviceHelper.SetBacklightBrightness(bVal);
-                    ApplyNuphySettingsToUI();
-                    UpdateTrayDeviceMenuItems();
+                    ThreadPool.QueueUserWorkItem(_ => {
+                        NuphyDeviceHelper.SetBacklightBrightness(bVal);
+                        try
+                        {
+                            this.BeginInvoke(new Action(() => {
+                                ApplyNuphySettingsToUI();
+                                UpdateTrayDeviceMenuItems();
+                            }));
+                        }
+                        catch { }
+                    });
                 };
                 sub.Tag = bVal;
                 nuphyBacklightMenu.DropDownItems.Add(sub);
@@ -234,9 +258,17 @@ namespace RazerBatteryTray
             nuphySidelightMenuItem.Click += (s, e) => {
                 var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
                 bool newSide = !(cur.SidelightEnabled && cur.SidelightBrightness > 0);
-                NuphyDeviceHelper.SetSidelightEnabled(newSide);
-                ApplyNuphySettingsToUI();
-                UpdateTrayDeviceMenuItems();
+                ThreadPool.QueueUserWorkItem(_ => {
+                    NuphyDeviceHelper.SetSidelightEnabled(newSide);
+                    try
+                    {
+                        this.BeginInvoke(new Action(() => {
+                            ApplyNuphySettingsToUI();
+                            UpdateTrayDeviceMenuItems();
+                        }));
+                    }
+                    catch { }
+                });
             };
             nuphySidelightMenuItem.Visible = false;
             contextMenu.Items.Add(nuphySidelightMenuItem);
@@ -274,15 +306,24 @@ namespace RazerBatteryTray
                 SetTrayStyle(0, true);
                 styleCapsuleItem.Checked = true;
                 styleNumItem.Checked = false;
+                stylePureNumItem.Checked = false;
             });
             styleNumItem = new ToolStripMenuItem("醒目数字能量表", null, (s, e) => {
                 SetTrayStyle(1, true);
                 styleCapsuleItem.Checked = false;
                 styleNumItem.Checked = true;
+                stylePureNumItem.Checked = false;
+            });
+            stylePureNumItem = new ToolStripMenuItem("极简纯数字", null, (s, e) => {
+                SetTrayStyle(2, true);
+                styleCapsuleItem.Checked = false;
+                styleNumItem.Checked = false;
+                stylePureNumItem.Checked = true;
             });
             styleCapsuleItem.Checked = (trayStyle == 0);
             styleNumItem.Checked = (trayStyle == 1);
-            styleMenu.DropDownItems.AddRange(new ToolStripItem[] { styleCapsuleItem, styleNumItem });
+            stylePureNumItem.Checked = (trayStyle == 2);
+            styleMenu.DropDownItems.AddRange(new ToolStripItem[] { styleCapsuleItem, styleNumItem, stylePureNumItem });
             contextMenu.Items.Add(styleMenu);
 
             osdStyleMenu = new ToolStripMenuItem("DPI 浮窗样式");
@@ -703,28 +744,38 @@ namespace RazerBatteryTray
             new byte[] { 0x6, 0x9, 0x9, 0x7, 0x1, 0x1, 0x6 }, // 9
         };
 
-        // 5x10 Ultra-Bold Font (0-9): 10px tall, 2px thick strokes for maximum clarity & presence
-        private static readonly ushort[][] BoldDigits5x10 = new ushort[][] {
-            new ushort[] { 0x0E, 0x1F, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1F, 0x0E }, // 0
-            new ushort[] { 0x06, 0x07, 0x07, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03 }, // 1 (width 3, bold column)
-            new ushort[] { 0x0E, 0x1F, 0x13, 0x03, 0x06, 0x0C, 0x18, 0x18, 0x1F, 0x1F }, // 2
-            new ushort[] { 0x1E, 0x1F, 0x03, 0x03, 0x0E, 0x0E, 0x03, 0x03, 0x1F, 0x1E }, // 3
-            new ushort[] { 0x13, 0x13, 0x13, 0x13, 0x1F, 0x1F, 0x03, 0x03, 0x03, 0x03 }, // 4
-            new ushort[] { 0x1F, 0x1F, 0x18, 0x1E, 0x1F, 0x03, 0x03, 0x13, 0x1F, 0x0E }, // 5
-            new ushort[] { 0x0E, 0x1F, 0x18, 0x1E, 0x1F, 0x1B, 0x1B, 0x1B, 0x1F, 0x0E }, // 6
-            new ushort[] { 0x1F, 0x1F, 0x03, 0x03, 0x06, 0x06, 0x0C, 0x0C, 0x18, 0x18 }, // 7
-            new ushort[] { 0x0E, 0x1F, 0x1B, 0x1B, 0x0E, 0x0E, 0x1B, 0x1B, 0x1F, 0x0E }, // 8
-            new ushort[] { 0x0E, 0x1F, 0x1B, 0x1B, 0x1F, 0x0F, 0x03, 0x03, 0x1F, 0x0E }, // 9
+        // 5x11 7-Segment Digital Tube Font (0-9): Sharp angular segments, unbroken 0 and 7, full-height 4
+        // 仅在单数字 1 (电量为 1%) 时采用带底座衬线款；多位数字中采用 2px 饱满数码管直立光杆
+        private static readonly ushort[] DigitalDigit1_Standalone16 = new ushort[] {
+            0x02, 0x06, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x07 // 3x11: 顶勾 + 居中主干 + 底部底座
         };
 
-        // Compact 4x10 '0' for 100% display
-        private static readonly ushort[] BoldDigit0_4x10 = new ushort[] {
-            0x06, 0x0F, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x0F, 0x06
+        private static readonly ushort[][] DigitalDigits5x11 = new ushort[][] {
+            // 0: Full unbroken outer loop (5x11)
+            new ushort[] { 0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F },
+            // 1: 多位数字中的 2px 饱满直立数码管光杆 (2x11)
+            new ushort[] { 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03 },
+            // 2: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x01, 0x01, 0x01, 0x01, 0x1F, 0x10, 0x10, 0x10, 0x10, 0x1F },
+            // 3: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x01, 0x01, 0x01, 0x01, 0x1F, 0x01, 0x01, 0x01, 0x01, 0x1F },
+            // 4: Full-height bold 4 (left stem row 0-5, crossbar row 5, right stem row 0-10)
+            new ushort[] { 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01, 0x01, 0x01 },
+            // 5: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x10, 0x10, 0x10, 0x10, 0x1F, 0x01, 0x01, 0x01, 0x01, 0x1F },
+            // 6: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x10, 0x10, 0x10, 0x10, 0x1F, 0x11, 0x11, 0x11, 0x11, 0x1F },
+            // 7: Top bar + unbroken continuous right vertical (5x11)
+            new ushort[] { 0x1F, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 },
+            // 8: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11, 0x11, 0x1F },
+            // 9: Standard 7-seg (5x11)
+            new ushort[] { 0x1F, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01, 0x01, 0x1F },
         };
 
-        // Compact 2x10 '1' for 100% display
-        private static readonly ushort[] BoldDigit1_2x10 = new ushort[] {
-            0x02, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03
+        // Compact '0' for 100% in 16x16 (4x11)
+        private static readonly ushort[] DigitalDigit0_Compact16 = new ushort[] {
+            0x0F, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x09, 0x0F
         };
 
 
@@ -813,10 +864,15 @@ namespace RazerBatteryTray
                         g.DrawRectangle(border, 0, 0, 23, 23);
 
                     Color digitCol = (brandAccent == Color.FromArgb(0, 229, 255)) ? brandAccent : Color.White;
+                    DrawDigits24(bmp, percent, 11, 5, digitCol, false);
+
                     if (isCharging)
-                        DrawBolt24(bmp, 11, 10, Color.White);
-                    else
-                        DrawDigits24(bmp, percent, 11, 5, digitCol, false);
+                    {
+                        // 充电状态指示灯: 右上角 3x3 醒目电量状态灯，电量数字全程清晰可见
+                        Color ledCol = Color.FromArgb(255, 214, 0);
+                        for (int cy = 2; cy <= 4; cy++)
+                            for (int cx = 19; cx <= 21; cx++) bmp.SetPixel(cx, cy, ledCol);
+                    }
 
                     int barW = (percent < 0) ? 18 : Math.Max(2, (int)(18 * (percent / 100.0)));
                     using (SolidBrush barB = new SolidBrush(accentColor))
@@ -833,10 +889,7 @@ namespace RazerBatteryTray
                     using (SolidBrush fb = new SolidBrush(accentColor))
                         g.FillRectangle(fb, 2, 4, fillW, 16);
 
-                    if (isCharging)
-                        DrawBolt24(bmp, 10, 11, Color.White);
-                    else
-                        DrawDigits24(bmp, percent, 10, 8, Color.White, true);
+                    DrawDigits24(bmp, percent, 10, 8, Color.White, true);
 
                     using (Pen p = new Pen(whiteCol, 1f))
                     {
@@ -850,7 +903,9 @@ namespace RazerBatteryTray
                     bmp.SetPixel(20, 3, whiteCol);
                     bmp.SetPixel(20, 20, whiteCol);
 
-                    using (SolidBrush cap = new SolidBrush(whiteCol))
+                    // 充电状态指示: 胶囊正极端子点亮为醒目金黄色呼吸灯效果
+                    Color capCol = isCharging ? Color.FromArgb(255, 214, 0) : whiteCol;
+                    using (SolidBrush cap = new SolidBrush(capCol))
                         g.FillRectangle(cap, 21, 8, 2, 8);
                 }
             }
@@ -930,17 +985,14 @@ namespace RazerBatteryTray
                         g.DrawRectangle(border, 0, 0, 15, 15);
 
                     Color digitCol = (brandAccent == Color.FromArgb(0, 229, 255)) ? brandAccent : Color.White;
+                    DrawDigits16(bmp, percent, 7, 3, digitCol, false);
+
                     if (isCharging)
                     {
-                        bmp.SetPixel(14, 1, accentColor);
-                        bmp.SetPixel(13, 2, accentColor);
-                        bmp.SetPixel(14, 2, accentColor);
-                        bmp.SetPixel(13, 3, accentColor);
-                        DrawBolt16(bmp, 6, 4, Color.White);
-                    }
-                    else
-                    {
-                        DrawDigits16(bmp, percent, 7, 3, digitCol, false);
+                        // 充电状态指示灯: 右上角 2x2 醒目电量状态灯，电量数字全程清晰可见
+                        Color ledCol = Color.FromArgb(255, 214, 0);
+                        bmp.SetPixel(13, 1, ledCol); bmp.SetPixel(14, 1, ledCol);
+                        bmp.SetPixel(13, 2, ledCol); bmp.SetPixel(14, 2, ledCol);
                     }
 
                     int barW = (percent < 0) ? 12 : Math.Max(2, (int)(12 * (percent / 100.0)));
@@ -954,14 +1006,11 @@ namespace RazerBatteryTray
                     using (SolidBrush bg = new SolidBrush(Color.FromArgb(18, 22, 30)))
                         g.FillRectangle(bg, 1, 3, 12, 10);
 
-                    int fillW = (percent < 0) ? 12 : Math.Max(1, (int)(12 * (percent / 100.0)));
+                    int fillW = (percent < 0) ? 12 : Math.Max(1, (int)(18 * (percent / 100.0)));
                     using (SolidBrush fb = new SolidBrush(accentColor))
                         g.FillRectangle(fb, 1, 3, fillW, 10);
 
-                    if (isCharging)
-                        DrawBolt16(bmp, 6, 5, Color.White);
-                    else
-                        DrawDigits16(bmp, percent, 7, 5, Color.White, true);
+                    DrawDigits16(bmp, percent, 7, 5, Color.White, true);
 
                     using (Pen p = new Pen(whiteCol, 1f))
                     {
@@ -975,7 +1024,9 @@ namespace RazerBatteryTray
                     bmp.SetPixel(13, 2, whiteCol);
                     bmp.SetPixel(13, 13, whiteCol);
 
-                    using (SolidBrush cap = new SolidBrush(whiteCol))
+                    // 充电状态指示: 胶囊正极端子点亮为醒目金黄色呼吸灯效果
+                    Color capCol = isCharging ? Color.FromArgb(255, 214, 0) : whiteCol;
+                    using (SolidBrush cap = new SolidBrush(capCol))
                         g.FillRectangle(cap, 14, 5, 2, 6);
                 }
             }
@@ -1077,78 +1128,186 @@ namespace RazerBatteryTray
             }
         }
 
+        private static readonly byte[] DigitalTubeSegMasks24 = new byte[] {
+            0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
+        };
+
+        private static void DrawDigitalTubeDigit24(Bitmap bmp, int digit, int x, int y, Color color, int w = 8, bool isStandaloneOne = false)
+        {
+            int rightX = x + w - 2;
+
+            if (digit == 0)
+            {
+                // 连贯闭合外框，中间不产生断裂
+                for (int cy = y; cy <= y + 1; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y + 15; cy <= y + 16; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y + 2; cy <= y + 14; cy++)
+                    for (int cx = x; cx < x + 2; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y + 2; cy <= y + 14; cy++)
+                    for (int cx = rightX; cx < rightX + 2; cx++) bmp.SetPixel(cx, cy, color);
+                return;
+            }
+
+            if (digit == 7)
+            {
+                // 顶部横梁 + 右侧完整连贯纵梁，中间无断裂
+                for (int cy = y; cy <= y + 1; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y + 2; cy <= y + 16; cy++)
+                    for (int cx = rightX; cx < rightX + 2; cx++) bmp.SetPixel(cx, cy, color);
+                return;
+            }
+
+            if (digit == 4)
+            {
+                // 饱满等高数字 4: 左侧纵梁 row 0-8，中间横梁 row 7-8 贯通，右侧纵梁 row 0-16 贯通全高
+                for (int cy = y; cy <= y + 8; cy++)
+                    for (int cx = x; cx < x + 2; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y + 7; cy <= y + 8; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+                for (int cy = y; cy <= y + 16; cy++)
+                    for (int cx = rightX; cx < rightX + 2; cx++) bmp.SetPixel(cx, cy, color);
+                return;
+            }
+
+            if (digit == 1)
+            {
+                if (isStandaloneOne)
+                {
+                    // 仅单数字 1 (电量为 1%): 稳重底座与顶部勾檐 (宽度 w = 6)
+                    int stemX = x + (w / 2) - 1;
+                    // 顶部向左勾角 (rows 1-3)
+                    for (int cy = y + 1; cy <= y + 3; cy++)
+                    {
+                        for (int cx = x; cx < stemX; cx++)
+                            bmp.SetPixel(cx, cy, color);
+                    }
+                    // 居中垂直主干 (rows 0-14)
+                    for (int cy = y; cy <= y + 14; cy++)
+                    {
+                        bmp.SetPixel(stemX, cy, color);
+                        bmp.SetPixel(stemX + 1, cy, color);
+                    }
+                    // 底部水平底座横条 (rows 15-16，占满宽度 w)
+                    for (int cy = y + 15; cy <= y + 16; cy++)
+                    {
+                        for (int cx = x; cx < x + w; cx++)
+                            bmp.SetPixel(cx, cy, color);
+                    }
+                }
+                else
+                {
+                    // 多位数字中的 1: 纯正 2px 饱满直立数码管光杆 (占满全高 row 0-16)
+                    int stemX = x + (w - 2) / 2;
+                    for (int cy = y; cy <= y + 16; cy++)
+                    {
+                        bmp.SetPixel(stemX, cy, color);
+                        bmp.SetPixel(stemX + 1, cy, color);
+                    }
+                }
+                return;
+            }
+
+            byte mask = DigitalTubeSegMasks24[digit];
+
+            // A: Top (rows 0-1)
+            if ((mask & 1) != 0)
+                for (int cy = y; cy <= y + 1; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+
+            // B: Top-Right (rows 2-6)
+            if ((mask & 2) != 0)
+                for (int cy = y + 2; cy <= y + 6; cy++)
+                    for (int cx = rightX; cx < rightX + 2; cx++) bmp.SetPixel(cx, cy, color);
+
+            // C: Bottom-Right (rows 9-14)
+            if ((mask & 4) != 0)
+                for (int cy = y + 9; cy <= y + 14; cy++)
+                    for (int cx = rightX; cx < rightX + 2; cx++) bmp.SetPixel(cx, cy, color);
+
+            // D: Bottom (rows 15-16)
+            if ((mask & 8) != 0)
+                for (int cy = y + 15; cy <= y + 16; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+
+            // E: Bottom-Left (rows 9-14)
+            if ((mask & 16) != 0)
+                for (int cy = y + 9; cy <= y + 14; cy++)
+                    for (int cx = x; cx < x + 2; cx++) bmp.SetPixel(cx, cy, color);
+
+            // F: Top-Left (rows 2-6)
+            if ((mask & 32) != 0)
+                for (int cy = y + 2; cy <= y + 6; cy++)
+                    for (int cx = x; cx < x + 2; cx++) bmp.SetPixel(cx, cy, color);
+
+            // G: Middle (rows 7-8)
+            if ((mask & 64) != 0)
+                for (int cy = y + 7; cy <= y + 8; cy++)
+                    for (int cx = x; cx < x + w; cx++) bmp.SetPixel(cx, cy, color);
+        }
+
         private static void DrawPureNumericTrayBitmap24(Bitmap bmp, int percent, bool isCharging, Color color)
         {
             if (percent < 0)
             {
+                // 断联: 居中双破折号数码管状态
                 Color dashCol = color;
-                int y = 11;
-                for (int x = 6; x <= 9; x++) { bmp.SetPixel(x, y, dashCol); bmp.SetPixel(x, y + 1, dashCol); }
-                for (int x = 14; x <= 17; x++) { bmp.SetPixel(x, y, dashCol); bmp.SetPixel(x, y + 1, dashCol); }
+                int dashY = 11;
+                for (int cx = 4; cx <= 9; cx++) { bmp.SetPixel(cx, dashY, dashCol); bmp.SetPixel(cx, dashY + 1, dashCol); }
+                for (int cx = 14; cx <= 19; cx++) { bmp.SetPixel(cx, dashY, dashCol); bmp.SetPixel(cx, dashY + 1, dashCol); }
                 return;
             }
 
             int val = Math.Max(0, Math.Min(100, percent));
-            int fontH = 14;
-            int startY = (24 - fontH) / 2;
+            int startY = 3; // (24 - 17) / 2 = 3.5 -> 3
 
-            string s = val.ToString();
-            int totalW = 0;
-            int[] widths = new int[s.Length];
-            for (int i = 0; i < s.Length; i++)
+            if (val == 100)
             {
-                int d = s[i] - '0';
-                int w = (d == 1) ? 5 : 7;
-                if (val == 100)
-                {
-                    w = (i == 0) ? 3 : 6;
-                }
-                widths[i] = w;
-                totalW += w;
+                int curX = 3;
+                DrawDigitalTubeDigit24(bmp, 1, curX, startY, color, 2, false);
+                curX += 4; // 2 + 2
+                DrawDigitalTubeDigit24(bmp, 0, curX, startY, color, 6, false);
+                curX += 8; // 6 + 2
+                DrawDigitalTubeDigit24(bmp, 0, curX, startY, color, 6, false);
             }
-            totalW += (s.Length - 1) * 2;
-            int curX = (24 - totalW) / 2;
-            if (isCharging) curX = Math.Max(1, curX - 3);
-
-            for (int i = 0; i < s.Length; i++)
+            else if (val == 1)
             {
-                int d = s[i] - '0';
-                int w = widths[i];
-                ushort[] srcRows = (val == 100) ? ((i == 0) ? BoldDigit1_2x10 : BoldDigit0_4x10) : BoldDigits5x10[d];
-                int srcW = (val == 100) ? ((i == 0) ? 2 : 4) : ((d == 1) ? 3 : 5);
-
-                for (int r = 0; r < fontH; r++)
+                // 仅单数字 1 (电量为 1%): 稳重带底座款 (6px 宽, 居中 (24 - 6) / 2 = 9)
+                int curX = (24 - 6) / 2;
+                DrawDigitalTubeDigit24(bmp, 1, curX, startY, color, 6, true);
+            }
+            else
+            {
+                string s = val.ToString();
+                int totalW = 0;
+                int[] widths = new int[s.Length];
+                for (int i = 0; i < s.Length; i++)
                 {
-                    int srcR = (r * 10) / fontH;
-                    ushort row = srcRows[srcR];
-                    for (int c = 0; c < w; c++)
-                    {
-                        int srcC = (c * srcW) / w;
-                        int bit = (srcW - 1) - srcC;
-                        if ((row & (1 << bit)) != 0)
-                        {
-                            int px = curX + c;
-                            int py = startY + r;
-                            if (px >= 0 && px < 24 && py >= 0 && py < 24)
-                                bmp.SetPixel(px, py, color);
-                        }
-                    }
+                    int d = s[i] - '0';
+                    int w = (d == 1) ? 2 : 8; // 多位数字中的 1 采用 2px 饱满光杆
+                    widths[i] = w;
+                    totalW += w;
                 }
-                curX += w + 2;
+                totalW += (s.Length - 1) * 2;
+                int curX = (24 - totalW) / 2;
+
+                for (int i = 0; i < s.Length; i++)
+                {
+                    int d = s[i] - '0';
+                    int w = widths[i];
+                    DrawDigitalTubeDigit24(bmp, d, curX, startY, color, w, false);
+                    curX += w + 2;
+                }
             }
 
             if (isCharging)
             {
-                Color boltCol = Color.FromArgb(255, 235, 59);
-                Point[] pts = new Point[] {
-                    new Point(20, 1), new Point(17, 6), new Point(20, 6),
-                    new Point(18, 11), new Point(23, 5), new Point(20, 5)
-                };
-                using (Graphics g = Graphics.FromImage(bmp))
-                using (SolidBrush b = new SolidBrush(boltCol))
-                {
-                    g.FillPolygon(b, pts);
-                }
+                // 充电状态指示灯: 右上角 3x3 状态指示灯，不挤占数字排版
+                Color ledCol = Color.FromArgb(255, 214, 0);
+                for (int cy = 0; cy <= 2; cy++)
+                    for (int cx = 21; cx <= 23; cx++) bmp.SetPixel(cx, cy, ledCol);
             }
         }
 
@@ -1253,44 +1412,52 @@ namespace RazerBatteryTray
         {
             if (percent < 0)
             {
+                // 断联: 居中双破折号数码管状态
                 Color dashCol = color;
-                int y = 7;
-                for (int x = 4; x <= 6; x++) { bmp.SetPixel(x, y, dashCol); bmp.SetPixel(x, y + 1, dashCol); }
-                for (int x = 9; x <= 11; x++) { bmp.SetPixel(x, y, dashCol); bmp.SetPixel(x, y + 1, dashCol); }
+                for (int x = 3; x <= 6; x++) { bmp.SetPixel(x, 7, dashCol); bmp.SetPixel(x, 8, dashCol); }
+                for (int x = 9; x <= 12; x++) { bmp.SetPixel(x, 7, dashCol); bmp.SetPixel(x, 8, dashCol); }
                 return;
             }
 
             int val = Math.Max(0, Math.Min(100, percent));
-            int startY = 3;
+            int fontH = 11;
+            int startY = 2; // (16 - 11) / 2 = 2
 
             if (val == 100)
             {
-                int curX = isCharging ? 1 : 2;
-                for (int r = 0; r < 10; r++)
+                int curX = 2; // (16 - (2 + 1 + 4 + 1 + 4)) / 2 = 2
+                // '1' (2px 饱满直立光杆)
+                for (int r = 0; r < fontH; r++)
                 {
-                    ushort row = BoldDigit1_2x10[r];
-                    if ((row & 2) != 0) bmp.SetPixel(curX, startY + r, color);
-                    if ((row & 1) != 0) bmp.SetPixel(curX + 1, startY + r, color);
+                    bmp.SetPixel(curX, startY + r, color);
+                    bmp.SetPixel(curX + 1, startY + r, color);
                 }
-                curX += 3;
-                for (int r = 0; r < 10; r++)
+                curX += 3; // 2 + 1
+                // '0' (4px 宽紧凑数码管)
+                for (int r = 0; r < fontH; r++)
                 {
-                    ushort row = BoldDigit0_4x10[r];
+                    ushort row = DigitalDigit0_Compact16[r];
                     for (int c = 0; c < 4; c++)
-                    {
-                        if ((row & (1 << (3 - c))) != 0)
-                            bmp.SetPixel(curX + c, startY + r, color);
-                    }
+                        if ((row & (1 << (3 - c))) != 0) bmp.SetPixel(curX + c, startY + r, color);
                 }
-                curX += 5;
-                for (int r = 0; r < 10; r++)
+                curX += 5; // 4 + 1
+                // '0' (4px 宽紧凑数码管)
+                for (int r = 0; r < fontH; r++)
                 {
-                    ushort row = BoldDigit0_4x10[r];
+                    ushort row = DigitalDigit0_Compact16[r];
                     for (int c = 0; c < 4; c++)
-                    {
-                        if ((row & (1 << (3 - c))) != 0)
-                            bmp.SetPixel(curX + c, startY + r, color);
-                    }
+                        if ((row & (1 << (3 - c))) != 0) bmp.SetPixel(curX + c, startY + r, color);
+                }
+            }
+            else if (val == 1)
+            {
+                // 仅单数字 1 (电量为 1%): 稳重带底座款 (3px 宽, 居中 (16 - 3) / 2 = 6)
+                int curX = (16 - 3) / 2;
+                for (int r = 0; r < fontH; r++)
+                {
+                    ushort row = DigitalDigit1_Standalone16[r];
+                    for (int c = 0; c < 3; c++)
+                        if ((row & (1 << (2 - c))) != 0) bmp.SetPixel(curX + c, startY + r, color);
                 }
             }
             else
@@ -1301,25 +1468,24 @@ namespace RazerBatteryTray
                 for (int i = 0; i < s.Length; i++)
                 {
                     int d = s[i] - '0';
-                    int w = (d == 1) ? 3 : 5;
+                    int w = (d == 1) ? 2 : 5; // 多位数字中的 1 采用 2px 饱满光杆
                     widths[i] = w;
                     totalW += w;
                 }
                 totalW += (s.Length - 1);
                 int curX = (16 - totalW) / 2;
-                if (isCharging) curX = Math.Max(1, curX - 2);
 
                 for (int i = 0; i < s.Length; i++)
                 {
                     int d = s[i] - '0';
                     int w = widths[i];
-                    ushort[] rows = BoldDigits5x10[d];
-                    for (int r = 0; r < 10; r++)
+                    ushort[] rows = DigitalDigits5x11[d];
+                    for (int r = 0; r < fontH; r++)
                     {
                         ushort row = rows[r];
                         for (int c = 0; c < w; c++)
                         {
-                            int bit = (w == 3) ? (2 - c) : (4 - c);
+                            int bit = (w - 1) - c;
                             if ((row & (1 << bit)) != 0)
                             {
                                 int px = curX + c;
@@ -1335,13 +1501,10 @@ namespace RazerBatteryTray
 
             if (isCharging)
             {
-                Color boltCol = Color.FromArgb(255, 235, 59);
-                bmp.SetPixel(14, 0, boltCol);
-                bmp.SetPixel(13, 1, boltCol); bmp.SetPixel(14, 1, boltCol);
-                bmp.SetPixel(12, 2, boltCol); bmp.SetPixel(13, 2, boltCol); bmp.SetPixel(14, 2, boltCol); bmp.SetPixel(15, 2, boltCol);
-                bmp.SetPixel(13, 3, boltCol); bmp.SetPixel(14, 3, boltCol);
-                bmp.SetPixel(13, 4, boltCol);
-                bmp.SetPixel(12, 5, boltCol);
+                // 充电状态指示灯: 右上角 2x2 状态指示灯，不挤占数字排版
+                Color ledCol = Color.FromArgb(255, 214, 0);
+                bmp.SetPixel(14, 0, ledCol); bmp.SetPixel(15, 0, ledCol);
+                bmp.SetPixel(14, 1, ledCol); bmp.SetPixel(15, 1, ledCol);
             }
         }
 

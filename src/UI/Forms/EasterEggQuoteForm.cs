@@ -18,21 +18,25 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class EasterEggQuoteForm : Form
+    public class EasterEggQuoteForm : DpiAwareForm
     {
         private ModernButton btnClose;
         private ModernButton btnConfirm;
 
-        public static void ShowEasterEgg(IWin32Window owner)
+        public static void ShowEasterEgg(IWin32Window owner, float dpiScale = 0f)
         {
-            using (EasterEggQuoteForm form = new EasterEggQuoteForm())
+            using (EasterEggQuoteForm form = new EasterEggQuoteForm(dpiScale))
             {
                 if (owner != null) form.ShowDialog(owner);
                 else form.ShowDialog();
             }
         }
 
-        public EasterEggQuoteForm()
+        public EasterEggQuoteForm() : this(0f)
+        {
+        }
+
+        public EasterEggQuoteForm(float dpiScale) : base(dpiScale)
         {
             InitializeUI();
         }
@@ -45,7 +49,9 @@ namespace RazerBatteryTray
             this.BackColor = Color.FromArgb(18, 20, 26);
             this.ForeColor = Color.White;
             this.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-            this.Size = new Size(520, 360);
+            int formW = Scale(520);
+            int formH = Scale(360);
+            this.ClientSize = new Size(formW, formH);
             this.DoubleBuffered = true;
             this.ShowInTaskbar = false;
             this.TopMost = false;
@@ -61,7 +67,7 @@ namespace RazerBatteryTray
             // 1. 顶部标题栏
             Panel titleBar = new Panel();
             titleBar.Dock = DockStyle.Top;
-            titleBar.Height = 36;
+            titleBar.Height = Scale(36);
             titleBar.BackColor = Color.FromArgb(22, 25, 33);
             titleBar.MouseDown += OnDragMouseDown;
 
@@ -69,7 +75,7 @@ namespace RazerBatteryTray
             lblTitle.Text = "灵脉心语 · Ferris-echo";
             lblTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(160, 172, 195);
-            lblTitle.Location = new Point(20, 9);
+            lblTitle.Location = new Point(Scale(20), Scale(9));
             lblTitle.AutoSize = true;
             lblTitle.MouseDown += OnDragMouseDown;
             titleBar.Controls.Add(lblTitle);
@@ -77,23 +83,27 @@ namespace RazerBatteryTray
             btnClose = new ModernButton();
             btnClose.Text = "✕";
             btnClose.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnClose.Size = new Size(32, 26);
-            btnClose.Location = new Point(520 - 20 - 24, 5);
+            btnClose.Size = new Size(Scale(32), Scale(26));
+            btnClose.Location = new Point(formW - Scale(20) - Scale(24), Scale(5));
             btnClose.NormalColor = Color.Transparent;
             btnClose.HoverColor = Color.FromArgb(232, 17, 35);
             btnClose.PressedColor = Color.FromArgb(180, 10, 25);
             btnClose.ForeColor = Color.FromArgb(180, 180, 180);
-            btnClose.CornerRadius = 4;
+            btnClose.CornerRadius = Scale(4);
             btnClose.Click += delegate(object s, EventArgs e) { this.Close(); };
             titleBar.Controls.Add(btnClose);
 
             this.Controls.Add(titleBar);
 
             // 2. 寄语卡片内容容器 (RoundedCard)
+            int cardPad = Scale(24);
+            int cardTop = Scale(50);
+            int cardW = formW - cardPad * 2;
+            int cardH = formH - cardTop - Scale(74);
             RoundedCard cardQuote = new RoundedCard();
-            cardQuote.Location = new Point(24, 50);
-            cardQuote.Size = new Size(472, 236);
-            cardQuote.CornerRadius = 8;
+            cardQuote.Location = new Point(cardPad, cardTop);
+            cardQuote.Size = new Size(cardW, cardH);
+            cardQuote.CornerRadius = Scale(8);
             cardQuote.CardColor = Color.FromArgb(24, 27, 36);
             cardQuote.BorderColor = Color.FromArgb(48, 55, 72);
             cardQuote.MouseDown += OnDragMouseDown;
@@ -104,7 +114,7 @@ namespace RazerBatteryTray
             lblLine1.Font = new Font("Microsoft YaHei UI", 10.2F, FontStyle.Bold);
             lblLine1.ForeColor = Color.FromArgb(240, 245, 255);
             lblLine1.BackColor = cardQuote.CardColor;
-            lblLine1.Location = new Point(24, 28);
+            lblLine1.Location = new Point(Scale(24), Scale(28));
             lblLine1.AutoSize = true;
             lblLine1.MouseDown += OnDragMouseDown;
             cardQuote.Controls.Add(lblLine1);
@@ -114,7 +124,7 @@ namespace RazerBatteryTray
             lblLine2.Font = new Font("Microsoft YaHei UI", 10.2F, FontStyle.Bold);
             lblLine2.ForeColor = Color.FromArgb(0, 230, 118);
             lblLine2.BackColor = cardQuote.CardColor;
-            lblLine2.Location = new Point(24, 62);
+            lblLine2.Location = new Point(Scale(24), Scale(62));
             lblLine2.AutoSize = true;
             lblLine2.MouseDown += OnDragMouseDown;
             cardQuote.Controls.Add(lblLine2);
@@ -124,7 +134,7 @@ namespace RazerBatteryTray
             lblLine3.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Regular);
             lblLine3.ForeColor = Color.FromArgb(195, 204, 222);
             lblLine3.BackColor = cardQuote.CardColor;
-            lblLine3.Location = new Point(24, 114);
+            lblLine3.Location = new Point(Scale(24), Scale(114));
             lblLine3.AutoSize = true;
             lblLine3.MouseDown += OnDragMouseDown;
             cardQuote.Controls.Add(lblLine3);
@@ -134,34 +144,33 @@ namespace RazerBatteryTray
             lblSign.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Italic);
             lblSign.ForeColor = Color.FromArgb(140, 150, 172);
             lblSign.BackColor = cardQuote.CardColor;
-            lblSign.Location = new Point(320, 186);
             lblSign.AutoSize = true;
+            lblSign.Location = new Point(cardW - Scale(160), cardH - Scale(46));
             lblSign.MouseDown += OnDragMouseDown;
             cardQuote.Controls.Add(lblSign);
 
             this.Controls.Add(cardQuote);
 
             // 3. 底部致意关闭按钮
+            int btnConfirmW = Scale(180);
+            int btnConfirmH = Scale(36);
             btnConfirm = new ModernButton();
             btnConfirm.Text = "知音致意 · 心领神会";
             btnConfirm.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
-            btnConfirm.Location = new Point((520 - 180) / 2, 302);
-            btnConfirm.Size = new Size(180, 36);
+            btnConfirm.Location = new Point((formW - btnConfirmW) / 2, formH - Scale(58));
+            btnConfirm.Size = new Size(btnConfirmW, btnConfirmH);
             btnConfirm.NormalColor = Color.FromArgb(32, 38, 52);
             btnConfirm.HoverColor = Color.FromArgb(0, 200, 83);
             btnConfirm.PressedColor = Color.FromArgb(0, 160, 65);
             btnConfirm.BorderColor = Color.FromArgb(58, 68, 92);
             btnConfirm.ForeColor = Color.White;
-            btnConfirm.CornerRadius = 6;
+            btnConfirm.CornerRadius = Scale(6);
             btnConfirm.Click += delegate(object s, EventArgs e) { this.Close(); };
             this.Controls.Add(btnConfirm);
 
             this.MouseDown += OnDragMouseDown;
 
-            this.HandleCreated += delegate(object s, EventArgs e)
-            {
-                ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-            };
+            // 原生圆角与阴影已由 DpiAwareForm 自动处理
         }
 
         private void OnDragMouseDown(object sender, MouseEventArgs e)

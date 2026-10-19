@@ -1,7 +1,8 @@
 ﻿# build_release_zip.ps1
 # 自动化发布打包脚本（产物已被 .gitignore 忽略，仅供 GitHub/Gitee Releases 附件上传）
-param([string]$Version = "2.0.2")
+param([string]$Version = "2.0.3")
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrEmpty($Version)) { $Version = "2.0.3" }
 $rootDir = (Resolve-Path "$PSScriptRoot\..").Path
 $cleanVer = $Version.TrimStart('v', 'V')
 $zipPath = Join-Path $rootDir "FerrisPulse_v${cleanVer}_Portable.zip"

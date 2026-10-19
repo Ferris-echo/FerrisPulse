@@ -307,16 +307,30 @@ namespace RazerBatteryTray
             {
                 EnsureTlsSecurity();
 
-                // 如果是 github.com 的下载直链，构造高质量镜像地址备用
+                // 如果是 github.com 或 gitee.com 的下载链，构造高质量双平台互备与国内极速直连源
                 List<string> candidateUrls = new List<string>();
+                if (url.Contains("github.com/Ferris-echo/FerrisPulse/releases/download/"))
+                {
+                    candidateUrls.Add(url.Replace("github.com/Ferris-echo/FerrisPulse", "gitee.com/Ferris-echo/ferris-pulse"));
+                }
                 if (url.Contains("github.com/"))
                 {
                     candidateUrls.Add("https://ghproxy.net/" + url);
                     candidateUrls.Add("https://gh-proxy.com/" + url);
                     candidateUrls.Add("https://ghfast.top/" + url);
                 }
-
-                candidateUrls.Add(url);
+                if (url.Contains("gitee.com/Ferris-echo/ferris-pulse/releases/download/"))
+                {
+                    candidateUrls.Add(url);
+                    string ghUrl = url.Replace("gitee.com/Ferris-echo/ferris-pulse", "github.com/Ferris-echo/FerrisPulse");
+                    candidateUrls.Add("https://ghproxy.net/" + ghUrl);
+                    candidateUrls.Add("https://gh-proxy.com/" + ghUrl);
+                    candidateUrls.Add(ghUrl);
+                }
+                if (!candidateUrls.Contains(url))
+                {
+                    candidateUrls.Add(url);
+                }
 
                 string lastError = string.Empty;
 
@@ -516,7 +530,23 @@ namespace RazerBatteryTray
                 MatchCollection itemMatches = Regex.Matches(arrayContent, "\"([^\"]*)\"");
                 foreach (Match m in itemMatches)
                 {
-                    list.Add(m.Groups[1].Value.Replace("\\\"", "\"").Replace("\\\\", "\\"));
+                    string raw = m.Groups[1].Value.Replace("\\\"", "\"").Replace("\\\\", "\\");
+                    if (raw.Contains("【") && raw.IndexOf("【") != raw.LastIndexOf("【"))
+                    {
+                        string[] subItems = Regex.Split(raw, @"(?=【)");
+                        foreach (string sub in subItems)
+                        {
+                            string cleanSub = sub.Trim().TrimEnd(',', '，', ';', '；');
+                            if (!string.IsNullOrEmpty(cleanSub))
+                            {
+                                list.Add(cleanSub);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        list.Add(raw);
+                    }
                 }
             }
             return list;

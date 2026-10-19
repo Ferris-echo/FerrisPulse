@@ -21,7 +21,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class AddDeviceWizardForm : Form
+    public class AddDeviceWizardForm : DpiAwareForm
     {
         public string AddedDeviceId { get; private set; }
 
@@ -37,15 +37,8 @@ namespace RazerBatteryTray
         private System.Windows.Forms.Timer autoScanDebounceTimer;
         private bool isScanning = false;
         private const int WM_DEVICECHANGE = 0x0219;
-        private float dpiScale = 1.0f;
         private List<CustomDeviceConfig> scannedList = new List<CustomDeviceConfig>();
         private HashSet<string> existingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-        }
 
         protected override void WndProc(ref Message m)
         {
@@ -77,11 +70,14 @@ namespace RazerBatteryTray
             }
         }
 
+        public AddDeviceWizardForm() : this(null, 1.0f) { }
+
+        public AddDeviceWizardForm(List<MouseBatteryInfo> existing) : this(existing, 1.0f) { }
+
         public AddDeviceWizardForm(float scale) : this(null, scale) { }
 
-        public AddDeviceWizardForm(List<MouseBatteryInfo> existing, float scale)
+        public AddDeviceWizardForm(List<MouseBatteryInfo> existing, float scale) : base(scale)
         {
-            this.dpiScale = scale;
             if (existing != null)
             {
                 foreach (var d in existing)

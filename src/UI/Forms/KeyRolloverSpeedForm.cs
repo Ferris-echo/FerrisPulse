@@ -22,9 +22,8 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class KeyRolloverSpeedForm : Form
+    public class KeyRolloverSpeedForm : DpiAwareForm
     {
-        private float dpiScale;
         private HashSet<Keys> heldKeys = new HashSet<Keys>();
         private int maxConcurrent = 0;
         private int totalPresses = 0;
@@ -82,9 +81,12 @@ namespace RazerBatteryTray
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
 
-        public KeyRolloverSpeedForm(float scale)
+        public KeyRolloverSpeedForm() : this(0f)
         {
-            this.dpiScale = scale;
+        }
+
+        public KeyRolloverSpeedForm(float scale) : base(scale)
+        {
             this.Text = "FerrisPulse · 机械键盘全键无冲 (NKRO) 测速仪 [独占抢占模式]";
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -218,7 +220,6 @@ namespace RazerBatteryTray
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
             DisableIme();
         }
 

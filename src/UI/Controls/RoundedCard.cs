@@ -70,6 +70,12 @@ namespace RazerBatteryTray
             base.BackColor = cardColor;
         }
 
+        protected override void OnResize(EventArgs eventargs)
+        {
+            base.OnResize(eventargs);
+            Invalidate();
+        }
+
         private Color GetEffectiveParentBackColor()
         {
             Control p = this.Parent;

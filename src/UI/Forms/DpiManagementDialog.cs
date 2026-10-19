@@ -2,7 +2,8 @@
 // 模块名称: DpiManagementDialog.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   鼠标 DPI 档位增删查改管理面板，展示当前传感器型号规格能力、各档位 DPI 列表、实时档位激活切换、输入合法性校验与硬件档位配置同步。
+//   鼠标 DPI 档位增删查改管理面板，展示当前传感器型号规格能力、各档位 DPI 列表、
+//   X/Y 轴独立灵敏度比例快捷调节、实时档位激活切换、输入合法性校验与硬件板载同步。
 // 依赖关系: Controls.DpiStageRowControl, Controls.DpiActionButton, Controls.RoundedCard, Hardware.RazerDeviceHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -21,9 +22,12 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class DpiManagementDialog : Form
+    public class DpiManagementDialog : DpiAwareForm
     {
         public int[] Stages { get; private set; }
+        public int[] StagesY { get; private set; }
+        public bool IsXyIndependent { get; private set; }
+        public double XyRatio { get; private set; }
         public int ActiveStage { get; private set; }
 
         private string deviceName;
@@ -31,10 +35,18 @@ namespace RazerBatteryTray
         private int minDpi;
         private int maxDpi;
         private string sensorDesc;
-        private float dpiScale = 1.0f;
-        private List<int> stageValues = new List<int>();
+        private List<int> stageValuesX = new List<int>();
+        private List<int> stageValuesY = new List<int>();
+        private bool isXyMode = false;
+        private double currentRatio = 1.0;
         private int currentActiveStage = 1;
 
+        private Panel pnlXyBar;
+        private DpiActionButton btnToggleXy;
+        private DpiActionButton btnRatio1_1;
+        private DpiActionButton btnRatio4_3;
+        private DpiActionButton btnRatio16_10;
+        private DpiActionButton btnRatio133;
         private Panel pnlStages;
         private DpiActionButton btnAddStage;
         private Label lblError;
@@ -42,26 +54,38 @@ namespace RazerBatteryTray
         private DpiActionButton btnCancel;
         private List<DpiStageRowControl> rowControls = new List<DpiStageRowControl>();
 
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-        }
-
         public DpiManagementDialog(string devName, int[] initialStages, int currentStage, RazerDeviceHelper.RazerDpiCapability cap)
-            : this(devName, initialStages, currentStage, cap, 0f)
+            : this(devName, initialStages, null, false, currentStage, cap, 1.0f)
         {
         }
 
         public DpiManagementDialog(string devName, int[] initialStages, int currentStage, RazerDeviceHelper.RazerDpiCapability cap, float scale)
+            : this(devName, initialStages, null, false, currentStage, cap, scale)
+        {
+        }
+
+        public DpiManagementDialog(string devName, int[] initialStagesX, int[] initialStagesY, bool isXy, int currentStage, RazerDeviceHelper.RazerDpiCapability cap, float scale = 1.0f)
+            : this(devName, initialStagesX, initialStagesY, isXy, 1.0, currentStage, cap, scale)
+        {
+        }
+
+        public DpiManagementDialog(string devName, int[] initialStagesX, int[] initialStagesY, bool isXy, double xyRatio, int currentStage, RazerDeviceHelper.RazerDpiCapability cap, float scale = 1.0f)
+            : base(scale)
         {
             this.deviceName = devName ?? "外设设备";
-            this.capability = cap ?? new RazerDeviceHelper.RazerDpiCapability { MaxDpi = 35000, MinDpi = 100, Step = 1, Description = "Focus Pro 35K Gen-2 · 1-DPI 精准步进" };
+            this.capability = cap ?? new RazerDeviceHelper.RazerDpiCapability { MaxDpi = 35000, MinDpi = 100, Step = 1, Description = "高精度光学传感器" };
             this.minDpi = (this.capability.MinDpi > 0) ? this.capability.MinDpi : 100;
             this.maxDpi = (this.capability.MaxDpi > 0) ? this.capability.MaxDpi : 35000;
-            this.sensorDesc = !string.IsNullOrEmpty(this.capability.Description) ? this.capability.Description : "Focus Pro 光学传感器";
+            this.sensorDesc = !string.IsNullOrEmpty(this.capability.Description) ? this.capability.Description : "高精度光学传感器";
             this.currentActiveStage = currentStage > 0 ? currentStage : 1;
             this.ActiveStage = this.currentActiveStage;
+            this.isXyMode = isXy;
+            this.IsXyIndependent = isXy;
+            if (xyRatio > 0.1 && xyRatio < 5.0)
+            {
+                this.currentRatio = xyRatio;
+                this.XyRatio = xyRatio;
+            }
 
             if (scale <= 0f)
             {
@@ -77,16 +101,35 @@ namespace RazerBatteryTray
             if (scale < 1.0f) scale = 1.0f;
             this.dpiScale = scale;
 
-            if (initialStages != null && initialStages.Length > 0)
+            if (initialStagesX != null && initialStagesX.Length > 0)
             {
-                for (int i = 0; i < initialStages.Length && i < 5; i++)
+                for (int i = 0; i < initialStagesX.Length && i < 5; i++)
                 {
-                    stageValues.Add(initialStages[i]);
+                    stageValuesX.Add(initialStagesX[i]);
+                    int sy = (initialStagesY != null && i < initialStagesY.Length && initialStagesY[i] > 0) ? initialStagesY[i] : initialStagesX[i];
+                    stageValuesY.Add(sy);
                 }
             }
-            if (stageValues.Count == 0)
+            if (stageValuesX.Count == 0)
             {
-                stageValues.AddRange(new int[] { 400, 800, 1600, 3200, 6400 });
+                stageValuesX.AddRange(new int[] { 400, 800, 1600, 3200, 6400 });
+                stageValuesY.AddRange(new int[] { 400, 800, 1600, 3200, 6400 });
+            }
+
+            // Check if any stage has X != Y
+            for (int i = 0; i < stageValuesX.Count; i++)
+            {
+                if (stageValuesX[i] != stageValuesY[i])
+                {
+                    this.isXyMode = true;
+                    this.IsXyIndependent = true;
+                    break;
+                }
+            }
+
+            if (stageValuesX[0] > 0)
+            {
+                this.currentRatio = (double)stageValuesY[0] / stageValuesX[0];
             }
 
             InitializeUI();
@@ -106,8 +149,8 @@ namespace RazerBatteryTray
             this.ForeColor = Color.White;
             try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch { }
 
-            int clientW = S(360);
-            int clientH = S(446);
+            int clientW = S(420);
+            int clientH = S(500);
             this.ClientSize = new Size(clientW, clientH);
 
             int pad = S(16);
@@ -117,32 +160,77 @@ namespace RazerBatteryTray
             lblTitle.Text = deviceName + " · DPI 档位配置";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(245, 248, 252);
-            lblTitle.Location = new Point(pad, S(14));
+            lblTitle.Location = new Point(pad, S(12));
             lblTitle.Size = new Size(clientW - pad * 2, S(22));
             lblTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblTitle);
 
             // 2. Subtitle / Range Note
             Label lblSub = new Label();
-            lblSub.Text = string.Format("支持 1~5 档 · 范围 {0} ~ {1} DPI (点击数值直接输入)", minDpi, maxDpi.ToString("N0"));
+            lblSub.Text = string.Format("支持 1~5 档 · 范围 {0} ~ {1} DPI (支持 X/Y 轴独立调节)", minDpi, maxDpi.ToString("N0"));
             lblSub.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
             lblSub.ForeColor = Color.FromArgb(120, 135, 155);
-            lblSub.Location = new Point(pad, S(38));
+            lblSub.Location = new Point(pad, S(36));
             lblSub.Size = new Size(clientW - pad * 2, S(16));
             lblSub.BackColor = Color.Transparent;
             this.Controls.Add(lblSub);
 
-            // 3. Stages List Container
+            // 3. XY Mode & Ratio ToolBar Card
+            pnlXyBar = new Panel();
+            pnlXyBar.Location = new Point(pad, S(56));
+            pnlXyBar.Size = new Size(clientW - pad * 2, S(32));
+            pnlXyBar.BackColor = Color.FromArgb(18, 23, 33);
+            pnlXyBar.Paint += (s, e) =>
+            {
+                Rectangle r = new Rectangle(0, 0, pnlXyBar.Width - 1, pnlXyBar.Height - 1);
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(r, S(6)))
+                {
+                    using (Pen p = new Pen(Color.FromArgb(36, 46, 64), 1f))
+                    {
+                        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                        e.Graphics.DrawPath(p, path);
+                    }
+                }
+            };
+            this.Controls.Add(pnlXyBar);
+
+            // Toggle XY Independent Button
+            btnToggleXy = new DpiActionButton(dpiScale);
+            btnToggleXy.Location = new Point(S(4), S(3));
+            btnToggleXy.Size = new Size(S(150), S(26));
+            btnToggleXy.CornerRadius = S(4);
+            btnToggleXy.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Bold);
+            btnToggleXy.Cursor = Cursors.Hand;
+            btnToggleXy.Click += (s, e) => ToggleXyMode();
+            pnlXyBar.Controls.Add(btnToggleXy);
+
+            // Preset: 1:1
+            btnRatio1_1 = CreateRatioButton("1:1", S(158), S(42), 1.0);
+            pnlXyBar.Controls.Add(btnRatio1_1);
+
+            // Preset: 4:3 补偿 (75%)
+            btnRatio4_3 = CreateRatioButton("4:3 (75%)", S(204), S(66), 0.75);
+            pnlXyBar.Controls.Add(btnRatio4_3);
+
+            // Preset: 16:10 补偿 (90%)
+            btnRatio16_10 = CreateRatioButton("16:10 (90%)", S(274), S(68), 0.90);
+            pnlXyBar.Controls.Add(btnRatio16_10);
+
+            // Preset: 1.33x
+            btnRatio133 = CreateRatioButton("1.33x", S(346), S(38), 1.333333);
+            pnlXyBar.Controls.Add(btnRatio133);
+
+            // 4. Stages List Container
             pnlStages = new Panel();
-            pnlStages.Location = new Point(pad, S(60));
-            pnlStages.Size = new Size(clientW - pad * 2, S(240));
+            pnlStages.Location = new Point(pad, S(96));
+            pnlStages.Size = new Size(clientW - pad * 2, S(245));
             pnlStages.BackColor = Color.Transparent;
             pnlStages.AutoScroll = true;
             this.Controls.Add(pnlStages);
 
-            // 4. Add Stage Button
+            // 5. Add Stage Button
             btnAddStage = new DpiActionButton(dpiScale);
-            btnAddStage.Location = new Point(pad, S(306));
+            btnAddStage.Location = new Point(pad, S(348));
             btnAddStage.Size = new Size(clientW - pad * 2, S(30));
             btnAddStage.CornerRadius = S(6);
             btnAddStage.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular);
@@ -150,33 +238,33 @@ namespace RazerBatteryTray
             btnAddStage.Click += (s, e) => AddStage();
             this.Controls.Add(btnAddStage);
 
-            // 5. Error Label
+            // 6. Error Label
             lblError = new Label();
             lblError.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
             lblError.ForeColor = Color.FromArgb(255, 90, 95);
-            lblError.Location = new Point(pad, S(340));
+            lblError.Location = new Point(pad, S(382));
             lblError.Size = new Size(clientW - pad * 2, S(16));
             lblError.BackColor = Color.Transparent;
             lblError.Text = "";
             this.Controls.Add(lblError);
 
-            // 6. Hint Note
+            // 7. Hint Note
             Label lblHint = new Label();
             lblHint.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular);
             lblHint.ForeColor = Color.FromArgb(95, 110, 130);
-            lblHint.Location = new Point(pad, S(360));
+            lblHint.Location = new Point(pad, S(402));
             lblHint.Size = new Size(clientW - pad * 2, S(20));
             lblHint.BackColor = Color.Transparent;
-            lblHint.Text = "提示: 点击「设为激活」生效当前档；保存即刻写入板载。";
+            lblHint.Text = "提示: 点击「设为激活」切换生效档位；保存即刻写入板载存储。";
             this.Controls.Add(lblHint);
 
-            // 7. Bottom Action Buttons: tighter gap S(10), compact buttons
+            // 8. Bottom Action Buttons
             int btnCancelW = S(88);
             int btnSaveW = S(148);
-            int gap = S(10);
+            int gap = S(12);
             int totalBtnW = btnCancelW + gap + btnSaveW;
             int startX = (clientW - totalBtnW) / 2;
-            int btnY = S(392);
+            int btnY = S(436);
 
             btnCancel = new DpiActionButton(dpiScale);
             btnCancel.Text = "取消";
@@ -220,7 +308,88 @@ namespace RazerBatteryTray
                 try { this.ActiveControl = btnSave; } catch { }
             };
 
+            UpdateXyUiState();
             RebuildStageRows();
+        }
+
+        private DpiActionButton CreateRatioButton(string text, int x, int width, double ratio)
+        {
+            DpiActionButton btn = new DpiActionButton(dpiScale);
+            btn.Text = text;
+            btn.Location = new Point(x, S(3));
+            btn.Size = new Size(width, S(26));
+            btn.CornerRadius = S(4);
+            btn.Font = new Font("Segoe UI", 7.6F, FontStyle.Regular);
+            btn.NormalColor = Color.FromArgb(24, 30, 42);
+            btn.HoverColor = Color.FromArgb(34, 44, 62);
+            btn.PressedColor = Color.FromArgb(18, 22, 32);
+            btn.BorderColor = Color.FromArgb(40, 52, 72);
+            btn.ForeColor = Color.FromArgb(160, 175, 195);
+            btn.Cursor = Cursors.Hand;
+            btn.Click += (s, e) => ApplyRatio(ratio);
+            return btn;
+        }
+
+        private void ToggleXyMode()
+        {
+            SaveCurrentInputs();
+            isXyMode = !isXyMode;
+            this.IsXyIndependent = isXyMode;
+            if (!isXyMode)
+            {
+                // Synchronize Y to X when locking back to 1:1
+                for (int i = 0; i < stageValuesX.Count; i++)
+                {
+                    stageValuesY[i] = stageValuesX[i];
+                }
+                currentRatio = 1.0;
+            }
+            UpdateXyUiState();
+            RebuildStageRows();
+        }
+
+        private void ApplyRatio(double ratio)
+        {
+            SaveCurrentInputs();
+            isXyMode = true;
+            this.IsXyIndependent = true;
+            currentRatio = ratio;
+
+            for (int i = 0; i < stageValuesX.Count; i++)
+            {
+                int valX = stageValuesX[i];
+                int valY = (int)Math.Round(valX * ratio);
+                if (valY < minDpi) valY = minDpi;
+                if (valY > maxDpi) valY = maxDpi;
+                stageValuesY[i] = valY;
+            }
+            UpdateXyUiState();
+            RebuildStageRows();
+        }
+
+        private void UpdateXyUiState()
+        {
+            if (btnToggleXy == null) return;
+
+            if (isXyMode)
+            {
+                btnToggleXy.Text = "🔓 X/Y 轴独立模式";
+                btnToggleXy.NormalColor = Color.FromArgb(35, 45, 65);
+                btnToggleXy.HoverColor = Color.FromArgb(45, 58, 82);
+                btnToggleXy.PressedColor = Color.FromArgb(28, 36, 52);
+                btnToggleXy.BorderColor = Color.FromArgb(56, 189, 248);
+                btnToggleXy.ForeColor = Color.FromArgb(56, 189, 248);
+            }
+            else
+            {
+                btnToggleXy.Text = "🔗 锁定等比 (1:1)";
+                btnToggleXy.NormalColor = Color.FromArgb(20, 36, 28);
+                btnToggleXy.HoverColor = Color.FromArgb(26, 48, 36);
+                btnToggleXy.PressedColor = Color.FromArgb(16, 28, 22);
+                btnToggleXy.BorderColor = Color.FromArgb(0, 200, 95);
+                btnToggleXy.ForeColor = Color.FromArgb(0, 230, 118);
+            }
+            btnToggleXy.Invalidate();
         }
 
         private void RebuildStageRows()
@@ -233,13 +402,26 @@ namespace RazerBatteryTray
             int rowGap = S(5);
             int cardW = pnlStages.ClientSize.Width - S(2);
 
-            for (int i = 0; i < stageValues.Count; i++)
+            for (int i = 0; i < stageValuesX.Count; i++)
             {
                 int stageNum = i + 1;
                 int y = i * (rowH + rowGap);
                 bool isActive = (stageNum == currentActiveStage);
 
-                DpiStageRowControl row = new DpiStageRowControl(stageNum, stageValues[i], isActive, (stageValues.Count > 1), minDpi, maxDpi, dpiScale);
+                int valX = stageValuesX[i];
+                int valY = (i < stageValuesY.Count) ? stageValuesY[i] : valX;
+
+                DpiStageRowControl row = new DpiStageRowControl(
+                    stageNum,
+                    valX,
+                    valY,
+                    isXyMode,
+                    isActive,
+                    (stageValuesX.Count > 1),
+                    minDpi,
+                    maxDpi,
+                    dpiScale);
+
                 row.Location = new Point(0, y);
                 row.Size = new Size(cardW, rowH);
 
@@ -265,10 +447,10 @@ namespace RazerBatteryTray
 
             pnlStages.ResumeLayout();
 
-            if (stageValues.Count < 5)
+            if (stageValuesX.Count < 5)
             {
                 btnAddStage.Enabled = true;
-                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/5 档)", stageValues.Count);
+                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/5 档)", stageValuesX.Count);
                 btnAddStage.NormalColor = Color.FromArgb(22, 29, 42);
                 btnAddStage.HoverColor = Color.FromArgb(30, 40, 58);
                 btnAddStage.PressedColor = Color.FromArgb(18, 24, 35);
@@ -290,33 +472,40 @@ namespace RazerBatteryTray
 
         private void SaveCurrentInputs()
         {
-            for (int i = 0; i < rowControls.Count && i < stageValues.Count; i++)
+            for (int i = 0; i < rowControls.Count && i < stageValuesX.Count; i++)
             {
-                stageValues[i] = rowControls[i].DpiValue;
+                stageValuesX[i] = rowControls[i].DpiValue;
+                stageValuesY[i] = isXyMode ? rowControls[i].DpiValueY : stageValuesX[i];
             }
         }
 
         private void AddStage()
         {
-            if (stageValues.Count >= 5) return;
+            if (stageValuesX.Count >= 5) return;
             SaveCurrentInputs();
-            int lastVal = stageValues.Count > 0 ? stageValues[stageValues.Count - 1] : 800;
-            int nextVal = Math.Min(maxDpi, lastVal + 400);
-            stageValues.Add(nextVal);
+            int lastX = stageValuesX.Count > 0 ? stageValuesX[stageValuesX.Count - 1] : 800;
+            int nextX = Math.Min(maxDpi, lastX + 400);
+            int nextY = isXyMode ? (int)Math.Round(nextX * currentRatio) : nextX;
+            if (nextY < minDpi) nextY = minDpi;
+            if (nextY > maxDpi) nextY = maxDpi;
+            stageValuesX.Add(nextX);
+            stageValuesY.Add(nextY);
             RebuildStageRows();
         }
 
         private void RemoveStage(int index)
         {
-            if (stageValues.Count <= 1) return;
+            if (stageValuesX.Count <= 1) return;
             SaveCurrentInputs();
-            if (index >= 0 && index < stageValues.Count)
+            if (index >= 0 && index < stageValuesX.Count)
             {
                 int removedStageNum = index + 1;
-                stageValues.RemoveAt(index);
+                stageValuesX.RemoveAt(index);
+                if (index < stageValuesY.Count) stageValuesY.RemoveAt(index);
+
                 if (currentActiveStage == removedStageNum)
                 {
-                    currentActiveStage = Math.Min(currentActiveStage, stageValues.Count);
+                    currentActiveStage = Math.Min(currentActiveStage, stageValuesX.Count);
                 }
                 else if (currentActiveStage > removedStageNum)
                 {
@@ -332,48 +521,45 @@ namespace RazerBatteryTray
             SaveCurrentInputs();
             lblError.Text = "";
 
-            if (stageValues.Count == 0)
+            if (stageValuesX.Count == 0)
             {
                 lblError.Text = "至少需要保留 1 档 DPI。";
                 return;
             }
 
-            for (int i = 0; i < stageValues.Count; i++)
+            for (int i = 0; i < stageValuesX.Count; i++)
             {
-                int v = stageValues[i];
-                if (v < minDpi || v > maxDpi)
+                int vx = stageValuesX[i];
+                if (vx < minDpi || vx > maxDpi)
                 {
-                    lblError.Text = string.Format("第 {0} 档 DPI ({1}) 超出有效范围 ({2} ~ {3})",
-                        i + 1, v, minDpi, maxDpi.ToString("N0"));
+                    lblError.Text = string.Format("第 {0} 档 X 轴 DPI ({1}) 超出有效范围 ({2} ~ {3})",
+                        i + 1, vx, minDpi, maxDpi.ToString("N0"));
                     return;
+                }
+                if (isXyMode)
+                {
+                    int vy = stageValuesY[i];
+                    if (vy < minDpi || vy > maxDpi)
+                    {
+                        lblError.Text = string.Format("第 {0} 档 Y 轴 DPI ({1}) 超出有效范围 ({2} ~ {3})",
+                            i + 1, vy, minDpi, maxDpi.ToString("N0"));
+                        return;
+                    }
                 }
             }
 
-            if (currentActiveStage < 1 || currentActiveStage > stageValues.Count)
+            if (currentActiveStage < 1 || currentActiveStage > stageValuesX.Count)
             {
                 currentActiveStage = 1;
             }
 
             this.ActiveStage = currentActiveStage;
-            this.Stages = stageValues.ToArray();
+            this.Stages = stageValuesX.ToArray();
+            this.StagesY = isXyMode ? stageValuesY.ToArray() : stageValuesX.ToArray();
+            this.IsXyIndependent = isXyMode;
+            this.XyRatio = currentRatio;
             this.DialogResult = DialogResult.OK;
             this.Close();
-        }
-
-        public static GraphicsPath GetRoundedRect(Rectangle bounds, int radius)
-        {
-            GraphicsPath path = new GraphicsPath();
-            int d = radius * 2;
-            if (d > bounds.Width) d = bounds.Width;
-            if (d > bounds.Height) d = bounds.Height;
-            if (d <= 0) d = 1;
-
-            path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
-            path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
-            path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
-            path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
-            path.CloseFigure();
-            return path;
         }
     }
 }

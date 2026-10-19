@@ -22,12 +22,8 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class GameProcessManagerForm : Form
+    public class GameProcessManagerForm : DpiAwareForm
     {
-        [DllImport("dwmapi.dll")]
-        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-        private float dpiScale;
         private List<string> monitoredList;
         private bool fallbackEnabled;
         private Action<List<string>, bool> onSaveCallback;
@@ -42,15 +38,8 @@ namespace RazerBatteryTray
         private ModernCheckBox chkFallback;
         private ModernButton btnClose;
 
-        protected override void OnHandleCreated(EventArgs e)
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, Action<List<string>, bool> callback) : base(scale)
         {
-            base.OnHandleCreated(e);
-            ModernThemeHelper.ApplyModernWin11Theme(this.Handle);
-        }
-
-        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, Action<List<string>, bool> callback)
-        {
-            this.dpiScale = scale > 0 ? scale : 1.0f;
             this.monitoredList = initialList != null ? new List<string>(initialList) : new List<string>();
             this.fallbackEnabled = initialFallback;
             this.onSaveCallback = callback;

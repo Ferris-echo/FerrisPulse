@@ -23,6 +23,15 @@ namespace RazerBatteryTray
         [DllImport("user32.dll")]
         public static extern bool SetProcessDPIAware();
 
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
+        public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern IntPtr GetModuleHandle(string lpModuleName);
+
         // ==================== System Uptime ====================
         [DllImport("kernel32.dll")]
         public static extern ulong GetTickCount64();
@@ -51,6 +60,7 @@ namespace RazerBatteryTray
         public static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
 
         public const int WM_INPUT = 0x00FF;
+        public const int WM_DPICHANGED = 0x02E0;
         public const int WM_DEVICECHANGE = 0x0219;
         public const int DBT_DEVICEARRIVAL = 0x8000;
         public const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
@@ -62,6 +72,7 @@ namespace RazerBatteryTray
         // ==================== Raw Input ====================
         public const ushort HID_USAGE_PAGE_GENERIC = 0x01;
         public const ushort HID_USAGE_GENERIC_MOUSE = 0x02;
+        public const uint RIDEV_REMOVE = 0x00000001;
         public const uint RIDEV_INPUTSINK = 0x00000100;
         public const uint RID_HEADER = 0x10000005;
         public const uint RIDI_DEVICENAME = 0x20000007;
