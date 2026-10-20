@@ -6,6 +6,8 @@
 //   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)
 //   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态
 //   3. 实时查询与固化写入板载 DPI 档位与 8000Hz 超高回报率
+//   4. 为 RazerButtonMapping.cs 提供 internal 共享: hidLock 互斥锁与
+//      CreateRazerReport 报文构造 (单一 CRC/布局实现, 避免副本漂移)
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHardwareState.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -28,7 +30,7 @@ namespace RazerBatteryTray
 {
     public static class RazerDeviceHelper
     {
-        private static readonly object hidLock = new object();
+        internal static readonly object hidLock = new object();
         private static readonly object stateCacheLock = new object();
         private static readonly Dictionary<string, RazerDeviceHardwareState> deviceHardwareStates =
             new Dictionary<string, RazerDeviceHardwareState>(StringComparer.OrdinalIgnoreCase);
@@ -963,7 +965,7 @@ namespace RazerBatteryTray
             return crc;
         }
 
-        static byte[] CreateRazerReport(byte transactionId, byte commandClass, byte commandId, byte dataSize, int totalLength, bool prependedZero, byte[] args = null)
+        internal static byte[] CreateRazerReport(byte transactionId, byte commandClass, byte commandId, byte dataSize, int totalLength, bool prependedZero, byte[] args = null)
         {
             byte[] report = new byte[totalLength];
             int offset = prependedZero ? 1 : 0;
