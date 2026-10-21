@@ -188,6 +188,8 @@
    - 这会导致文件行数翻倍（每行之间多出一个空行），后续基于行号或精确字符块的替换工具彻底失效，甚至出现“AI 以为改了但实际上没改掉”的诡异现象！
 2. **防范与清洗法宝**：
    - 发现代码行数异常激增时，第一时间用二进制检查是否存在 `b'\r\r\n'`。
+   - **补丁工具行尾漂移（2026-10 实战）**：部分编辑器/补丁工具在替换文本时会把整文件的 LF 统一改写为 CRLF，导致 `git diff` 出现数千行「全文件重写」假差异，真实改动被彻底淹没。
+   - **规避手法**：改动前先用 `python` 读二进制确认目标文件行尾（本仓库 `DeviceManager.cs` 为纯 CRLF 且含 2 处历史 `\r\r\n`，`SonyInzoneHelper.cs` 为纯 LF），随后以 `git show HEAD:path` 取原始字节、只对锚点做二进制 `replace` 后再写回，确保 `git diff --stat` 只剩真实改动行。
    - 编写或运行 `python tools/ensure_boms_safe.py` 进行标准化清洗：`data.replace(b'\r\r\n', b'\r\n')`，并始终保持带签名的 `UTF-8 with BOM`。
 
 ### 3.8 社区开源贡献与代码署名礼仪
@@ -274,6 +276,38 @@
    - 该耳机不支持标准 HID++ `0x1000` / `0x1004` 特性，电量来自 HID++ 4.2 特性 `0x1F20 ADC_MEASUREMENT`。
    - 通信位于 `UsagePage 0xFF43`（20 字节短报文通道），先 Ping 根节点激活，再查询 `0x1F20` 特性索引，发送读取 ADC 指令，得到原始毫伏读数（`ra[4] << 8 | ra[5]`，范围在 2500mV ~ 4300mV 之间）。
    - 通过 12 阶高精度锂电池开路放电电压曲线（3500mV 对应 0%，4200mV 对应 100%）实施分段线性插值计算，精准映射出 0%~100% 百分比。
+
+---
+
+### 3.12 索尼 INZONE 接收器型号扩展实战（Buds 六字节槽 → H5 两字节槽）
+
+#### 1. 拓扑与通道
+- INZONE 全系 2.4G 接收器都是 USB 复合设备：`MI_00` / `MI_03` 为 Chat / Game 两个音频端点，`MI_05` 下挂 5 个 HID 集合。
+- 控制通道固定为 `UsagePage 0xFF04 / Usage 0x0001`、64 字节 In/Out，且 **`FeatureReportByteLength == 0`**：既不能 `HidD_GetFeature`，也不能 `HidD_SetFeature`，只能 `WriteFile` / `ReadFile`。
+- 打开方式：`GENERIC_READ | GENERIC_WRITE` + `FILE_SHARE_READ | FILE_SHARE_WRITE`，与 INZONE Hub 并存互不抢占（官方 Hub 也是共享打开）。
+
+#### 2. 权威逆向来源（三份独立结论一致，可交叉验证）
+- `penguinwokrs/openinzone` → `docs/PROTOCOL.md`（从 INZONE Hub .NET 程序反编译 + 实机验证）
+- `splitbrain/sony-h5-tray` → `src/proto.rs`（专攻 H5，含真实抓包单测）
+- `Sapd/HeadsetControl` 的 INZONE 驱动（第三方语言实现，第三方印证帧格式）
+- 三者一致的关键字：key id `96 C3`、event `0x04` = BatteryInfo、寻址 `0x41` = PC→接收器、应答 `0x14` = 接收器→PC、事件类型 `0x10` = RET。
+
+#### 3. 电池槽宽度随型号变化——不要维护 PID 表
+- 头戴型号（H5 / H7 / H9）只回传 **2 字节**：`[status(=charger), percent]`。
+- 入耳型号（Buds）回传 **6 字节**：`[status_L, pct_L, status_R, pct_R, status_Case, pct_Case]`，`0xFF` 表示该路不在位。
+- 判宽方式：`payloadLen = buffer[1] - 12`（`buffer[1]` 即 HCI 长度）。头戴 `hci_len = 0x0E` → 2 字节；入耳 `hci_len = 0x12` → 6 字节。用宽度自适应分派（`ParseBatteryResponseAuto`）比维护 PID→型号表更能覆盖未来型号。
+- Sony 自家 INZONE Hub 的驱动 inf 里出现过的 PID：`0x0DFD` `0x0E47` `0x0E53` `0x0EBF` `0x0EC2` `0x0F80` `0x0F81` `0x0FA8` `0x0FC0` `0x0FC1`——白名单宜按「VID + UsagePage 能力」匹配，而非固定 PID。
+
+#### 4. 校验和随帧长移动（最易踩空的一步）
+- 事件帧：`checksum = sum(hci[3 .. cs_pos-1]) & 0xFF`；换算到 64 字节报告缓冲区（hci 从 `buffer[2]` 起）即 `sum(buffer[5 .. 2+hci_len-2])`，尾字节位于 `buffer[2 + hci_len - 1]`。
+- 头戴帧：`buffer[15]` 是校验位；入耳帧：`buffer[19]` 是校验位。照搬入耳的固定偏移去解析头戴帧，会把校验和当成「右耳状态」，得出 `0xE6` 这类荒谬电量。
+- 实测样例（H5，100% 未充电）：`02 0E 04 FF 0B 00 96 C3 14 04 10 01 00 00 64 E6`；充电样例：`... 14 04 A0 01 00 01 64 77`。
+
+#### 5. 认知纠偏与降级策略
+- **`054C:0EBF` 不是有线耳机**：INZONE H5（WH-G500）是 2.4GHz 无线头戴、内置锂电（约 33 小时）。通过 dongle 连接时，HID 树上只有接收器，耳机本体不出现；看到 `0EBF` 应按「带电池的接收器」处理，不要因为「看起来是 USB 头戴」就判成无电池设备。
+- 充电状态：头戴型 status 字节即 charger 标志（`!= 0` 充电中）；入耳型的 status 字节恒为 `0x00`，Sony 在 event `0x04` 上**不暴露**充电状态，严禁臆造闪电标记。
+- 耳机未开机时查询超时：保留「接收器在线」占位并显示未连接文案，绝不可把 dongle 标成离线，也不可用 `-1%` 冒充已识别电量。
+- `0xFF13`（62 字节集合）是固件 DFU 通道（Airoha DFU），不要向它发送业务报文；`UP 0xFF03` 无任何报告，`UP 0xFF01` 为通知集合，均与本协议无关。
 
 ---
 
