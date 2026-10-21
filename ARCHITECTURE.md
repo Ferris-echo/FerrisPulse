@@ -55,6 +55,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── MchoseMouseHelper.cs  [迈从 A5 V2 Ultra 三模无线鼠标 WebHID 协议、XY轴独立 DPI 调节与 8K 回报率]
     │   ├── SteelSeriesDeviceHelper.cs [赛睿 Arctis Nova 5 / 5X 无线耳机 0x00B0 报文、UsagePage 0xFFC0 通信]
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
+    │   ├── SonyInzoneHelper.cs [索尼 INZONE 接收器 0xFF04 控制通道、96C3 私有 HCI 帧、Buds 六字节槽 / H5 头戴两字节槽电量与充电]
     │   ├── HidTransport.cs     [零依赖 SetupAPI/HidD 枚举、重叠 I/O 读写与超时取消总线]
     │   ├── BluetoothDeviceHelper.cs [Windows 原生 BLE 电池服务]
     │   ├── GenericHidHelper.cs  [通用 HID 电池报告解析]
