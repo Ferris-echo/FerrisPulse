@@ -117,7 +117,7 @@ D:\FerrisPulse · 灵脉\
 | **迈从 G87 V2 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | 0x13/0x4A 无线、0x09/0x87 有线、校验和含 Report ID、休眠占位与离线缓存 |
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
-| **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |
+| **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序；任务栏常驻仲裁双模式（默认低电量优先 / 手动拖拽排序），注册表键 `TrayLowBatteryFirst` |
 | **按钮、滑块、分段选项卡外观** | `src/UI/Controls/*.cs` | 独立的原子自定义双缓冲 GDI+ 控件 |
 
 ---

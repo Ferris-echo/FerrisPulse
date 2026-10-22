@@ -2,8 +2,9 @@
 // 模块名称: DevicePriorityForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   多外设托盘图标展示优先级调整窗口，承载 PriorityReorderControl，提供保存排序、重置、以及持久化至 ConfigManager 的完整交互。
-// 依赖关系: Controls.PriorityReorderControl, Controls.ModernButton, Core.ConfigManager
+//   多外设托盘图标展示优先级调整窗口，承载 PriorityReorderControl，提供保存排序、重置、
+//   「任务栏常驻仲裁模式（低电量优先 / 手动排序优先）」切换，以及持久化至 Registry 的完整交互。
+// 依赖关系: Controls.PriorityReorderControl, Controls.ModernButton, Controls.ModernCheckBox, Hardware.DeviceManager
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -23,6 +24,7 @@ namespace RazerBatteryTray
         private PriorityReorderControl reorderControl;
         private ModernButton btnSave;
         private ModernButton btnCancel;
+        private ModernCheckBox chkLowBatteryFirst;
 
         public DevicePriorityForm(List<MouseBatteryInfo> devices) : this(devices, 1.0f) { }
 
@@ -49,12 +51,20 @@ namespace RazerBatteryTray
             this.Controls.Add(lblTitle);
 
             var lblTip = new Label();
-            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位。第 1 位设备默认常驻任务栏（离线时自动顺延下一位在线设备）。点击「✕」可移除自定义设备。";
+            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位；点击「✕」可移除自定义设备。开启下方「低电量优先」时，任务栏常驻图标自动展示在线设备中电量最低的一台，拖拽顺序仅作电量并列时的兜底。";
             lblTip.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblTip.ForeColor = Color.FromArgb(145, 155, 175);
             lblTip.Location = new Point(pad, (int)(38 * dpiScale));
-            lblTip.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(32 * dpiScale));
+            lblTip.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(42 * dpiScale));
             this.Controls.Add(lblTip);
+
+            chkLowBatteryFirst = new ModernCheckBox();
+            chkLowBatteryFirst.Text = "任务栏优先显示低电量设备（智能自动排序）";
+            chkLowBatteryFirst.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
+            chkLowBatteryFirst.Location = new Point(pad, (int)(82 * dpiScale));
+            chkLowBatteryFirst.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(22 * dpiScale));
+            chkLowBatteryFirst.Checked = DeviceManager.IsTrayLowBatteryFirstEnabled();
+            this.Controls.Add(chkLowBatteryFirst);
 
             int btnW = (int)(110 * dpiScale);
             int btnH = (int)(34 * dpiScale);
@@ -91,16 +101,19 @@ namespace RazerBatteryTray
                 var ids = new List<string>();
                 foreach (var it in reorderControl.Items) ids.Add(it.DeviceId);
                 DeviceManager.SavePriorityList(ids);
+                DeviceManager.SetTrayLowBatteryFirstEnabled(chkLowBatteryFirst != null && chkLowBatteryFirst.Checked);
                 if (ids.Count > 0) DeviceManager.SetConfiguredPrimaryDeviceId(ids[0]);
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             };
             this.Controls.Add(btnSave);
 
-            int listH = btnY - (int)(76 * dpiScale) - (int)(14 * dpiScale);
+            int listTop = (int)(114 * dpiScale);
+            int listH = btnY - listTop - (int)(10 * dpiScale);
+            if (listH < (int)(120 * dpiScale)) listH = (int)(120 * dpiScale);
             reorderControl = new PriorityReorderControl();
             reorderControl.DpiScale = dpiScale;
-            reorderControl.Location = new Point(pad, (int)(76 * dpiScale));
+            reorderControl.Location = new Point(pad, listTop);
             reorderControl.Size = new Size(this.ClientSize.Width - (pad * 2), listH);
             reorderControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
