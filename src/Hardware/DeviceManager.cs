@@ -1722,6 +1722,14 @@ namespace RazerBatteryTray
                 }
             }
 
+            // 3.68 VHF 虚拟 HID 兜底过滤（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
+            // 这类设备由远程控制软件通过内核 VHF 总线注册，没有物理电池，
+            // 既不是 2.4G 外设也不能监控电量，必须从最终设备列表剔除。
+            list.RemoveAll(delegate(MouseBatteryInfo d)
+            {
+                return VirtualHidFilter.IsVirtualHidIdentity(d.DeviceId, d.HardwareFingerprint, d.HardwareId);
+            });
+
             // 3.7 Filter out user-hidden devices
             list.RemoveAll(d => IsDeviceHidden(d.DeviceId) || (!string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)));
 
