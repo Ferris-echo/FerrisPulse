@@ -37,6 +37,10 @@
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：
   - 新增 `MchoseDeviceHelper`，通过官方 SDK 的 `55 05 00 38 38` 性能配置查询读取 `rf_battery` 与 `isCharging`；实机 2.4G 读到 21%，通用电竞鼠标协议显式隔离 `3837:3033`。
 
+### 🔋 任务栏常驻仲裁 · 低电量优先
+- **默认改为低电量优先**：多台在线设备共存时，任务栏常驻图标自动展示电量最低的一台，让最需要充电的外设第一时间被看到；电量并列或读取失败时按手动拖拽顺序兜底，全部离线时仍回退第 1 位设备的离线记忆电量。
+- **可一键切回手动排序**：托盘右键菜单新增「任务栏优先显示低电量设备」勾选项，设备优先级管理窗口内也提供同步开关，选择持久化至注册表 `TrayLowBatteryFirst`。
+
 ### 🛠️ 底层总线与自动化测试
 - **通用 HID 总线架构**：新增 `HidTransport`，统一 SetupAPI 枚举、HidD 属性/能力查询与重叠 I/O 超时读写，杜绝同步 `ReadFile` 阻塞 UI 轮询线程。
 - **全量契约测试**：新增 `test_sony_inzone_support.ps1`、`test_logitech_g502x_support.ps1`、`test_atk_angrymiao_metapanda.ps1` 与 `test_flydigi_mchose_support.ps1`，全量测试套件 51/51 100% 通过（新增 test_mchose_mouse_support.ps1）。

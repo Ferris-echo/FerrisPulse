@@ -254,6 +254,8 @@ namespace RazerBatteryTray
 
         private ToolStripMenuItem prioMenuItem;
 
+        private ToolStripMenuItem trayLowBatteryFirstMenuItem;
+
         private ToolStripMenuItem addDevMenuItem;
 
         private ToolStripMenuItem createDesktopLnkItem;
@@ -1776,6 +1778,26 @@ namespace RazerBatteryTray
                 dpiOsdMenuItem.Text = "DPI 切换屏幕提示 (OSD)";
 
                 dpiOsdMenuItem.Checked = dpiOsdEnabled;
+
+            }
+
+            if (trayLowBatteryFirstMenuItem != null)
+
+            {
+
+                bool lowBattFirst = DeviceManager.IsTrayLowBatteryFirstEnabled();
+
+                trayLowBatteryFirstMenuItem.Text = "任务栏优先显示低电量设备";
+
+                trayLowBatteryFirstMenuItem.Checked = lowBattFirst;
+
+                if (prioMenuItem != null)
+
+                {
+
+                    prioMenuItem.Text = lowBattFirst ? "设备优先级管理 (低电量优先时作兜底)..." : "设备优先级管理 (拖拽排序)...";
+
+                }
 
             }
 

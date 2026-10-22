@@ -2,7 +2,7 @@
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 // 2. 编码规范：所有文件严格保存为 UTF-8 带签名（BOM）格式，防止中文字符乱码。
 // 3. 架构规范：本文件属于 MainForm 的分部类 (partial class) 之一。修改时请保持职责清晰，任何新增方法或逻辑请同步维护 ARCHITECTURE.md。
-// 模块描述: MainForm 任务栏托盘生命周期、右键上下文菜单、任务栏重启自愈与 GDI+ 矢量图标绘制
+// 模块描述: MainForm 任务栏托盘生命周期、右键上下文菜单（含任务栏常驻「低电量优先 / 手动排序」仲裁切换）、任务栏重启自愈与 GDI+ 矢量图标绘制
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -408,6 +408,11 @@ namespace RazerBatteryTray
             });
             contextMenu.Items.Add(new ToolStripSeparator());
 
+            trayLowBatteryFirstMenuItem = new ToolStripMenuItem("任务栏优先显示低电量设备", null, (s, e) => {
+                SetTrayLowBatteryFirst(!DeviceManager.IsTrayLowBatteryFirstEnabled(), true);
+            });
+            contextMenu.Items.Add(trayLowBatteryFirstMenuItem);
+
             prioMenuItem = new ToolStripMenuItem("设备优先级管理 (拖拽排序)...", null, (s, e) => OpenPriorityManager());
             contextMenu.Items.Add(prioMenuItem);
 
@@ -708,6 +713,40 @@ namespace RazerBatteryTray
             }
         }
 
+
+        /// <summary>
+        /// 切换任务栏常驻仲裁模式：true = 低电量优先（默认），false = 手动拖拽排序优先。
+        /// 切换后立即重排主设备，并刷新托盘图标、菜单勾选与优先级入口文案。
+        /// </summary>
+        private void SetTrayLowBatteryFirst(bool enabled, bool showNotification = false)
+        {
+            DeviceManager.SetTrayLowBatteryFirstEnabled(enabled);
+            if (trayLowBatteryFirstMenuItem != null) trayLowBatteryFirstMenuItem.Checked = enabled;
+            UpdateMenuStatusTexts();
+            try
+            {
+                RefreshBatteryStatus(true);
+            }
+            catch { }
+
+            if (showNotification && trayIcon != null)
+            {
+                try
+                {
+                    if (enabled)
+                    {
+                        trayIcon.ShowBalloonTip(2500, "任务栏常驻 · 低电量优先",
+                            "已切换：多台在线设备中电量最低的一台常驻任务栏，手动排序仅作并列兜底。", ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        trayIcon.ShowBalloonTip(2500, "任务栏常驻 · 手动排序",
+                            "已切换：按设备优先级页面的拖拽顺序展示第一台在线设备。", ToolTipIcon.Info);
+                    }
+                }
+                catch { }
+            }
+        }
 
         [DllImport("user32.dll")]
         static extern int GetSystemMetrics(int nIndex);

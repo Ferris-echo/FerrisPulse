@@ -2,7 +2,8 @@
 // 模块名称: DeviceManager.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理
+//   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理；
+//   托盘常驻设备支持两种仲裁模式：低电量优先 (默认，在线设备中电量最低者常驻任务栏) 与手动拖拽排序优先
 // 依赖关系: 所有品牌 DeviceHelper, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -29,6 +30,7 @@ namespace RazerBatteryTray
         private const string PrimaryDeviceValName = "PrimaryDeviceId";
         private const string PriorityOrderValName = "PriorityOrder";
         private const string AutoSwitchValName = "AutoSwitchPriority";
+        private const string TrayLowBatteryFirstValName = "TrayLowBatteryFirst";
         private const string CustomDevicesRegPath = @"Software\RazerBatteryTray\CustomDevices";
         private const string HiddenDevicesRegPath = @"Software\RazerBatteryTray\HiddenDevices";
 
@@ -208,6 +210,43 @@ namespace RazerBatteryTray
                     if (key != null)
                     {
                         key.SetValue(AutoSwitchValName, enabled ? 1 : 0);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 任务栏常驻仲裁模式查询：
+        /// true  = 低电量优先（默认）—— 多台在线设备中取出电量最低的一台常驻任务栏，手动排序仅作并列兜底；
+        /// false = 手动排序优先 —— 沿用设备优先级页面拖拽顺序，取第一个在线设备。
+        /// </summary>
+        public static bool IsTrayLowBatteryFirstEnabled()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(PrimaryDeviceRegKey, false))
+                {
+                    if (key != null)
+                    {
+                        object v = key.GetValue(TrayLowBatteryFirstValName);
+                        if (v != null) return Convert.ToInt32(v) == 1;
+                    }
+                }
+            }
+            catch { }
+            return true; // 默认开启：优先把最需要充电的设备亮在任务栏上
+        }
+
+        public static void SetTrayLowBatteryFirstEnabled(bool enabled)
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.CreateSubKey(PrimaryDeviceRegKey))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(TrayLowBatteryFirstValName, enabled ? 1 : 0, RegistryValueKind.DWord);
                     }
                 }
             }
@@ -1731,12 +1770,35 @@ namespace RazerBatteryTray
                 list[i].PriorityIndex = i + 1;
             }
 
-            // 托盘常驻设备全自动轮换规则：
-            // list 已严格按用户在设备优先级页面调整的顺序从高到低排列。
-            // 1. 高优先设备在线则展示高优先 (第一个 IsConnected 的设备)；
-            // 2. 高优先设备离线则顺延下一个在线设备；
-            // 3. 如果全部设备都离线，则回退展示第 1 位设备 (list[0])，并展示离线记忆电量！
-            MouseBatteryInfo primary = list.Find(d => d.IsConnected);
+            // 托盘常驻设备仲裁规则 (list 已按设备优先级页面顺序从高到低排列)：
+            // 模式 A · 低电量优先 (默认)：多台在线设备中取出电量最低的一台，让最需要充电的外设第一时间亮在任务栏；
+            //                              电量并列、或电量未知 (<=0) 时，按手动优先级顺序兜底。
+            // 模式 B · 手动排序优先：沿用拖拽排序，取第一个在线设备。
+            // 两种模式下：若全部设备离线，则回退展示第 1 位设备 (list[0])，并展示离线记忆电量！
+            MouseBatteryInfo primary = null;
+            if (IsTrayLowBatteryFirstEnabled())
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var candidate = list[i];
+                    if (!candidate.IsConnected) continue;
+                    if (primary == null)
+                    {
+                        primary = candidate;
+                        continue;
+                    }
+                    int candidateBatt = candidate.BatteryPercent > 0 ? candidate.BatteryPercent : int.MaxValue;
+                    int primaryBatt = primary.BatteryPercent > 0 ? primary.BatteryPercent : int.MaxValue;
+                    if (candidateBatt < primaryBatt)
+                    {
+                        primary = candidate;
+                    }
+                }
+            }
+            if (primary == null)
+            {
+                primary = list.Find(d => d.IsConnected);
+            }
             if (primary == null && list.Count > 0)
             {
                 primary = list[0];
