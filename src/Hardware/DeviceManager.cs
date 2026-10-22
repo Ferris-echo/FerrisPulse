@@ -918,6 +918,43 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.98 Query Acer (OMR 系列 2.4G 无线鼠标 / XCTECH 接收器 249A:5C2F)
+            try
+            {
+                var acerDevices = AcerDeviceHelper.QueryAllAcerDevices();
+                if (acerDevices != null && acerDevices.Count > 0)
+                {
+                    foreach (var dev in acerDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+
             // 2.10 Query Apple & Beats Devices (AirPods, Beats Studio/Fit/Solo, Magic Mouse/Trackpad/Keyboard)
             try
             {
@@ -1684,6 +1721,14 @@ namespace RazerBatteryTray
                     }
                 }
             }
+
+            // 3.68 VHF 虚拟 HID 兜底过滤（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
+            // 这类设备由远程控制软件通过内核 VHF 总线注册，没有物理电池，
+            // 既不是 2.4G 外设也不能监控电量，必须从最终设备列表剔除。
+            list.RemoveAll(delegate(MouseBatteryInfo d)
+            {
+                return VirtualHidFilter.IsVirtualHidIdentity(d.DeviceId, d.HardwareFingerprint, d.HardwareId);
+            });
 
             // 3.7 Filter out user-hidden devices
             list.RemoveAll(d => IsDeviceHidden(d.DeviceId) || (!string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)));

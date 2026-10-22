@@ -260,6 +260,33 @@
 
 ---
 
+#### 6. 宏碁 (Acer) OMR 系列 2.4G 无线鼠标（XCTECH 兮宸代工接收器 `249A:5C2F`）
+- **硬件拓扑**：接收器为三接口复合设备——MI_00 鼠标集合（UsagePage `1` / Usage `2`，8 字节）、MI_01 键盘 + 消费者控制集合、MI_02 厂商通道（UsagePage `0xFF01` / Usage `0x10`，Input/Output 各 33 字节）。**FeatureReportByteLength = 0**，因此只能走 `WriteFile/ReadFile` 的 Input/Output Report，`HidD_SetFeature` 必然失败。
+- **Device ID 即型号指纹**：`0x10` 应答负载 `[5..8]` 为 4 字节 ASCII dev_id（本机实测 `R332`）。型号映射以官方 `Acer MouseHub\config.xml` 的 `<device>/<mode>` 节点为准：`R331` = OMR331 标准版，`R332` = OMR331 旗舰版；同表还包含 OMW143 / OMR212 / OMW120 / OMR319 等 30 余款。
+- **33 字节帧格式（Report ID 0x00）**：
+  - 查询帧：`00 10 00 00 ...`；
+  - 应答帧：`00 10 00 01 0B "R332" 85 01 19 01 00 4E 01 ... cs`；
+  - `[1]=0x10` 命令回显、`[2]=0x00` 成功、`[4]=0x0B` 负载长度、`[5..8]` dev_id、`[9..10]` 固件版本小端（`0x0185` = 1.85）、`[14]` 电量 0..100（实测 `0x4E` = 78%）；`[15]` 为**不稳定状态位**（未充电时实测也会在 `0x01/0x00` 间漂移，且受官方 MouseHub 通道占用影响），**严禁据此判定充电**，充电位尚未定位。尾部 `[32]` 为 `sum([5..31]) & 0xFF` 校验。
+- **兼容与降级**：同时支持有线变体 `248A:5D2E / 5E2E`；官方 Acer MouseHub 会同时占用 MI_02，打开时必须带 `FILE_SHARE_READ|FILE_SHARE_WRITE`。查不到应答时保留“接收器在线”卡片并回显缓存电量，严禁把设备误标离线或伪造 `-1%`。
+- **实测回归依据（2026-10-22）**：`0x10` 返回 `R332 / FW 1.85 / 78%`；未充电状态下 `[15]` 也会在 `0x01/0x00` 间漂移，校验和同步 `0xD9/0xD8`；该字节不可作为充电标志，仅可作为电量解析偏移的固定样本（`tests/test_acer_support.ps1`）。
+- **未完成项**：DPI 档位与回报率写命令尚未定位。`0x1A` 仅返回 `00 1A 00 01 02`，其余 `0x02..0x22` 查询均返回 `[2]=0x02,[3]=0xFF`（不支持），后续需在 MouseHub 下发 DPI/回报率时抓取 TX 帧再补齐。
+
+---
+
+
+#### 7. 瓦尔基里 (Valkyrie) VK 87 Max V2 (`374A:A272`) 的 0xF7 应答变体
+- **现象**：官方固件对 `0xF7` 的应答为 `00 00 57 00 01 01 01 01 ...`。首字节仍是 Report ID 0，但 `[1]` 不再是旧固件的 `0x01`；旧解析因 `rx[0]==0 && rx[1]==1` 不成立而走 `baseOffset=0`，把 `0x57`(87%) 当成 `mouseBatt`，键盘电量保持 0，UI 误显示“免驱 / 0%”。
+- **修正**：`rx[0]==0x00` 时统一按 `baseOffset=1` 解析（负载从 `[1]` 开始）；此时 `kbBatt=[2]`、`devType=[7]`，与实测 87% 吻合。同时在 `GetModelName` 增加 `0xA272 -> "VK 87 Max V2"` 映射。
+- **验证**：实机 VK 87 Max V2 读到 87%，主界面由“免驱 / 0%”恢复为正常电量与已连接状态。
+
+#### 8. 虚拟 HID（VHF）过滤：UU 远程等软件生成的键鼠不是外设
+- **现象**：设备向导会出现 `HID VHF Driver / 2.4G 无线 / HID:5E2A:71B4`，看起来像一台可监控的键盘。
+- **本质**：Windows VHF（Virtual HID Framework）设备。远程控制/串流/按键映射软件通过内核驱动调用 VHF，注册 `HID_DEVICE_SYSTEM_VHF` 子设备，通常包含一个键盘集合与一到两个鼠标集合。
+- **本机实例**：网易 UU 远程（UU Remote）的 `uuycinput.sys`（`LowerFilters=vhf`）创建，硬件 ID `VHF\VID_5E2A&PID_71B4`；`uuycinputmf.sys` 再作为鼠标上层过滤驱动。`5E2A` 不是 USB-IF 注册厂商，只是虚拟标识。
+- **处理**：`VirtualHidFilter` 按 VHF 总线结构识别（`HID_DEVICE_SYSTEM_VHF`、`VHF\VID_`、`vhf#`），在 `GenericHidHelper.ScanGenericHidMice` 扫描阶段直接跳过，并在 `DeviceManager.QueryAllDevices` 末尾做兜底剔除。
+- **为什么不监控**：虚拟设备没有电池、没有物理连接形态，误报“2.4G 无线 / 0%”会误导用户；若用户确实需要远程控制，应由 UU 远程自身管理。
+- **注意**：不要按 `VID_5E2A` 写死黑名单，其它远程/映射软件会使用不同的虚拟 VID/PID；按 VHF 结构识别才能通用。
+
 ### 3.11 无线电竞耳机协议突破（赛睿 Nova 5 / 雷蛇旋风黑鲨 / 罗技 G PRO X）
 
 无线游戏耳机（Headset）在 Windows HID 栈中常具备与普通鼠标截然不同的拓扑特征，接手维护的 Agent 必须警惕以下三大典型陷阱：
