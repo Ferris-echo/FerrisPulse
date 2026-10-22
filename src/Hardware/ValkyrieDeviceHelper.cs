@@ -102,6 +102,7 @@ namespace RazerBatteryTray
                 case 0xA262: return "VK99 Ultra";
                 case 0xA219: return "VK99 Gaming";
                 case 0xA270: return "VK 87 Max V2";
+                case 0xA272: return "VK 87 Max V2";
                 case 0xA267: return "VK 87 V2";
                 case 0xA274: return "VK MAG87 Max";
                 case 0xA250: return "VK 75 PRO";
@@ -803,6 +804,13 @@ namespace RazerBatteryTray
                                             else if (rx[0] == 0x01)
                                             {
                                                 baseOffset = 0; // 无前导字节
+                                            }
+                                            else if (rx[0] == 0x00)
+                                            {
+                                                // 新版固件（Valkyrie VK 87 Max V2 / PID A272）应答为 00 00 57 ...
+                                                // 首字节仍是 Report ID 0，负载从 [1] 开始；
+                                                // 旧逻辑要求 rx[1]==0x01，会把 0x57 电量误当成 mouseBatt 而键盘电量保持 0。
+                                                baseOffset = 1;
                                             }
 
                                             int isCanRead = rx[baseOffset + 0];

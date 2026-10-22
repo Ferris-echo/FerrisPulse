@@ -918,6 +918,43 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.98 Query Acer (OMR 系列 2.4G 无线鼠标 / XCTECH 接收器 249A:5C2F)
+            try
+            {
+                var acerDevices = AcerDeviceHelper.QueryAllAcerDevices();
+                if (acerDevices != null && acerDevices.Count > 0)
+                {
+                    foreach (var dev in acerDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+
             // 2.10 Query Apple & Beats Devices (AirPods, Beats Studio/Fit/Solo, Magic Mouse/Trackpad/Keyboard)
             try
             {
