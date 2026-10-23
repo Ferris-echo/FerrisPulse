@@ -1672,26 +1672,30 @@ namespace RazerBatteryTray
             UpdatePrimaryPinButton(dev);
         }
 
+        // 首轮启动刷新延迟：避开程序刚启动时的键鼠交互高峰，防止设备枚举/私有协议查询抢占无线通道导致鼠标短暂卡顿
+        private const int BootPollFirstDelayMs = 3000;
+        private const int BootPollIntervalMs = 1200;
+        // 刷新重入保护标志：0 = 空闲, 1 = 查询进行中（防止 boot 轮询叠加多次全量查询轰炸鼠标通道）
+        private int refreshRunning = 0;
+
         private void StartBootPolling()
         {
             bootPollCount = 0;
             if (bootPollTimer == null)
             {
                 bootPollTimer = new System.Windows.Forms.Timer();
-                bootPollTimer.Interval = 1200;
                 bootPollTimer.Tick += (s, e) =>
                 {
+                    // 首轮延迟过后恢复正常轮询间隔
+                    if (bootPollTimer.Interval != BootPollIntervalMs)
+                    {
+                        bootPollTimer.Interval = BootPollIntervalMs;
+                    }
                     bootPollCount++;
                     if (lastInfo == null || lastInfo.IsSleeping || !lastInfo.IsConnected || lastInfo.BatteryPercent <= 0)
                     {
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            try
-                            {
-                                this.BeginInvoke(new Action(() => RefreshBatteryStatus(false)));
-                            }
-                            catch { }
-                        });
+                        // RefreshBatteryStatus 自带重入保护：上一次全量查询未完成时自动跳过
+                        RefreshBatteryStatus(false);
                     }
                     if (bootPollCount >= 8 || (lastInfo != null && lastInfo.IsConnected && !lastInfo.IsSleeping && lastInfo.BatteryPercent > 0))
                     {
@@ -1699,6 +1703,7 @@ namespace RazerBatteryTray
                     }
                 };
             }
+            bootPollTimer.Interval = BootPollFirstDelayMs;
             bootPollTimer.Start();
         }
 
@@ -1708,6 +1713,8 @@ namespace RazerBatteryTray
         private void RefreshBatteryStatus(bool showTipIfManual)
         {
             if (PauseBackgroundRefresh) return;
+            // 重入保护：上一次全量查询仍在进行时直接跳过，杜绝 boot 轮询叠加并发查询持续占用鼠标无线通道
+            if (Interlocked.CompareExchange(ref refreshRunning, 1, 0) != 0) return;
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
@@ -1735,6 +1742,10 @@ namespace RazerBatteryTray
                         }));
                     }
                     catch { }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref refreshRunning, 0);
                 }
             });
         }

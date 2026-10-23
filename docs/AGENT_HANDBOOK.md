@@ -277,6 +277,23 @@
 
 ---
 
+### 3.12 启动刷新风暴卡死鼠标（Boot 轮询叠加并发全量查询）
+
+**症状**：程序启动瞬间鼠标完全卡死、键盘正常，持续约 8~10 秒，直到设备全部刷新完毕鼠标才恢复。
+
+**根因（双因子叠加）**：
+1. **Boot 轮询无重入保护**：`MainForm` 构造函数启动瞬间触发一次全量刷新，随后 `StartBootPolling` 每 1.2 秒再触发一次（最多 8 轮）。单次 `QueryAllDevices()` 需串行跑 15+ 品牌 Helper 耗时 2~4 秒，前一次未跑完下一次又到，**多次全量查询在线程池并发叠加**。
+2. **私有协议查询抢占无线通道**：雷柏 VT3 等 2.4G 鼠标的电量查询（`RapooDeviceHelper.ReadRegister` → `Write` + `HidD_GetFeature` × 5 次重试）会让接收器固件忙于应答厂商命令，**期间停止转发鼠标移动报告**。并发轰炸导致鼠标通道被连续占用整个轮询周期（8 × 1.2s ≈ 9.6s，与症状时长精确吻合）。键盘走另一通道故不受影响。
+
+**解法（位于 `MainForm.Hardware.cs`）**：
+1. `RefreshBatteryStatus` 入口加 `Interlocked.CompareExchange(ref refreshRunning, 1, 0)` 重入保护，上一次全量查询未完成时直接跳过，`finally` 中释放。
+2. 构造函数不再立即触发首轮刷新，统一交给 `StartBootPolling`，首轮延迟 3 秒（`BootPollFirstDelayMs = 3000`）避开启动初期键鼠交互高峰，首次 Tick 后恢复 1.2 秒间隔。
+3. Boot 轮询 Tick 内原"线程池→BeginInvoke→RefreshBatteryStatus"三层嵌套简化为直接调用（其自身已含线程池调度与重入保护）。
+
+**铁律**：任何"每 N 秒触发一次全量设备查询"的轮询机制，必须先确认 `RefreshBatteryStatus` 具备重入保护；私有协议（雷柏/VGN/迈从等）对鼠标所在通道的控制传输会物理性暂停鼠标输入上报，查询频次必须克制。
+
+---
+
 ## 4. 版本发布标准作业程序 (Release SOP)
 
 发布新版本是一项严密的工程操作，任何 Agent 在执行发布时必须严格遵循以下标准程序：

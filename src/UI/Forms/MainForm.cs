@@ -901,7 +901,7 @@ namespace RazerBatteryTray
 
 
 
-            RefreshBatteryStatus(false);
+            // 首轮刷新不再启动瞬间立即执行，统一交给 StartBootPolling 延迟 3 秒后触发（避开启动初期键鼠交互高峰，防止雷柏等私有协议查询抢占无线通道卡死鼠标）
 
             StartBootPolling();
 
