@@ -442,27 +442,7 @@ namespace RazerBatteryTray
 
                         // --- 核心防线 1: 硬件 VID 穿透判断 (无论用户改名叫什么，硬件 VID 永生不变) ---
 
-                        bool isAppleHardware = false;
-
-                        if (!string.IsNullOrEmpty(instId))
-
-                        {
-
-                            string upperId = instId.ToUpperInvariant();
-
-                            if (upperId.Contains("VID&0001004C") || upperId.Contains("VID&000205AC") || 
-
-                                upperId.Contains("VID_05AC") || upperId.Contains("VID_004C") ||
-
-                                (upperId.Contains("004C") && upperId.Contains("APPLE")))
-
-                            {
-
-                                isAppleHardware = true;
-
-                            }
-
-                        }
+                        bool isAppleHardware = IsAppleVendorIdentity(instId, fn);
 
 
 
@@ -1154,6 +1134,9 @@ namespace RazerBatteryTray
 
         {
 
+            // GS3108T-PRO reuses Apple VID/PID; its product identity takes precedence.
+            if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
+
             if (vid == AppleVendorId || vid == AppleBluetoothSigVid) return true;
 
             if (!string.IsNullOrEmpty(path))
@@ -1183,6 +1166,22 @@ namespace RazerBatteryTray
             }
 
             return false;
+
+        }
+
+        public static bool IsAppleVendorIdentity(string instanceId, string name)
+
+        {
+
+            if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
+
+            if (string.IsNullOrEmpty(instanceId)) return false;
+
+            string upperId = instanceId.ToUpperInvariant();
+
+            return upperId.Contains("VID&0001004C") || upperId.Contains("VID&000205AC") ||
+                   upperId.Contains("VID_05AC") || upperId.Contains("VID_004C") ||
+                   (upperId.Contains("004C") && upperId.Contains("APPLE"));
 
         }
 
@@ -1863,4 +1862,3 @@ namespace RazerBatteryTray
     }
 
 }
-

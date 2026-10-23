@@ -264,8 +264,8 @@ namespace RazerBatteryTray
             lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblDpiTitle);
 
-            btnDpiStages = new ModernSegmentButton[5];
-            for (int i = 0; i < 5; i++)
+            btnDpiStages = new ModernSegmentButton[6];
+            for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 int index = i;
                 var btn = new ModernSegmentButton();
@@ -374,8 +374,8 @@ namespace RazerBatteryTray
             lblGameDpiTitle = new Label();
             lblGameDpiTitle.Visible = false;
 
-            btnGameDpiStages = new ModernSegmentButton[5];
-            for (int i = 0; i < 5; i++)
+            btnGameDpiStages = new ModernSegmentButton[6];
+            for (int i = 0; i < btnGameDpiStages.Length; i++)
             {
                 int stageNum = i + 1;
                 var btn = new ModernSegmentButton();
@@ -1102,13 +1102,13 @@ namespace RazerBatteryTray
             int gap = (int)(5 * dpiScale);
             int manageBtnW = segH;
 
-            int count = Math.Max(1, Math.Min(5, dpiStageList.Count));
+            int count = Math.Max(1, Math.Min(btnDpiStages.Length, dpiStageList.Count));
             int remainingW = availableW - manageBtnW - gap;
             int stageW = (remainingW - (count - 1) * gap) / count;
 
             dpiStageValues = dpiStageList.ToArray();
 
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 if (i < count)
                 {
@@ -1296,7 +1296,7 @@ namespace RazerBatteryTray
             }
             if (btnGameDpiStages != null)
             {
-                int dpiCount = Math.Max(1, Math.Min(5, dpiStageList.Count));
+                int dpiCount = Math.Max(1, Math.Min(btnGameDpiStages.Length, dpiStageList.Count));
                 int stageW = (availableW - (dpiCount - 1) * gap) / dpiCount;
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
@@ -1502,6 +1502,7 @@ namespace RazerBatteryTray
                 int targetDpiY = (stagesY != null && stagesY.Length > index) ? stagesY[index] : targetDpi;
                 new Thread(() => {
                     bool ok = RapooDeviceHelper.SetRapooDpiStage(targetStage);
+                    if (!ok) return;
                     this.BeginInvoke(new Action(() => {
                         if (curDev != null)
                         {
@@ -1846,7 +1847,7 @@ namespace RazerBatteryTray
             if (lblGameDpiTitle != null) lblGameDpiTitle.Visible = false;
             if (btnGameDpiStages != null)
             {
-                int count = Math.Max(1, Math.Min(5, dpiStageList.Count));
+                int count = Math.Max(1, Math.Min(btnGameDpiStages.Length, dpiStageList.Count));
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
                     if (btnGameDpiStages[i] != null)
@@ -2037,7 +2038,8 @@ namespace RazerBatteryTray
                 cap = RazerDeviceHelper.GetDpiCapability(devName, pid);
             }
 
-            using (var dlg = new DpiManagementDialog(devName, stagesX, stagesY, isXy, xyRatio, curStage, cap))
+            int maxDpiStages = (curDev.Brand == "Rapoo" || curDev.Brand == "雷柏") ? 6 : 5;
+            using (var dlg = new DpiManagementDialog(devName, stagesX, stagesY, isXy, xyRatio, curStage, cap, 1.0f, maxDpiStages))
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
@@ -2051,6 +2053,12 @@ namespace RazerBatteryTray
                     int activeDpiY = newStagesY[activeStage - 1];
                     bool newIsXy = dlg.IsXyIndependent;
                     double newRatio = dlg.XyRatio;
+
+                    if (curDev.Brand == "Rapoo" || curDev.Brand == "雷柏")
+                    {
+                        ApplyRapooDpiConfigurationFromUI(curDev, activeStage, newStagesX, newStagesY, newIsXy, newRatio);
+                        return;
+                    }
 
                     // 1. Immediately apply to in-memory state on UI thread
                     dpiStageList = new List<int>(newStagesX);
@@ -2097,10 +2105,6 @@ namespace RazerBatteryTray
                         {
                             LogitechDeviceHelper.SetLogitechDpi(activeDpiX, activeDpiY, targetDevId);
                         }
-                        else if (devBrand == "Rapoo" || devBrand == "雷柏")
-                        {
-                            RapooDeviceHelper.UpdateRapooHardwareStages(activeStage, newStagesX, newStagesY);
-                        }
                         else
                         {
                             RazerDeviceHelper.UpdateRazerHardwareStages(activeStage, newStagesX, newStagesY, targetDevId);
@@ -2108,6 +2112,37 @@ namespace RazerBatteryTray
                     }) { IsBackground = true }.Start();
                 }
             }
+        }
+
+        private void ApplyRapooDpiConfigurationFromUI(MouseBatteryInfo device, int stage, int[] stagesX, int[] stagesY, bool independent, double ratio)
+        {
+            new Thread(() => {
+                if (!RapooDeviceHelper.UpdateRapooHardwareStages(stage, stagesX, stagesY)) return;
+                try
+                {
+                    this.BeginInvoke(new Action(() => {
+                        if (selectedDevice != device || IsDisposed) return;
+                        // Publish only after all registers were read back successfully.
+                        dpiStageList = new List<int>(stagesX);
+                        dpiStageValues = (int[])stagesX.Clone();
+                        device.DpiStages = (int[])stagesX.Clone();
+                        device.DpiStagesY = (int[])stagesY.Clone();
+                        device.DpiStageCount = stagesX.Length;
+                        device.DpiStage = stage;
+                        device.Dpi = stagesX[stage - 1];
+                        device.DpiY = stagesY[stage - 1];
+                        device.IsXyIndependent = independent;
+                        device.XyRatio = ratio;
+                        SaveCustomDpiStages();
+                        RelayoutDpiButtons();
+                        HighlightDpiStage(stage);
+                        OnDpiChanged("Rapoo", device.Dpi, stage, stagesX.Length, device.DeviceId, device.DpiY);
+                        UpdatePerformanceSection(device, device.BrandColor);
+                        UpdateStatusDisplay();
+                    }));
+                }
+                catch (InvalidOperationException) { }
+            }) { IsBackground = true }.Start();
         }
 
         private void SaveCustomDpiStages()
