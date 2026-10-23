@@ -56,5 +56,23 @@ if ($dev3.DisplayName -ne "Buds4 Pro") {
 }
 Write-Host "PASS Case 3 DisplayName (fallback to model name)" -ForegroundColor Green
 
+# Case 4: Rapoo VT3 uses the requested exact display name; sibling VT3S stays distinct.
+$rapoo = [Activator]::CreateInstance($tInfo)
+$rapoo.Brand = "Rapoo"
+$rapoo.Category = [Enum]::Parse($tCat, "Mouse")
+$rapoo.DeviceName = "雷柏 VT3"
+if ($rapoo.DisplayName -ne "雷柏VT3") {
+    Write-Host ("FAIL Case 4 DisplayName: Expected '雷柏VT3', got '" + $rapoo.DisplayName + "'") -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASS Case 4 Rapoo VT3 display name" -ForegroundColor Green
+
+$rapoo.DeviceName = "雷柏 VT3S"
+if ($rapoo.DisplayName -ne "VT3S") {
+    Write-Host ("FAIL Case 4 VT3S DisplayName: Expected 'VT3S', got '" + $rapoo.DisplayName + "'") -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASS Case 4 VT3S remains distinct" -ForegroundColor Green
+
 Write-Host "`nALL CUSTOM NAME TESTS PASSED!" -ForegroundColor Green
 exit 0

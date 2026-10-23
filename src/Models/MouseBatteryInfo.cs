@@ -265,7 +265,8 @@ namespace RazerBatteryTray
                         if (DeviceName.Contains("VT7")) return "VT7 双模";
                         if (DeviceName.Contains("VT3 Pro Max")) return "VT3 Max";
                         if (DeviceName.Contains("VT3 Pro")) return "VT3 Pro";
-                        if (DeviceName.Contains("VT3")) return "VT3 双模";
+                        if (DeviceName.Equals("雷柏 VT3", StringComparison.OrdinalIgnoreCase) ||
+                            DeviceName.Equals("VT3", StringComparison.OrdinalIgnoreCase)) return "雷柏VT3";
                         if (DeviceName.Contains("VT9 Pro Mini")) return "VT9 Mini";
                         if (DeviceName.Contains("VT9 Pro")) return "VT9 Pro";
                         if (DeviceName.Contains("VT9")) return "VT9 双模";

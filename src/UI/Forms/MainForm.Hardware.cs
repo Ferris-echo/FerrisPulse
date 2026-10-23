@@ -20,6 +20,9 @@ namespace RazerBatteryTray
 {
     public partial class MainForm : Form
     {
+        private DateTime lastRapooRatePollTime = DateTime.MinValue;
+        private int lastMonitoredRapooRate = -1;
+
         private void StartDpiMonitor()
         {
             if (dpiMonitorThread != null && dpiMonitorThread.IsAlive) return;
@@ -171,28 +174,28 @@ namespace RazerBatteryTray
                         }
                     }
 
-                    if (false) { /* [雷柏MCU保护]: 停用 50ms 高频回报率 EEPROM 轮询，杜绝通信死锁
-                    if (RapooDeviceHelper.FastQueryPollingRate(out rRate))
+                    bool isRapooSelected = selectedDevice != null &&
+                        selectedDevice.Category == DeviceCategory.Mouse &&
+                        (selectedDevice.Brand == "Rapoo" || selectedDevice.Brand == "雷柏");
+                    DateTime ratePollNow = DateTime.Now;
+                    if (isRapooSelected && (ratePollNow - lastRapooRatePollTime).TotalMilliseconds >= 1000)
                     {
-                        if (lastMonitoredRapooRate != -1 && rRate != lastMonitoredRapooRate)
+                        lastRapooRatePollTime = ratePollNow;
+                        int rRate;
+                        if (RapooDeviceHelper.FastQueryPollingRate(out rRate) && rRate > 0 &&
+                            rRate != lastMonitoredRapooRate)
                         {
+                            lastMonitoredRapooRate = rRate;
                             int newRate = rRate;
                             try
                             {
                                 this.BeginInvoke(new Action(() => {
-                                    if (selectedDevice != null && (selectedDevice.Brand == "Rapoo" || selectedDevice.Brand == "雷柏"))
-                                    {
-                                        selectedDevice.PollingRate = newRate;
-                                        desktopPollingRate = newRate;
-                                        UpdateDesktopRateButtonSelection(newRate);
-                                        UpdatePollingRateDisplayStates();
-                                        UpdateStatusDisplay();
-                                    }
+                                    ApplyRapooPollingRateFromHardware(newRate);
                                 }));
                             }
-                            catch { }
+                            catch (ObjectDisposedException) { }
+                            catch (InvalidOperationException) { }
                         }
-                        lastMonitoredRapooRate = -1; */
                     }
 
                     // 4. 瓦尔基里设备极速 DPI 监听
@@ -283,6 +286,29 @@ namespace RazerBatteryTray
                 int pollSleep = isMouseSleeping ? 250 : 50; // 鼠标活跃时 50ms 极速响应，按键瞬间 OSD 丝滑弹出；待机时 250ms 静默
                 Thread.Sleep(pollSleep);
             }
+        }
+
+        private void ApplyRapooPollingRateFromHardware(int hz)
+        {
+            if (hz <= 0 || selectedDevice == null || selectedDevice.Category != DeviceCategory.Mouse ||
+                (selectedDevice.Brand != "Rapoo" && selectedDevice.Brand != "雷柏")) return;
+
+            selectedDevice.PollingRate = hz;
+            if (lastInfo != null && string.Equals(lastInfo.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                lastInfo.PollingRate = hz;
+            }
+
+            if (!(isGamingActive && autoGameRateEnabled))
+            {
+                desktopPollingRate = hz;
+                UpdateDesktopRateButtonSelection(hz);
+            }
+            else
+            {
+                UpdatePollingRateDisplayStates();
+            }
+            UpdateStatusDisplay();
         }
 
         private void OnDpiChanged(string brand, int newDpi, int newStage, int stageCount, string deviceId = null, int customDpiY = -1)
@@ -438,14 +464,10 @@ namespace RazerBatteryTray
                         dpiY = curDev.DpiY;
                     }
 
-                    if (targetStage > 0)
-                    {
-                        RapooDeviceHelper.SetRapooDpiStage(targetStage);
-                    }
-                    else
-                    {
-                        RapooDeviceHelper.SetRapooXyDpi(dpi, dpiY, curDev.DpiStage > 0 ? curDev.DpiStage : 1);
-                    }
+                    bool confirmed = targetStage > 0
+                        ? RapooDeviceHelper.SetRapooDpiStage(targetStage)
+                        : RapooDeviceHelper.SetRapooXyDpi(dpi, dpiY, curDev.DpiStage > 0 ? curDev.DpiStage : 1);
+                    if (!confirmed) return;
 
                     this.BeginInvoke(new Action(() => {
                         if (curDev != null)
@@ -776,7 +798,7 @@ namespace RazerBatteryTray
 
         public void SetRapooPollingRateManual(int hz)
         {
-            RapooDeviceHelper.SetRapooPollingRate(hz);
+            if (!RapooDeviceHelper.SetRapooPollingRate(hz)) return;
             if (selectedDevice != null && selectedDevice.Brand == "Rapoo")
             {
                 selectedDevice.PollingRate = hz;
@@ -1612,7 +1634,7 @@ namespace RazerBatteryTray
                     {
                         battText = "⚡ 充电中";
                     }
-                    else if (dev.BatteryPercent > 0)
+                    else if (dev.BatteryPercent > 0 || (dev.Brand == "Rapoo" && dev.BatteryPercent == 0))
                     {
                         battText = dev.BatteryPercent + "%";
                     }
@@ -2719,7 +2741,11 @@ namespace RazerBatteryTray
                 RelayoutPerformanceControls();
                 SetGameRateControlsVisibility(isOptExpanded);
 
-                if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate == 0)
+                if (isRapooMouse && info.PollingRate > 0 && (!isGamingActive || !autoGameRateEnabled))
+                {
+                    desktopPollingRate = info.PollingRate;
+                }
+                else if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate == 0)
                 {
                     desktopPollingRate = info.PollingRate;
                 }
@@ -2864,7 +2890,7 @@ namespace RazerBatteryTray
                 EnableMouseWakeDetector(false);
                 lblDeviceName.Text = info.DisplayName;
 
-                string battDisplay = (info.BatteryPercent > 0 ? info.BatteryPercent.ToString() : "--") + "%";
+                string battDisplay = (info.BatteryPercent >= 0 ? info.BatteryPercent.ToString() : "--") + "%";
                 lblBatteryBig.Text = battDisplay;
                 lblBatteryBig.ForeColor = Color.FromArgb(150, 160, 175);
 
@@ -2987,7 +3013,7 @@ namespace RazerBatteryTray
             }
 
             // Connected mouse with zero/unknown battery (only query cache if device is genuinely sleeping)
-            if (info.BatteryPercent <= 0 && info.Category == DeviceCategory.Mouse && info.IsSleeping)
+            if (info.BatteryPercent < 0 && info.Category == DeviceCategory.Mouse && info.IsSleeping)
             {
                 int cached = -1;
                 if (info.Brand == "Rapoo")
@@ -2999,7 +3025,7 @@ namespace RazerBatteryTray
                     var st = RazerDeviceHelper.GetDeviceState(info.DeviceId);
                     cached = (st != null && st.BatteryPercent > 0) ? st.BatteryPercent : RazerDeviceHelper.CachedBatteryPercent;
                 }
-                info.BatteryPercent = cached > 0 ? cached : -1;
+                info.BatteryPercent = cached >= 0 ? cached : -1;
             }
 
             if (info.IsSleeping)
@@ -3014,7 +3040,7 @@ namespace RazerBatteryTray
                 Color sleepColor = Color.FromArgb(255, 183, 77); // Warm amber
                 lblDeviceName.Text = info.DisplayName;
 
-                string battDisplay = (info.BatteryPercent > 0 ? (info.BatteryPercent.ToString() + "%") : "--");
+                string battDisplay = (info.BatteryPercent >= 0 ? (info.BatteryPercent.ToString() + "%") : "--");
 
                 lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
                 lblBatteryBig.Text = battDisplay;
@@ -3025,7 +3051,7 @@ namespace RazerBatteryTray
 
                 barBattery.StopFlow(info.BatteryPercent, sleepColor);
 
-                string timeStr = info.LastUpdated.ToString("HH:mm:ss");
+                string timeStr = info.LastUpdated == DateTime.MinValue ? "尚未取得电量" : info.LastUpdated.ToString("HH:mm:ss");
                 string wakeTip = (info.Category == DeviceCategory.Mouse) ? " · 移动鼠标即刻唤醒" : " · 待机中";
                 lblUpdateTime.Text = "最后同步: " + timeStr + wakeTip;
 
@@ -3104,7 +3130,7 @@ namespace RazerBatteryTray
                 barBattery.StopFlow(info.BatteryPercent, accentColor);
             }
 
-            string normalTimeStr = info.LastUpdated.ToString("HH:mm:ss");
+            string normalTimeStr = info.LastUpdated == DateTime.MinValue ? "尚未取得电量" : info.LastUpdated.ToString("HH:mm:ss");
             string chgDetail = info.IsCharging ? " · 正在充电" : " · 自动侦测硬件插拔";
             lblUpdateTime.Text = "最后同步: " + normalTimeStr + chgDetail;
 
@@ -3118,7 +3144,7 @@ namespace RazerBatteryTray
 
                 if (lowBatteryAlertEnabled && !info.IsCharging)
                 {
-                    if (info.BatteryPercent <= 20)
+                    if (info.BatteryPercent >= 0 && info.BatteryPercent <= 20)
                     {
                         if (!lastLowAlertFired)
                         {

@@ -308,6 +308,7 @@ namespace RazerBatteryTray
                                             SaveCustomDevice(cfg);
                                         }
 
+                                        if (GanssDeviceHelper.NormalizeConfig(cfg)) SaveCustomDevice(cfg);
                                         list.Add(cfg);
                                     }
                                 }
@@ -646,6 +647,14 @@ namespace RazerBatteryTray
                         }
                     }
                 }
+            }
+            catch { }
+
+            // GS3108T-PRO: identify by product string AND descriptor, never Apple VID alone.
+            try
+            {
+                var ganss = GanssDeviceHelper.QueryDevice();
+                if (ganss != null) list.Add(ganss);
             }
             catch { }
 
@@ -1255,6 +1264,17 @@ namespace RazerBatteryTray
                         continue;
                     }
 
+                    if (GanssDeviceHelper.IsKnownKeyboardName(cfg.OriginalName))
+                    {
+                        var knownGanss = list.Find(x => GanssDeviceHelper.MatchesDeviceModel(cfg, x));
+                        if (knownGanss != null)
+                        {
+                            knownGanss.IsCustom = true;
+                            if (!string.IsNullOrEmpty(cfg.CustomName)) knownGanss.CustomName = cfg.CustomName;
+                            continue;
+                        }
+                    }
+
                     int batt = -1;
                     string friendlyName = null;
                     bool connected = false;
@@ -1354,7 +1374,7 @@ namespace RazerBatteryTray
                             else
                             {
                                 connected = false;
-                                batt = RapooDeviceHelper.CachedBatteryPercent > 0 ? RapooDeviceHelper.CachedBatteryPercent : -1;
+                                batt = RapooDeviceHelper.CachedBatteryPercent >= 0 ? RapooDeviceHelper.CachedBatteryPercent : -1;
                             }
                         }
                         else if (isHyperX)
@@ -1430,6 +1450,7 @@ namespace RazerBatteryTray
                     else if (devInfo.Brand == "Rapoo" || devInfo.Brand == "雷柏")
                     {
                         if (devInfo.Category == DeviceCategory.Generic) devInfo.Category = DeviceCategory.Mouse;
+                        devInfo.IsCharging = connected && RapooDeviceHelper.CachedIsCharging;
                     }
                     else if (devInfo.Brand == "Valkyrie" || devInfo.Brand == "瓦尔基里")
                     {
@@ -1527,7 +1548,7 @@ namespace RazerBatteryTray
                         else if (isRapoo)
                         {
                             int cachedRp = RapooDeviceHelper.CachedBatteryPercent;
-                            devInfo.BatteryPercent = cachedRp > 0 ? cachedRp : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
+                            devInfo.BatteryPercent = cachedRp >= 0 ? cachedRp : -1;
                             devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
                         }
                         else if (isHyperX)
@@ -1556,6 +1577,7 @@ namespace RazerBatteryTray
                         devInfo.LastUpdated = cfg.LastSeen;
                     }
 
+                    if (isRapoo) devInfo.LastUpdated = RapooDeviceHelper.CachedLastUpdated;
                     list.Add(devInfo);
                 }
             }
