@@ -594,10 +594,32 @@ namespace RazerBatteryTray
             }) { IsBackground = true }.Start();
         }
 
+        // 回报率写入能力解析：Logitech 由 Helper 的持久化能力缓存给出（三态），
+        // 其它品牌暂不探测，保持原值（通常为 null = 未知，UI 保持可点）。
+        private static bool? ResolvePollingRateWriteCapability(MouseBatteryInfo dev)
+        {
+            if (dev == null) return null;
+            if (dev.Brand == "Logitech" || dev.Brand == "罗技")
+            {
+                return LogitechDeviceHelper.GetPollingRateWriteCapability(dev.DeviceId);
+            }
+            return dev.SupportsPollingRateWrite;
+        }
+
         public void SetPollingRateFromUI(int hz)
         {
-            desktopPollingRate = hz;
-            SaveConfig();
+            // ⚠️ 严禁在下发前就把 desktopPollingRate 改成目标值并落盘：
+            // 旧实现先 `desktopPollingRate = hz; SaveConfig();` 再写硬件，一旦硬件拒绝写入
+            // （例如 G304 固件对 0x8060 Func2 一律回错误码 0x02），配置与 UI 就会长期停在
+            // 一个从未生效的“期望值”上，而右上角还顶着“硬件生效”四个字骗用户。
+            // 现在改为「写成功才认账」：失败时保持旧值，UI 与实测保持一致。
+            // 另有前置闸门：设备已被证明不可写时直接拦截，避免用户重复无效点击。
+            if (selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false)
+            {
+                SafeShowBalloonTip(2200, "该设备不支持修改回报率",
+                    "当前档位由设备自身配置决定，界面显示的是设备实际回报率。", ToolTipIcon.Info);
+                return;
+            }
 
             var curDev = selectedDevice;
             new Thread(() => {
@@ -637,12 +659,27 @@ namespace RazerBatteryTray
                 if (ok)
                 {
                     this.BeginInvoke(new Action(() => {
+                        desktopPollingRate = hz;
                         if (!isGamingActive && curDev != null) curDev.PollingRate = hz;
                         if (!isGamingActive && lastInfo != null && lastInfo.DeviceId == (curDev != null ? curDev.DeviceId : "")) lastInfo.PollingRate = hz;
 
                         UpdateDesktopRateButtonSelection(hz);
                         UpdatePollingRateDisplayStates();
                         UpdateStatusDisplay();
+                        SaveConfig();
+                    }));
+                }
+                else
+                {
+                    // 写入失败：可能是固件拒绝（已在 Helper 里写入能力缓存），也可能是临时超时。
+                    // 这里重新解析能力并按结果刷新 UI —— 明确不可写才置灰，超时仍是“未知”，保持可点。
+                    this.BeginInvoke(new Action(() => {
+                        if (curDev != null)
+                        {
+                            curDev.SupportsPollingRateWrite = ResolvePollingRateWriteCapability(curDev);
+                        }
+                        RelayoutRateButtons();
+                        UpdatePollingRateDisplayStates();
                     }));
                 }
             }) { IsBackground = true }.Start();
@@ -694,12 +731,22 @@ namespace RazerBatteryTray
                 }
                 else
                 {
-                    // 总开关开启时，默认启用回报率与 DPI 优化
-                    autoGameRateEnabled = true;
+                    // 总开关开启时默认启用回报率与 DPI 优化；
+                    // 但设备被锁死回报率写入时，只开 DPI，绝不允许把「电竞回报率」重新勾上。
+                    bool rateBlocked = IsPollingRateWriteBlocked();
+                    autoGameRateEnabled = !rateBlocked;
                     autoGameDpiEnabled = true;
-                    if (chkAutoGameRate != null) chkAutoGameRate.Checked = true;
+                    if (chkAutoGameRate != null)
+                    {
+                        chkAutoGameRate.Checked = autoGameRateEnabled;
+                        chkAutoGameRate.Enabled = !rateBlocked;
+                    }
                     if (chkAutoGameDpi != null) chkAutoGameDpi.Checked = true;
-                    if (autoGameRateToggleItem != null) autoGameRateToggleItem.Checked = true;
+                    if (autoGameRateToggleItem != null)
+                    {
+                        autoGameRateToggleItem.Checked = autoGameRateEnabled;
+                        autoGameRateToggleItem.Enabled = !rateBlocked;
+                    }
                     if (autoGameDpiToggleItem != null) autoGameDpiToggleItem.Checked = true;
                 }
 
@@ -799,8 +846,16 @@ namespace RazerBatteryTray
             }
         }
 
+        // 当前选中设备是否被固件锁死回报率写入（三态：只有明确 false 才算锁死）
+        private bool IsPollingRateWriteBlocked()
+        {
+            return selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false;
+        }
+
         private void SetAutoGameRateEnabled(bool enabled)
         {
+            // 兜底闸门：被锁死的设备无论从哪个入口（托盘菜单 / 总开关 / 代码）都不得开启电竞回报率
+            if (enabled && IsPollingRateWriteBlocked()) enabled = false;
             autoGameRateEnabled = enabled;
             isUpdatingUI = true;
             try
@@ -2585,6 +2640,15 @@ namespace RazerBatteryTray
                 if (lblRateTitle != null) lblRateTitle.Visible = true;
 
                 bool supportsAutoGameRate = (isRazer || isLogitechMouse || isRapooMouse || isValkyrieMouse);
+
+                // 设备固件拒绝写回报率时：电竞回报率在运行期强制关闭（不落盘，
+                // 换回可写设备后仍按用户原本保存的偏好恢复），并保持不可编辑。
+                bool rateWriteBlocked = (info.SupportsPollingRateWrite == false);
+                if (rateWriteBlocked && autoGameRateEnabled)
+                {
+                    autoGameRateEnabled = false;
+                }
+
                 bool isOptExpanded = (autoGameRateEnabled || autoGameDpiEnabled);
                 int targetPerfH = (!supportsAutoGameRate || !isOptExpanded) ? (int)(148 * dpiScale) : (int)(255 * dpiScale);
                 AdjustPerformanceCardHeight(targetPerfH);
@@ -2593,7 +2657,24 @@ namespace RazerBatteryTray
                 if (chkAutoGameOpt != null)
                 {
                     chkAutoGameOpt.Visible = supportsAutoGameRate;
-                    chkAutoGameOpt.Checked = isOptExpanded;
+                    // 「全屏游戏自动优化」是用户操作入口：刷新时的程序化赋值不得触发 CheckedChanged，
+                    // 否则 SetAutoGameOptEnabled(true) 会把已锁死的「电竞回报率」重新勾上（概率复现的根因之一）。
+                    bool prevOptUpdating = isUpdatingUI;
+                    isUpdatingUI = true;
+                    try
+                    {
+                        chkAutoGameOpt.Checked = isOptExpanded;
+                    }
+                    finally
+                    {
+                        isUpdatingUI = prevOptUpdating;
+                    }
+                }
+                // 托盘菜单同源入口：锁死时禁用，避免绕过主界面
+                if (autoGameRateToggleItem != null)
+                {
+                    autoGameRateToggleItem.Enabled = !rateWriteBlocked;
+                    autoGameRateToggleItem.ToolTipText = rateWriteBlocked ? "该设备不支持修改回报率" : "";
                 }
                 if (chkAutoGameDpi != null)
                 {
@@ -2601,7 +2682,18 @@ namespace RazerBatteryTray
                 }
                 if (chkAutoGameRate != null)
                 {
-                    chkAutoGameRate.Checked = autoGameRateEnabled;
+                    // 被设备能力强制关闭时不得触发 CheckedChanged（否则 SetAutoGameRateEnabled 会把
+                    // “关闭”状态落盘，换回可写设备后就丢失用户原本的偏好）
+                    bool prevUpdating = isUpdatingUI;
+                    isUpdatingUI = true;
+                    try
+                    {
+                        chkAutoGameRate.Checked = autoGameRateEnabled;
+                    }
+                    finally
+                    {
+                        isUpdatingUI = prevUpdating;
+                    }
                 }
                 if (chkNotifyOsd != null) chkNotifyOsd.Checked = gameRateNotifyOsd;
                 if (chkNotifyToast != null) chkNotifyToast.Checked = gameRateNotifyToast;

@@ -48,6 +48,9 @@ namespace RazerBatteryTray
         public int PollingRate { get; set; }
         public int[] SupportedPollingRates { get; set; }
         public int MaxPollingRate { get; set; }
+        // 回报率可写能力（三态）：true=实测可写，false=固件拒绝写入，null=未知（未探测/无结论）。
+        // UI 必须只在明确为 false 时才禁用回报率操作，未知一律保持可点，避免误伤正常设备。
+        public bool? SupportsPollingRateWrite { get; set; }
         public string CustomTooltip { get; set; }
         public bool IsPrimary { get; set; }
 
