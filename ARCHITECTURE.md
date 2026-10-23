@@ -48,10 +48,11 @@ D:\FerrisPulse · 灵脉\
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
     │   ├── HidTransport.cs     [零依赖 SetupAPI/HidD 枚举、重叠 I/O 读写与超时取消总线]
     │   ├── BluetoothDeviceHelper.cs [Windows 原生 BLE 电池服务]
-    │   ├── GanssDeviceHelper.cs [GS3108T-PRO 精确身份、2.4G 0x20/0x01 电量与历史分类纠正]
+    │   ├── GanssDeviceHelper.cs [GS3108T-PRO 精确身份、USB 有线/2.4G 双身份判别、2.4G 0x20/0x01 电量与历史分类纠正]
     │   ├── GenericHidHelper.cs  [通用 HID 电池报告解析]
     │   ├── UniversalWinLockHelper.cs [Windows 键硬件/驱动级防误触锁定]
     │   ├── AudioDeviceHelper.cs [系统音频与耳机设备状态]
+    │   ├── GameSirDeviceHelper.cs [启明星2 有线/无线只读电量、充电哨兵与跨模式身份合并]
     │   └── XInputHelper.cs      [游戏手柄电量与状态检测]
     │
     ├── Services\               [后台长效服务层]
