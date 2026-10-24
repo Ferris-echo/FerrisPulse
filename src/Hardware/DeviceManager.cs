@@ -3,7 +3,7 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理
-// 依赖关系: 所有品牌 DeviceHelper, MouseBatteryInfo.cs
+// 依赖关系: 所有品牌 DeviceHelper（含 ASUS PELTA / 有线 Scope II RX）, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、协议解析或签名时，【必须】同步更新上方说明。
@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ASUS" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -1053,6 +1053,16 @@ namespace RazerBatteryTray
             catch { }
 
 
+            // ASUS precise model support; generic HID aliases are merged below with saved custom devices.
+            try
+            {
+                foreach (var dev in AsusDeviceHelper.QueryAllAsusDevices())
+                {
+                    if (!list.Exists(x => string.Equals(x.HardwareFingerprint, dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        list.Add(dev);
+                }
+            }
+            catch { }
             // 2.14 Query FDAS Runtime Dynamic Devices (Local adapters/*.fp-adapter.json)
             try
             {
