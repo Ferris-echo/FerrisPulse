@@ -1879,7 +1879,11 @@ namespace RazerBatteryTray
 
         private void UpdateStatusDisplay()
         {
-            if (lastInfo == null || !lastInfo.IsConnected) return;
+            if (lastInfo == null || !lastInfo.IsConnected)
+            {
+                UpdateTrayCombinedSummary(null);
+                return;
+            }
 
             string brandTag = lastInfo.Brand == "Rapoo" ? "雷柏" : (lastInfo.Brand == "VGN" ? "VGN" : (lastInfo.Brand == "Razer" ? "雷蛇" : (lastInfo.Brand == "NuPhy" ? "NuPhy" : (lastInfo.Category == DeviceCategory.Headset ? "耳机" : (lastInfo.Category == DeviceCategory.Gamepad ? "手柄" : (lastInfo.Category == DeviceCategory.Keyboard ? "键盘" : "外设"))))));
             string dpiPart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.Dpi > 0) ? (" · " + lastInfo.Dpi + " DPI") : "";
@@ -1945,7 +1949,7 @@ namespace RazerBatteryTray
                     tipText = string.Format("电量: {0}% ({1})", lastInfo.BatteryPercent, chgPart);
                 }
             }
-            trayIcon.Text = tipText;
+            UpdateTrayCombinedSummary(tipText);
         }
 
         private void HideNuphyControls()

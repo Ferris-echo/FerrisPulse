@@ -218,5 +218,35 @@ if ($null -eq $asm.GetType("RazerBatteryTray.VgnKeyboardForm")) {
 }
 Write-Host "PASS 10: VgnKeyboardForm compiled and available." -ForegroundColor Green
 
-Write-Host "ALL TESTS PASSED for VGN Neon75 3151:5038 adaptation and lighting!" -ForegroundColor Green
+# 11. 状态栏双设备摘要
+$list = New-Object 'System.Collections.Generic.List[RazerBatteryTray.MouseBatteryInfo]'
+$m = New-Object RazerBatteryTray.MouseBatteryInfo
+$m.Category = [RazerBatteryTray.DeviceCategory]::Mouse
+$m.IsConnected = $true
+$m.BatteryPercent = 51
+$m.Transport = "2.4G 无线"
+$m.DeviceId = "Test:Mouse"
+$list.Add($m)
+$k = New-Object RazerBatteryTray.MouseBatteryInfo
+$k.Category = [RazerBatteryTray.DeviceCategory]::Keyboard
+$k.IsConnected = $true
+$k.BatteryPercent = 100
+$k.Transport = "2.4G 无线"
+$k.DeviceId = "Test:Keyboard"
+$list.Add($k)
+$summary = [RazerBatteryTray.DeviceManager]::BuildTrayBatterySummary($list)
+if ($summary -notmatch '鼠标 51%' -or $summary -notmatch '键盘 100%') {
+    Write-Host ("FAIL: dual battery summary mismatch: " + $summary) -ForegroundColor Red
+    exit 1
+}
+$k.Transport = "USB 有线"
+$k.IsCharging = $true
+$summaryWired = [RazerBatteryTray.DeviceManager]::BuildTrayBatterySummary($list)
+if ($summaryWired -notmatch '键盘 供电中') {
+    Write-Host ("FAIL: wired keyboard summary mismatch: " + $summaryWired) -ForegroundColor Red
+    exit 1
+}
+Write-Host ("PASS 11: dual battery summary verified: " + $summary + " / " + $summaryWired) -ForegroundColor Green
+
+Write-Host "ALL TESTS PASSED for VGN Neon75 3151:5038 adaptation, lighting and dual battery summary!" -ForegroundColor Green
 exit 0

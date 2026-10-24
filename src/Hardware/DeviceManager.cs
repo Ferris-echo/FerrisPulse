@@ -67,6 +67,56 @@ namespace RazerBatteryTray
             return variants;
         }
 
+        /// <summary>
+        /// 生成托盘/状态栏双设备摘要：鼠标与键盘各取一台在线设备。
+        /// 例："鼠标 51%⚡  |  键盘 100%"。键盘有线供电时显示“供电中”。
+        /// </summary>
+        public static string BuildTrayBatterySummary(List<MouseBatteryInfo> devices)
+        {
+            if (devices == null || devices.Count == 0) return "";
+
+            MouseBatteryInfo mouse = null;
+            MouseBatteryInfo keyboard = null;
+            for (int i = 0; i < devices.Count; i++)
+            {
+                MouseBatteryInfo d = devices[i];
+                if (d == null || !d.IsConnected) continue;
+                if (IsDeviceHidden(d.DeviceId)) continue;
+
+                if (d.Category == DeviceCategory.Mouse && mouse == null) mouse = d;
+                else if (d.Category == DeviceCategory.Keyboard && keyboard == null) keyboard = d;
+            }
+
+            string mouseText = FormatTrayBattery(mouse);
+            string keyboardText = FormatTrayBattery(keyboard);
+            if (!string.IsNullOrEmpty(mouseText) && !string.IsNullOrEmpty(keyboardText))
+            {
+                return "鼠标 " + mouseText + "  |  键盘 " + keyboardText;
+            }
+            if (!string.IsNullOrEmpty(mouseText)) return "鼠标 " + mouseText;
+            if (!string.IsNullOrEmpty(keyboardText)) return "键盘 " + keyboardText;
+            return "";
+        }
+
+        private static string FormatTrayBattery(MouseBatteryInfo dev)
+        {
+            if (dev == null) return null;
+
+            bool wiredKeyboard = dev.Category == DeviceCategory.Keyboard && dev.Transport != null &&
+                                 (dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                  dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                 dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                 dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0;
+            if (wiredKeyboard) return "供电中";
+            if (dev.IsSleeping) return "休眠";
+            if (dev.IsCharging)
+            {
+                return dev.BatteryPercent > 0 ? (dev.BatteryPercent.ToString() + "%⚡") : "充电中";
+            }
+            if (dev.BatteryPercent > 0) return dev.BatteryPercent.ToString() + "%";
+            return "--";
+        }
+
         public static bool IsDeviceHidden(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return false;

@@ -110,12 +110,12 @@ TX: 00 07 01 04 03 07 FF 00 00 EA 00 ... 00
 |---|---|
 | `src/Hardware/VgnKeyboardHelper.cs` | 新增：2.4G Dongle `0xF7` 电量/充电、有线 `0x8F` 型号识别、`0x87`/`0x07` 主灯读写与回读校验、65/64 字节偏移兼容、注册表缓存 |
 | `src/UI/Forms/VgnKeyboardForm.cs` | 新增：VGN Neon75 灯光调节面板（模式/亮度/速度/颜色/关闭/回读） |
-| `src/Hardware/DeviceManager.cs` | 注册 VGN Neon75 查询（2.45）、`VGN` 变体池、自定义设备合并/离线缓存/品牌与品类路由 |
+| `src/Hardware/DeviceManager.cs` | 注册 VGN Neon75 查询（2.45）、`VGN` 变体池、自定义设备合并/离线缓存/品牌与品类路由；新增 `BuildTrayBatterySummary` 双设备摘要 |
 | `src/Hardware/ValkyrieDeviceHelper.cs` | `3151:5038` 与有线 `502D/502F/5054` 从 Valkyrie 泛化分支排除 |
 | `src/UI/Forms/AddDeviceWizardForm.cs` | 向导扫描 VGN Neon75，厂商名称区分 VGN / Valkyrie / ROYUAN OEM |
 | `src/UI/Forms/MainForm.Hardware.cs` | 100% 键盘不再自动显示“充电中”；键盘分支接入“VGN Neon75 灯光调节”按钮 |
 | `src/UI/Forms/MainForm.UI.cs` | 键盘设置按钮在 VGN Neon75 上打开 `VgnKeyboardForm`，其他键盘仍打开 Windows 属性 |
-| `tests/test_vgn_neon75_3151_5038.ps1` | 10 项回归断言（BOM/C#5、校验和、100% 样本、payload[9] 充电、64B 裸帧、非法类型、Valkyrie 隔离、型号映射、灯光帧/回读、窗体存在） |
+| `tests/test_vgn_neon75_3151_5038.ps1` | 11 项回归断言（BOM/C#5、校验和、100% 样本、payload[9] 充电、64B 裸帧、非法类型、Valkyrie 隔离、型号映射、灯光帧/回读、窗体存在、双设备托盘摘要） |
 | `docs/AGENT_HANDBOOK.md` | 3.13 节更新为 VGN Neon75，记录品牌/方案商区分、充电位与有线设置边界 |
 | `ARCHITECTURE.md` / `CHANGELOG.md` | 模块索引与未发布变更记录 |
 
@@ -134,7 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
 VGN | VGN:3151:502F:KB | VGN Neon75 Ultra | batt=100 chg=True online=True | Keyboard | USB 有线
 ```
 
-专项测试 10/10 PASS；全量测试 62/62 PASS。
+专项测试 11/11 PASS；全量测试 62/62 PASS。
 
 ## 6. 后续：侧灯、按键与磁轴
 
