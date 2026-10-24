@@ -67,7 +67,10 @@ namespace RazerBatteryTray
                 s.Equals("未知设备", StringComparison.OrdinalIgnoreCase) ||
                 s.Equals("免驱鼠标设备", StringComparison.OrdinalIgnoreCase) ||
                 s.StartsWith("Bluetooth Device", StringComparison.OrdinalIgnoreCase) ||
-                s.StartsWith("USB/2.4G 接收器", StringComparison.OrdinalIgnoreCase))
+                s.StartsWith("USB/2.4G 接收器", StringComparison.OrdinalIgnoreCase) ||
+                // 高斯的产品串会随有线/2.4G 通道变化：把自动生成的型号串视作默认名，让实时通道名生效。
+                s.Equals("GS3108T-PRO", StringComparison.OrdinalIgnoreCase) ||
+                s.Equals("GS3108T-PRO 2.4G", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -265,7 +268,8 @@ namespace RazerBatteryTray
                         if (DeviceName.Contains("VT7")) return "VT7 双模";
                         if (DeviceName.Contains("VT3 Pro Max")) return "VT3 Max";
                         if (DeviceName.Contains("VT3 Pro")) return "VT3 Pro";
-                        if (DeviceName.Contains("VT3")) return "VT3 双模";
+                        if (DeviceName.Equals("雷柏 VT3", StringComparison.OrdinalIgnoreCase) ||
+                            DeviceName.Equals("VT3", StringComparison.OrdinalIgnoreCase)) return "雷柏VT3";
                         if (DeviceName.Contains("VT9 Pro Mini")) return "VT9 Mini";
                         if (DeviceName.Contains("VT9 Pro")) return "VT9 Pro";
                         if (DeviceName.Contains("VT9")) return "VT9 双模";

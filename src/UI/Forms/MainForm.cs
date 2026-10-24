@@ -1,4 +1,4 @@
-﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 
@@ -909,7 +909,7 @@ namespace RazerBatteryTray
 
 
 
-            RefreshBatteryStatus(false);
+            // 首轮刷新不再启动瞬间立即执行，统一交给 StartBootPolling 延迟 3 秒后触发（避开启动初期键鼠交互高峰，防止雷柏等私有协议查询抢占无线通道卡死鼠标）
 
             StartBootPolling();
 

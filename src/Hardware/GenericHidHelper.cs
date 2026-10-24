@@ -267,7 +267,7 @@ namespace RazerBatteryTray
 
                                             bool isDongle = (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("dongle") || prod.ToLower().Contains("receiver") || prod.Contains("接收器")));
 
-                                            bool isKeyboard = (caps.UsagePage == 0x01 && caps.Usage == 0x06) ||
+                                            bool isKeyboard = GanssDeviceHelper.IsKnownKeyboardName(prod) || (caps.UsagePage == 0x01 && caps.Usage == 0x06) ||
                                                               (!string.IsNullOrEmpty(prod) && (
                                                                   prod.ToLower().Contains("keyboard") ||
                                                                   prod.ToLower().Contains("nuphy") ||

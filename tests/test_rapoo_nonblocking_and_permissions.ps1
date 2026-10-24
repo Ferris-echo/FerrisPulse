@@ -65,6 +65,7 @@ Write-Host "PASS 4: CloseRapooStream executes idempotently without errors." -For
 # 4. 验证 Report ID 0x07 (col09) 19 字节遥测报文解析与精准电量同步 (51% 电量真实修复断言)
 $mockReport = New-Object byte[] 19
 $mockReport[0] = 0x07  # Report ID
+$mockReport[1] = 0x10  # Valid connected USB transport flags
 $mockReport[2] = 0x02  # Stage index 2 -> Stage 3
 $mockReport[3] = 0x40  # DPI X low byte (1600 = 0x0640)
 $mockReport[4] = 0x06  # DPI X high byte
@@ -90,6 +91,13 @@ if ($batt -ne 51 -or $charging -ne $true -or $dpi -ne 1600 -or $stage -ne 3) {
     exit 1
 }
 Write-Host "PASS 5: Report 0x07 parsed successfully, 51% battery and charging state verified!" -ForegroundColor Green
+
+# Both public entry points must retain strict transport validation and real 0%.
+$mockReport[1] = 0
+if ([RazerBatteryTray.RapooDeviceHelper]::ProcessTelemetryReport($mockReport)) { throw 'Invalid transport accepted by compatibility API' }
+$mockReport[1] = 0x10
+$mockReport[8] = 0
+if (-not [RazerBatteryTray.RapooDeviceHelper]::ProcessTelemetryReport($mockReport) -or [RazerBatteryTray.RapooDeviceHelper]::CachedBatteryPercent -ne 0) { throw 'Real zero battery lost by compatibility API' }
 
 Write-Host "ALL TESTS PASSED for Rapoo Non-blocking, Report 0x07 Telemetry, and Simplified Logic!" -ForegroundColor Green
 exit 0
