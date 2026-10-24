@@ -8,7 +8,7 @@
 //   2. Beken / ATK / Endgame Gear 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系, Endgame Gear OP1we/XM2we)
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
-// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
+// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs, AsusDeviceHelper.cs（排除专属非鼠标型号）
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、协议解析或签名时，【必须】同步更新上方说明。
@@ -673,6 +673,12 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // ASUS PELTA and wired Scope II RX have dedicated classification. Never send mouse probes.
+            if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
+            {
+                string asusPath = path.ToLowerInvariant();
+                if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1ab5")) return false;
+            }
             // MCHOSE G87 V2 键盘 (3837:3033) 由 MchoseDeviceHelper 的键盘电量协议接管，
             // 禁止通用鼠标协议向键盘 Vendor 集合误发 64 字节 Feature 报文。
             if (vid == VID_MCHOSE && !string.IsNullOrEmpty(path))

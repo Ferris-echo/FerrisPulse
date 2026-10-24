@@ -2,7 +2,7 @@
 // 模块名称: MouseBatteryInfo.cs
 // 所属区域: Models (数据契约层)
 // 核心职责:
-//   全系统统一的归一化外设数据实体，包含连接状态、电池百分比、DPI与XY轴独立灵敏度、回报率与智能命名推导
+//   全系统统一的归一化外设数据实体，包含连接状态、充电未知态、电池百分比、DPI与XY轴独立灵敏度、回报率与智能命名推导
 // 依赖关系: DeviceCategory.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -35,6 +35,7 @@ namespace RazerBatteryTray
         public int BatteryPercent { get; set; }
         public double ExactBatteryPercent { get; set; }
         public bool IsCharging { get; set; }
+        public bool IsChargingUnknown { get; set; } // True when battery succeeded but charging query did not.
         public DateTime LastUpdated { get; set; }
 
         public int Dpi { get; set; }

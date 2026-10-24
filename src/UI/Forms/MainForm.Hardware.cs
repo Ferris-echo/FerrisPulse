@@ -1886,6 +1886,11 @@ namespace RazerBatteryTray
             string ratePart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.PollingRate > 0) ? (" · " + lastInfo.PollingRate + "Hz") : "";
             string chgPart = lastInfo.IsSleeping ? "休眠待机" : (lastInfo.IsCharging ? "充电中" : "电池供电");
             string chgStr = lastInfo.IsSleeping ? "休眠待机 (移动唤醒)" : (lastInfo.IsCharging ? "正在充电" : "电池供电");
+            if (!lastInfo.IsSleeping && lastInfo.IsChargingUnknown)
+            {
+                chgPart = "充电状态未知";
+                chgStr = chgPart;
+            }
 
             if (lastInfo.Category == DeviceCategory.Keyboard && !lastInfo.IsCharging)
             {
@@ -3223,6 +3228,7 @@ namespace RazerBatteryTray
             lblBatteryBig.Text = awakeBattDisplay;
             lblBatteryBig.ForeColor = accentColor;
 
+            if (info.IsChargingUnknown) mouseConnPill += " · 充电状态未知";
             pillStatus.SetStatus(mouseConnPill, accentColor);
             pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
 

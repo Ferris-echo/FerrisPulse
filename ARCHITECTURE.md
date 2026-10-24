@@ -25,7 +25,7 @@ D:\FerrisPulse · 灵脉\
     │
     ├── Models\                 [数据模型层（无副作用纯净模型）]
     │   ├── DeviceCategory.cs   [外设品类枚举：鼠标、键盘、耳机、手柄、接收器等]
-    │   ├── MouseBatteryInfo.cs [全系统通用归一化外设状态实体]
+    │   ├── MouseBatteryInfo.cs [全系统通用归一化外设状态实体，含 IsChargingUnknown 部分查询状态]
     │   ├── CustomDeviceConfig.cs [用户手动添加与命名配置]
     │   ├── PriorityItem.cs     [优先级排序数据模型]
     │   ├── RunningProcessItem.cs [运行进程信息模型]
@@ -44,6 +44,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── MchoseMouseHelper.cs  [迈从 A5 V2 Ultra 三模无线鼠标 WebHID 协议、XY轴独立 DPI 调节与 8K 回报率]
     │   ├── SteelSeriesDeviceHelper.cs [赛睿 Arctis Nova 5 / 5X 无线耳机 0x00B0 报文、UsagePage 0xFFC0 通信]
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
+    │   ├── AsusDeviceHelper.cs [ROG PELTA 0B05:1B84：FF00/0001 64B 中断双查询、电量/充电/限频缓存；Scope II RX 1AB5 有线键盘仅枚举]
     │   ├── HidTransport.cs     [零依赖 SetupAPI/HidD 枚举、重叠 I/O 读写与超时取消总线]
     │   ├── BluetoothDeviceHelper.cs [Windows 原生 BLE 电池服务]
     │   ├── GenericHidHelper.cs  [通用 HID 电池报告解析]

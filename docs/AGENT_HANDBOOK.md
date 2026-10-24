@@ -1,4 +1,4 @@
-# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
+﻿# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
 
 > **致所有接手本项目的 AI Agent 伙伴**：  
 > 本手册凝聚了前序 Agent 在开发、重构、调试、测试与发布全生命周期中积累的全部实战经验与踩坑教训。  
@@ -580,3 +580,15 @@ powershell -ExecutionPolicy Bypass -File tools/integrate_adaptation.ps1 -Adapter
   1. *非阻塞异步流读取*：在 `RapooDeviceHelper.cs` 中打开 `col09` 时追加 `FILE_FLAG_OVERLAPPED`，使用 .NET 原生 `FileStream.BeginRead` / `EndRead` 监听 Report ID 0x07。有数据时微秒级消费并更新缓存，无数据时完全不阻塞工作线程。
   2. *双通道极速返回*：`FastQueryDpi` 与 `QueryRapooDeviceInfo` 优先直接消费遥测流，3 秒内有活跃遥测即无需发起 EEPROM 特性读取，彻底消灭射频包冲突。
   3. *冷启动热恢复*：通过静态构造函数 `static RapooDeviceHelper() { LoadHardwareCache(); }` 与注册表持久化机制，应用冷启动时立即毫秒级恢复上一次关机前的真实电量与档位，并在后台静默连通后瞬间刷新为最新物理电量。
+
+### 8.7 ASUS ROG PELTA 精确原生适配与无线恢复延迟（2026-10-24）
+
+- 实测型号：ROG PELTA 2.4GHz 接收器 `0B05:1B84`。只能使用 `MI_03/COL03`、UsagePage `FF00` / Usage `0001`，Input/Output 64 字节；该集合 Feature 长度为 0，禁止改用 SetFeature。FF07/0212 与 FF0B/0104 不是本适配的电量通道。
+- 只读查询：64 字节 `[CC 12 07 00 00 ...]`，回复 offset 6 为百分比（0..100）；`[CC 12 08 00 00 ...]` 回复 offset 5：0 未充电，1 充电。校验 Report ID、命令、key、索引及报文长度；拒绝 `FF AA` NAK 和越界值，无关事件不能当应答。
+- 真实回包曾为 `CC 12 07 00 00 05 27 14 01 ...`（39%），唤醒后为 `...05 2A 14 01...`（42%）。必须区分电量 offset 6、休眠定时 offset 5 与低电警告阈值 offset 7。
+- RF 恢复后的首个回复实测耗时约 750ms；250ms 会让唤醒设备误显示未连接。`AsusDeviceHelper` 单条查询总截止时间为 1000ms（含写入与过滤无关事件），全状态最多两次查询；不管成功失败都推移 5 秒限频时间戳。不要增加高频无界重试。
+- 接收器在位不等于耳机在线。失败后仅保留最后真实电量和原采样时间，首次失败显示 -1；不得用示例 39/42/85/100 填充缓存。充电查询失败不应沿用正在充电状态；必须设置 MouseBatteryInfo.IsChargingUnknown，让 MainForm 与托盘可见文案显示“充电状态未知”。仅写 CustomTooltip 不够，当前主界面不会自动消费此字段。
+- 用户接上充电线后，本机 `12 08` 仍回 0；因此当前适配只客观解释固件状态。charging=1 已通过回放与 UI 自动测试，但未获得实机正例，贡献说明必须披露，不能声称已验证双向充电切换。
+- `0B05:1AB5` 为 ROG STRIX SCOPE II RX 有线键盘，FF00/1 为65字节集合。只识别名称与键盘分类，不发送任何私有电源或配置指令，不伪造电池。
+- 两个精确 PID 必须在通用游戏鼠标探测前排除，不能仅凭 ASUS VID 尝试 CompX/Beken/Vaxee 协议。未实测的 PELTA PID（如1B82）不要顺手开启。
+- 协议研究来源：G-Helper `app/Peripherals/Headset/AsusHeadset.cs`、`Models/Pelta.cs` 与 RIGStats `docs/control-architecture.md`；独立实现协议，无外部运行库或源码拷贝。测试：`test_asus_pelta_support.ps1`、`test_asus_pelta_ui.ps1`，全内存加载。
