@@ -60,6 +60,15 @@ namespace RazerBatteryTray
         {
             if (string.IsNullOrEmpty(identifier)) return false;
             string lower = identifier.ToLowerInvariant();
+
+            // VGN Neon75（ROYUAN 代工）使用 3151:5038 接收器与 3151:502D/502F/5054 有线端点，
+            // 由 VgnKeyboardHelper 专属解析；绝不能落入 Valkyrie 的 3151 泛化分支，
+            // 否则会把 payload[1]=100% 误读成 0%，并错误标注为瓦尔基里。
+            if (lower.Contains("3151:5038") || lower.Contains("vid_3151&pid_5038")) return false;
+            if (lower.Contains("3151:502d") || lower.Contains("vid_3151&pid_502d")) return false;
+            if (lower.Contains("3151:502f") || lower.Contains("vid_3151&pid_502f")) return false;
+            if (lower.Contains("3151:5054") || lower.Contains("vid_3151&pid_5054")) return false;
+
             if (lower.Contains("vid_374a") || lower.Contains("374a:") || lower.Contains("valkyrie") || lower.Contains("vkms") || lower.Contains("vk_"))
             {
                 return true;

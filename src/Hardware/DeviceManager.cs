@@ -664,6 +664,22 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.45 Query VGN (2.4G wireless keyboard receiver, VID 3151 / PID 5038)
+            try
+            {
+                var royuan = VgnKeyboardHelper.QueryVgnKeyboardInfo();
+                if (royuan != null && (royuan.IsConnected || royuan.IsDonglePresent))
+                {
+                    royuan.IsCustom = false;
+                    list.Add(royuan);
+                    if (royuan.BatteryPercent >= 0)
+                    {
+                        UpdateCustomDeviceBattery(royuan.DeviceId, royuan.BatteryPercent, DateTime.Now);
+                    }
+                }
+            }
+            catch { }
+
             // 2.5 Query VGN
             try
             {
@@ -1127,6 +1143,10 @@ namespace RazerBatteryTray
                                       ValkyrieDeviceHelper.IsValkyrieDevice(cfg.DeviceId) ||
                                       ValkyrieDeviceHelper.IsValkyrieDevice(cfg.OriginalName);
 
+                    bool isVgnKeyboard = VgnKeyboardHelper.IsVgnNeon75(cfg.HardwareFingerprint) ||
+                                    VgnKeyboardHelper.IsVgnNeon75(cfg.DeviceId) ||
+                                    VgnKeyboardHelper.IsVgnNeon75(cfg.OriginalName);
+
                     bool isRapoo = (cfg.DeviceId != null && (cfg.DeviceId.StartsWith("Rapoo:24AE:", StringComparison.OrdinalIgnoreCase) || cfg.DeviceId.StartsWith("HID:24AE:", StringComparison.OrdinalIgnoreCase))) ||
                                    (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.IndexOf("24AE", StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -1230,6 +1250,20 @@ namespace RazerBatteryTray
                             if (!string.IsNullOrEmpty(cfg.CustomName)) existNuphy.CustomName = cfg.CustomName;
                         }
                         continue;
+                    }
+
+                    if (isVgnKeyboard)
+                    {
+                        var existVgnKeyboard = list.Find(x => x.Brand == "VGN" ||
+                            VgnKeyboardHelper.IsVgnNeon75(x.DeviceId) ||
+                            (!string.IsNullOrEmpty(x.HardwareFingerprint) && VgnKeyboardHelper.IsVgnNeon75(x.HardwareFingerprint)));
+                        if (existVgnKeyboard != null)
+                        {
+                            existVgnKeyboard.IsCustom = true;
+                            if (cfg.Category != DeviceCategory.Generic) existVgnKeyboard.Category = cfg.Category;
+                            if (!string.IsNullOrEmpty(cfg.CustomName)) existVgnKeyboard.CustomName = cfg.CustomName;
+                            continue;
+                        }
                     }
 
                     if (isValkyrie)
@@ -1345,6 +1379,22 @@ namespace RazerBatteryTray
                                 batt = LogitechDeviceHelper.GetCachedBatteryForDevice(cfg.DeviceId);
                             }
                         }
+                        else if (isVgnKeyboard)
+                        {
+                            var ry = VgnKeyboardHelper.QueryVgnKeyboardInfo();
+                            if (ry != null && (ry.IsConnected || ry.IsDonglePresent))
+                            {
+                                connected = ry.IsConnected;
+                                batt = ry.BatteryPercent;
+                                friendlyName = ry.DeviceName;
+                            }
+                            else
+                            {
+                                connected = false;
+                                batt = VgnKeyboardHelper.CachedBatteryPercent;
+                                friendlyName = VgnKeyboardHelper.CachedDeviceName;
+                            }
+                        }
                         else if (isValkyrie)
                         {
                             bool isKb = (cfg.DeviceId != null && cfg.DeviceId.EndsWith(":KB")) || cfg.Category == DeviceCategory.Keyboard;
@@ -1452,7 +1502,7 @@ namespace RazerBatteryTray
                     }
                     else
                     {
-                        devInfo.Brand = isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : (isValkyrie ? "Valkyrie" : (isRapoo ? "Rapoo" : (isHyperX ? "HyperX" : "Custom")))));
+                        devInfo.Brand = isVgnKeyboard ? "VGN" : (isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : (isValkyrie ? "Valkyrie" : (isRapoo ? "Rapoo" : (isHyperX ? "HyperX" : "Custom"))))));
                         devInfo.DeviceName = !string.IsNullOrEmpty(friendlyName) ? friendlyName : (!string.IsNullOrEmpty(cfg.OriginalName) ? cfg.OriginalName : cfg.CustomName);
                     }
                     if (!string.IsNullOrEmpty(devInfo.DeviceName) && devInfo.DeviceName.IndexOf("Wireless iAP", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -1463,7 +1513,7 @@ namespace RazerBatteryTray
                     {
                         devInfo.CustomName = null;
                     }
-                    devInfo.Transport = cfg.Transport ?? (isRazer ? "2.4G 无线" : (isRapoo ? "2.4G 无线" : (isHyperX ? "2.4G 无线" : "Bluetooth")));
+                    devInfo.Transport = cfg.Transport ?? (isRazer ? "2.4G 无线" : (isRapoo ? "2.4G 无线" : (isVgnKeyboard ? "2.4G 无线" : (isHyperX ? "2.4G 无线" : "Bluetooth"))));
                     devInfo.IsCustom = true;
                     if (devInfo.Brand == "NuPhy")
                     {
@@ -1483,6 +1533,11 @@ namespace RazerBatteryTray
                     else if (devInfo.Brand == "Rapoo" || devInfo.Brand == "雷柏")
                     {
                         if (devInfo.Category == DeviceCategory.Generic) devInfo.Category = DeviceCategory.Mouse;
+                    }
+                    else if (isVgnKeyboard)
+                    {
+                        devInfo.Category = DeviceCategory.Keyboard;
+                        devInfo.IsCharging = VgnKeyboardHelper.CachedIsCharging;
                     }
                     else if (devInfo.Brand == "Valkyrie" || devInfo.Brand == "瓦尔基里")
                     {
@@ -1568,6 +1623,12 @@ namespace RazerBatteryTray
                         {
                             int cachedLogi = LogitechDeviceHelper.GetCachedBatteryForDevice(cfg.DeviceId);
                             devInfo.BatteryPercent = cachedLogi > 0 ? cachedLogi : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
+                            devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
+                        }
+                        else if (isVgnKeyboard)
+                        {
+                            int cachedRy = VgnKeyboardHelper.CachedBatteryPercent;
+                            devInfo.BatteryPercent = cachedRy >= 0 ? cachedRy : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
                             devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
                         }
                         else if (isValkyrie)

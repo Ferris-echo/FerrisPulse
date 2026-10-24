@@ -694,6 +694,30 @@ namespace RazerBatteryTray
 
 
 
+                // 2.558 Scan VGN Neon75 keyboard (3151:5038 2.4G dongle / 3151:502D/502F/5054 wired)
+                try
+                {
+                    var vgnKb = VgnKeyboardHelper.QueryVgnKeyboardInfo();
+                    if (vgnKb != null && (vgnKb.IsConnected || vgnKb.IsDonglePresent))
+                    {
+                        if (!tempConfigs.Exists(c => c.DeviceId == vgnKb.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == vgnKb.HardwareFingerprint)))
+                        {
+                            var cfg = new CustomDeviceConfig
+                            {
+                                DeviceId = vgnKb.DeviceId,
+                                OriginalName = vgnKb.DeviceName,
+                                CustomName = resolveCustomName(vgnKb.DeviceId, vgnKb.DisplayName, vgnKb.DeviceName),
+                                Category = resolveCategory(vgnKb.DeviceId, DeviceCategory.Keyboard),
+                                Transport = "2.4G 无线",
+                                CachedBattery = vgnKb.BatteryPercent,
+                                HardwareFingerprint = vgnKb.HardwareFingerprint
+                            };
+                            tempConfigs.Add(cfg);
+                        }
+                    }
+                }
+                catch { }
+
                 // 2.56 Scan Valkyrie Devices (2.4G / USB)
                 try
                 {
@@ -1031,6 +1055,15 @@ namespace RazerBatteryTray
                 case 0x0C45: return "松翰 / 黑爵 (AJAZZ)";
                 case 0x258A: return "赛诺伟思 / 达摩鲨 (Darmoshark) / 多彩 (Delux)";
                 case 0x24AE: return "雷柏 (Rapoo)";
+                case 0x3151:
+                {
+                    string combo = ((prodStr ?? "") + " " + (mfgStr ?? "")).ToLowerInvariant();
+                    if (combo.Contains("valkyrie") || combo.Contains("vk99") || combo.Contains("vk87") || combo.Contains("vk75"))
+                    {
+                        return "VGN / 瓦尔基里 (3151 OEM)";
+                    }
+                    return "VGN / 融渊 ROYUAN (3151 OEM)";
+                }
                 case 0x3554:
                     if (!string.IsNullOrEmpty(prodStr) || !string.IsNullOrEmpty(mfgStr))
                     {

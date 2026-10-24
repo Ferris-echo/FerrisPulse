@@ -32,6 +32,11 @@
   - 原生接入 0x11/0x41 档位指令，覆盖 125Hz、500Hz、1000Hz、2000Hz、4000Hz（2.4G）与 8000Hz（有线）超高回报率切换，全面打通主界面交互与全屏游戏自动优化。
 
 ### 🎮 手柄与键盘设备接入
+- **VGN Neon75 三模机械键盘（ROYUAN 代工，`3151:5038` 2.4G Dongle / `502D`/`502F`/`5054` 有线）**：
+  - 新增 `VgnKeyboardHelper`：2.4G Dongle 走 `UsagePage 0xFFFF / Usage 0x0002` 的 65 字节 Feature，`0xF7` 状态帧读取 `payload[1]` 电量、`payload[3]` 在线、`payload[6]` 类型与 `payload[9]` 充电位；实机稳定读取 100%。
+  - 依据 VGN 官方 VHUB 设备表与产品字符串纠正品牌：`ROYUAN` 是方案商，用户侧品牌为 **VGN Neon75**；不再把 OEM 厂商名当产品品牌。
+  - 修复 `ValkyrieDeviceHelper` 对 `VID_3151` 的泛化误识别：旧逻辑用 `payload[0]==1` 猜 Report ID 前缀，空闲回包 `payload[0]=0` 时把真实 100% 读成 0%；现由 `3151:5038` 与有线 `502D/502F/5054` 精确隔离，并改用报文总长度判定偏移。
+  - 明确通道边界：2.4G Dongle 不转发 `0xF6`/`0x8F` 设置通道，灯光/按键/磁轴等写入需 USB 数据线；UI 不再把 100% 满电显示为“充电中”，改以 `payload[9]` 为唯一充电依据。
 - **飞智 (Flydigi) APEX 6 / APEX 6 Pro / Vader 5 Pro** (#24)：
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：

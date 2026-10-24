@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 // 2. 编码规范：所有文件严格保存为 UTF-8 带签名（BOM）格式，防止中文字符乱码。
 // 3. 架构规范：本文件属于 MainForm 的分部类 (partial class) 之一。修改时请保持职责清晰，任何新增方法或逻辑请同步维护 ARCHITECTURE.md。
@@ -1884,15 +1884,27 @@ namespace RazerBatteryTray
             string brandTag = lastInfo.Brand == "Rapoo" ? "雷柏" : (lastInfo.Brand == "VGN" ? "VGN" : (lastInfo.Brand == "Razer" ? "雷蛇" : (lastInfo.Brand == "NuPhy" ? "NuPhy" : (lastInfo.Category == DeviceCategory.Headset ? "耳机" : (lastInfo.Category == DeviceCategory.Gamepad ? "手柄" : (lastInfo.Category == DeviceCategory.Keyboard ? "键盘" : "外设"))))));
             string dpiPart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.Dpi > 0) ? (" · " + lastInfo.Dpi + " DPI") : "";
             string ratePart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.PollingRate > 0) ? (" · " + lastInfo.PollingRate + "Hz") : "";
-            string chgPart = lastInfo.IsSleeping ? "休眠待机" : (lastInfo.IsCharging ? "充电中" : "电池供电");
-            string chgStr = lastInfo.IsSleeping ? "休眠待机 (移动唤醒)" : (lastInfo.IsCharging ? "正在充电" : "电池供电");
 
-            if (lastInfo.Category == DeviceCategory.Keyboard && !lastInfo.IsCharging)
+            // 100% 电量不是充电证据。只有硬件充电位、USB 直连，或 NuPhy 既有的
+            // “满电即浮充”约定才允许显示充电；VGN Neon75 以 payload[9] 为真实充电位。
+            bool isKeyboardWired = lastInfo.Category == DeviceCategory.Keyboard && lastInfo.Transport != null &&
+                                   (lastInfo.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    lastInfo.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                   lastInfo.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                   lastInfo.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0;
+            bool isNuphyFullFloat = lastInfo.Brand == "NuPhy" && lastInfo.Category == DeviceCategory.Keyboard &&
+                                    lastInfo.BatteryPercent >= 100 && !lastInfo.IsCharging;
+            bool chargingLike = lastInfo.IsCharging || isKeyboardWired || isNuphyFullFloat;
+
+            string chgPart = lastInfo.IsSleeping ? "休眠待机" : (chargingLike ? "充电中" : "电池供电");
+            string chgStr = lastInfo.IsSleeping ? "休眠待机 (移动唤醒)" : (chargingLike ? "正在充电" : "电池供电");
+
+            if (lastInfo.Category == DeviceCategory.Keyboard && !chargingLike)
             {
                 if (lastInfo.BatteryPercent >= 100)
                 {
-                    chgPart = "充电中 · 电量充足";
-                    chgStr = "充电中 · 电量充足";
+                    chgPart = "电量充足";
+                    chgStr = "电池供电 · 电量充足";
                 }
                 else
                 {
@@ -1912,7 +1924,7 @@ namespace RazerBatteryTray
                 menuStatus = string.Format("[{0}] {1} (免驱在线)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 免驱在线\n最后同步: {2}", brandTag, devDisplayName, timeStr);
             }
-            else if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent >= 100)
+            else if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent >= 100 && chargingLike)
             {
                 menuStatus = string.Format("[{0}] {1} (供电中)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 2.4G 供电中\n最后同步: {2}", brandTag, devDisplayName, timeStr);

@@ -1,4 +1,4 @@
-# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
+﻿# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
 
 > **致所有接手本项目的 AI Agent 伙伴**：  
 > 本手册凝聚了前序 Agent 在开发、重构、调试、测试与发布全生命周期中积累的全部实战经验与踩坑教训。  
@@ -20,6 +20,9 @@
    - 3.8 社区开源贡献与代码署名礼仪
    - 3.9 新品牌 HID 适配实战（飞智 GPA6 / 迈从 G87 V2）
    - 3.10 社区硬件协议逆向实战（索尼 INZONE / 罗技 G502X / 怒喵 RACE / ATK 8K / 元派 P1）
+   - 3.11 无线电竞耳机协议突破（赛睿 Nova 5 / 雷蛇旋风黑鲨 / 罗技 G PRO X）
+   - 3.12 FDAS 全品牌通用硬件适配与现场探针逆向机制
+   - 3.13 VGN Neon75 (ROYUAN OEM) 键盘接收器与 Report ID 偏移陷阱
 4. [版本发布标准作业程序 (Release SOP)](#4-版本发布标准作业程序-release-sop)
    - 4.1 云端标准流水线发布流程
    - 4.2 “发布后本地留旧测新”实战法则 (Local Test vs Remote Release SOP)
@@ -321,6 +324,22 @@
    - **硬件安全第一与探针写保护锁**：严禁在下位机真机上盲测写指令（如 `Cmd 0x07` 写未知地址），以防冲毁 2.4G 接收器 RF 配对表导致变砖。探针工具 `tools/probe_hid_device.ps1` 内置物理安全锁，默认拦截未经授权的高危 EEPROM 写入。
    - **首选官方 WebHID 源码逆向**：国内 90% 厂商均提供基于 Chrome WebHID 的网页驱动，按 F12 检索 `sendReport`、`write` 即可直接提取官方原厂验证过的 100% 安全算法。
    - **双轨制逃生舱与生态反哺**：若遇到极特殊协议超出 JSON 表达能力，授权 Agent 直接修改本地 C# 源码并 `build.bat` 验证；并引导用户将成果通过 GitHub/Gitee Issue 或直连作者邮箱（`2949225840@qq.com` / `2949225840zpf@gmail.com`）反哺，收录为官方原生预设。
+
+### 3.13 VGN Neon75 (ROYUAN OEM) 键盘接收器与 Report ID 偏移陷阱
+1. **品牌与设备拓扑（必须区分品牌商与方案商）**：
+   - 本机 `3151:5038` 的 USB 厂商字符串是 `ROYUAN`，但 VGN 官方 VHUB 设备表明确记录为 **`VGN Neon75 Dongle`**（productId 20536，receiver=true，customDeviceType=`rongyuan`）。FerrisPulse 面向用户的品牌应为 **VGN**，底层协议来自 ROYUAN OEM；不要把 OEM 厂商名当成产品品牌。
+   - Neon75 的有线端点为 `3151:502D` / `3151:502F` / `3151:5054`（对应 sharkfin 的 device id 2781/2859/2904/2905/3237）；2.4G Dongle 为 `3151:5038`。产品字符串只有通用 `2.4G Wireless Keyboard`，不要靠字符串猜型号。
+   - 配置通道为 `UsagePage 0xFFFF / Usage 0x0002`，`FeatureReportByteLength = 65`，即 **1 字节 Report ID 0 + 64 字节协议帧**；键盘按键集合的 `0xFFFF/0x0001` 是 32 字节只读输入流，不要向它写 Feature。
+2. **0xF7 电量/充电状态帧（实机验证）**：
+   - 发送 65 字节 Feature：`[0x00, 0xF7, 0x00 … 0x00, 0x08]`；Bit7 校验和覆盖 payload 0..6，存放在 payload 7（`0xFF - (0xF7 & 0xFF) = 0x08`）。
+   - 回包示例：`00 00 64 00 00 01 01 01 00 00 …`。去掉 Report ID 后：`payload[1] = 电量 0..100`（`0x64 = 100%`）；`payload[3] == 0` 表示在线；`payload[6] = 1` 键盘、`2` 鼠标、`3` 键鼠双模；`payload[9]` 是 VGN 的充电标志（非 0 为充电中）。VGN VHUB 的 `getDongleData` 与 `setStatus` 都读 `result[9]`，这是比“满电即充电”可靠的唯一依据。
+   - 100% 电量不能推断充电。UI 只有在 `IsCharging`、USB 直连或 NuPhy 既有浮充约定成立时才显示充电；VGN Neon75 的 `payload[9]=0` 必须显示“电池供电 · 电量充足”。
+3. **前序 Valkyrie 误识别根因（必须永久隔离）**：
+   - `ValkyrieDeviceHelper` 对 `VID_3151` 全量泛化，且其回包前缀判定写成 `rx[0]==0 && rx[1]==1`；当接收器 `payload[0]=0`（无待取中转回包）时该条件不成立，`baseOffset` 仍为 0，于是把 `rx[1]` 当电量、`rx[2]` 当鼠标电量，真实 100% 被读成 0%。
+   - 修复方式：`IsValkyrieDevice` 对 `3151:5038` 与有线 `502D/502F/5054` 明确返回 `false`；新增 `VgnKeyboardHelper` 以 **报文总长度 65/64** 判定 Report ID 偏移，不再用 `payload[0]==1` 猜测。`DeviceManager` 的变体池使用既有 `VGN` 前缀，保证自定义别名与去重正常。
+4. **2.4G 设置通道结论（重要）**：
+   - 该接收器对 `0xF6`（选择键盘）+ `0x8F`（Identify）不返回 `reply_ready`，`0xF7` 的 `payload[5]` 虽为 1，但 16 个 target 逐一实测均无中转回包。VGN 官方 VHUB 也只在 2.4G 下展示设备页，不提供设置写入；sharkfin 对 Neon75 的说明明确写着“Writes need the cable”。
+   - 因此 **灯光/按键/磁轴/宏等设置必须走 USB 数据线**，对应 `3151:502D/502F/5054`；2.4G 仅支持电量、充电与在线状态。不要为了“让 2.4G 可调”而盲写 `0x07`/`0x09`/`0x0A`，不同固件族的同 opcode 含义不同，可能写坏板载配置。
 
 ---
 
