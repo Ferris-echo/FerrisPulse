@@ -141,3 +141,12 @@ D:\FerrisPulse · 灵脉\
    严禁在控件、窗口、边距、圆角处使用硬编码像素数值。必须统一通过 `S(...)` 或 `DpiScale` 计算缩放后的物理尺寸。
 5. **单实例安全互斥**：
    严禁通过遍历进程名暴力调用 `Process.Kill()`。必须使用系统命名全局互斥体 `Mutex("Global\\FerrisPulse_SingleInstance_Mutex")` 进行优雅管理。
+
+## Kraken V4 056C 电量适配（2026-10-24）
+
+`RazerHeadsetHelper` 原生支持 Kraken V4 的 FF14/0001 64 字节 0x60 协议，复用 DeviceManager 耳机调度。
+`BuildKrakenFrame(byte)` 仅接受电量、充电、连接三种查询；`ParseKrakenReplyValue(byte[], byte)` 校验完整报告、头部、命令、成功与有效标志、值范围，非法返回 -1。
+型号必须与 BlackShark 的 PA/PI 分支隔离。细节及实测见 [KRAKEN_V4_ADAPTATION.md](docs/KRAKEN_V4_ADAPTATION.md)。
+
+### ASUS OMNI 夜魔键盘
+AsusDeviceHelper.cs：按接收器配对 PID 1A85 识别夜魔；FF02 配对、FF00 电量，与 FF01 鼠标隔离。DeviceManager 注册 Keyboard 并合并旧接收器配置；通用驱动排除 OMNI。HidTransport 固定缓冲区至取消完成并保留实际读长。详见 docs/ROG_AZOTH_ADAPTATION.md。

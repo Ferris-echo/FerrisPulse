@@ -1,4 +1,4 @@
-# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
+﻿# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
 
 > **致所有接手本项目的 AI Agent 伙伴**：  
 > 本手册凝聚了前序 Agent 在开发、重构、调试、测试与发布全生命周期中积累的全部实战经验与踩坑教训。  
@@ -580,3 +580,14 @@ powershell -ExecutionPolicy Bypass -File tools/integrate_adaptation.ps1 -Adapter
   1. *非阻塞异步流读取*：在 `RapooDeviceHelper.cs` 中打开 `col09` 时追加 `FILE_FLAG_OVERLAPPED`，使用 .NET 原生 `FileStream.BeginRead` / `EndRead` 监听 Report ID 0x07。有数据时微秒级消费并更新缓存，无数据时完全不阻塞工作线程。
   2. *双通道极速返回*：`FastQueryDpi` 与 `QueryRapooDeviceInfo` 优先直接消费遥测流，3 秒内有活跃遥测即无需发起 EEPROM 特性读取，彻底消灭射频包冲突。
   3. *冷启动热恢复*：通过静态构造函数 `static RapooDeviceHelper() { LoadHardwareCache(); }` 与注册表持久化机制，应用冷启动时立即毫秒级恢复上一次关机前的真实电量与档位，并在后台静默连通后瞬间刷新为最新物理电量。
+
+### Kraken V4 056C：不可套用 BlackShark PA/PI 或鼠标 Feature 报文
+
+2026-10-24 真机：Kraken V4 `1532:056C` 使用 `FF14/0001`，Input/Output 64 字节，Feature 仅 9 字节；`FF13/0001` 的 62 字节集合不是本次电量通道。
+查询 `02 00 60 00 00 00 04 00 00 80 CC 00` 补齐 64B。响应命令在 `[10]`、有效标志在 `[12]`、值在 `[13]`；CC 21 电量、2A 充电、20 连接。实测 69%，插入充电线后 2A 的值 0→1；不要把恒为 1 的 `[12]` 当充电状态。
+只对白名单 PID 和能力匹配的集合启用，拒绝无关通知、错误状态、0xFF/越界值，不扩展到未经实测的 V4 Pro。有线充电可以与 2.4G 数据连接同时存在。
+异步 HID 使用的托管缓冲区必须固定到 I/O 完成；CancelIo 后必须等待取消完成再释放/复用缓冲区和事件。
+参见 [协议与贡献说明](KRAKEN_V4_ADAPTATION.md)；测试 `test_razer_headset_kraken_v4.ps1` 区分现场样本与合成异常样本。
+
+### OMNI 接收器名称不能代替配对设备型号
+0B05:1ACE 先在 FF02/1 读取配对列表，确认 1A85 后才命名夜魔；电量在 FF00/1 的 64B 中断通道，不能向 FF01 鼠标通道发送键盘协议。02 FF AA 表示查询无有效回包，绝不能据此展示 0% 或满电。休眠只保留已读真实值；启动无历史值为未知。旧自定义 Dongle 配置仅在唯一键盘匹配时合并，避免类别和名称倒退。供应商中断集合与标准键盘/Feature 集合的权限要求应分开处理。详见 ROG_AZOTH_ADAPTATION.md。
