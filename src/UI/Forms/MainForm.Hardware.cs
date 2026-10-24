@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 // 2. 编码规范：所有文件严格保存为 UTF-8 带签名（BOM）格式，防止中文字符乱码。
 // 3. 架构规范：本文件属于 MainForm 的分部类 (partial class) 之一。修改时请保持职责清晰，任何新增方法或逻辑请同步维护 ARCHITECTURE.md。
@@ -575,6 +575,21 @@ namespace RazerBatteryTray
                         OnDpiChanged("MCHOSE", dpi, targetStage > 0 ? targetStage : 1, dpiStageValues.Length, null, dpiY);
                     }));
                 }
+                else if (curDev != null && VgnDeviceHelper.IsYjxDevice(curDev.DeviceId))
+                {
+                    int vgnStage = targetStage > 0 ? targetStage : 1;
+                    VgnDeviceHelper.SetYjxDpiStage(vgnStage);
+
+                    this.BeginInvoke(new Action(() => {
+                        if (curDev != null)
+                        {
+                            curDev.Dpi = dpi;
+                            curDev.DpiStage = vgnStage;
+                        }
+                        HighlightDpiStage(vgnStage);
+                        OnDpiChanged("VGN", dpi, vgnStage, dpiStageValues.Length, curDev != null ? curDev.DeviceId : null, dpi);
+                    }));
+                }
                 else
                 {
                     string rzDevId = curDev != null ? curDev.DeviceId : null;
@@ -606,6 +621,7 @@ namespace RazerBatteryTray
                                 curDev.Dpi = queryDpi;
                                 curDev.DpiStage = stage;
                             }
+                            HighlightDpiStage(stage > 0 ? stage : 1);
                             OnDpiChanged("Razer", queryDpi, stage, count, rzDevId, rzDpiY);
                         }));
                     }
@@ -617,6 +633,7 @@ namespace RazerBatteryTray
                                 curDev.Dpi = dpi;
                                 if (targetStage > 0) curDev.DpiStage = targetStage;
                             }
+                            HighlightDpiStage(targetStage > 0 ? targetStage : 1);
                             OnDpiChanged("Razer", dpi, targetStage > 0 ? targetStage : 1, dpiStageValues.Length, rzDevId, rzDpiY);
                         }));
                     }
@@ -653,6 +670,10 @@ namespace RazerBatteryTray
                     else if (curDev != null && (curDev.Brand == "Mchose" || curDev.Brand == "MCHOSE" || curDev.Brand == "迈从") && curDev.Category == DeviceCategory.Mouse)
                     {
                         ok = MchoseMouseHelper.SetMchosePollingRate(hz);
+                    }
+                    else if (curDev != null && VgnDeviceHelper.IsYjxDevice(curDev.DeviceId))
+                    {
+                        ok = VgnDeviceHelper.SetYjxPollingRate(hz);
                     }
                     else if (curDev != null && (curDev.Brand == "Razer" || curDev.Brand == "雷蛇" || (curDev.DeviceId != null && curDev.DeviceId.StartsWith("Razer:1532:"))))
                     {
@@ -1097,6 +1118,7 @@ namespace RazerBatteryTray
                     else if (brand == "Logitech" || brand == "罗技") rOk = LogitechDeviceHelper.SetLogitechPollingRate(targetHz, curDev.DeviceId);
                     else if (brand == "Rapoo" || brand == "雷柏") rOk = RapooDeviceHelper.SetRapooPollingRate(targetHz);
                     else if ((brand == "Mchose" || brand == "MCHOSE" || brand == "迈从") && curDev.Category == DeviceCategory.Mouse) rOk = MchoseMouseHelper.SetMchosePollingRate(targetHz);
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId)) rOk = VgnDeviceHelper.SetYjxPollingRate(targetHz);
                     else if (brand == "Razer" || brand == "雷蛇" || (curDev.DeviceId != null && curDev.DeviceId.StartsWith("Razer:1532:"))) rOk = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     else rOk = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     if (rOk) break;
@@ -1123,6 +1145,10 @@ namespace RazerBatteryTray
                     else if (brand == "Logitech" || brand == "罗技")
                     {
                         dOk = LogitechDeviceHelper.SetLogitechDpi(targetDpi, targetDpiY, curDev.DeviceId);
+                    }
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId))
+                    {
+                        dOk = VgnDeviceHelper.SetYjxDpiStage(targetStage);
                     }
                     else
                     {
@@ -1202,6 +1228,7 @@ namespace RazerBatteryTray
                     else if (brand == "Rapoo" || brand == "雷柏") ok = RapooDeviceHelper.SetRapooPollingRate(targetHz);
                     else if ((brand == "Mchose" || brand == "MCHOSE" || brand == "迈从") && curDev.Category == DeviceCategory.Mouse) ok = MchoseMouseHelper.SetMchosePollingRate(targetHz);
                     else if ((brand == "Mchose" || brand == "MCHOSE" || brand == "迈从") && curDev.Category == DeviceCategory.Mouse) ok = MchoseMouseHelper.SetMchosePollingRate(targetHz);
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId)) ok = VgnDeviceHelper.SetYjxPollingRate(targetHz);
                     else if (brand == "Razer" || brand == "雷蛇" || (curDev.DeviceId != null && curDev.DeviceId.StartsWith("Razer:1532:"))) ok = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     else ok = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     if (ok) break;
@@ -1271,6 +1298,7 @@ namespace RazerBatteryTray
                     else if (brand == "Valkyrie" || brand == "瓦尔基里") ok = ValkyrieDeviceHelper.SetValkyriePollingRate(targetHz);
                     else if (brand == "Logitech" || brand == "罗技") ok = LogitechDeviceHelper.SetLogitechPollingRate(targetHz, curDev.DeviceId);
                     else if (brand == "Rapoo" || brand == "雷柏") ok = RapooDeviceHelper.SetRapooPollingRate(targetHz);
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId)) ok = VgnDeviceHelper.SetYjxPollingRate(targetHz);
                     else if (brand == "Razer" || brand == "雷蛇" || (curDev.DeviceId != null && curDev.DeviceId.StartsWith("Razer:1532:"))) ok = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     else ok = RazerDeviceHelper.SetRazerPollingRate(targetHz, curDev.DeviceId);
                     if (ok) break;
@@ -1377,6 +1405,10 @@ namespace RazerBatteryTray
                     {
                         ok = (targetStage > 0) ? MchoseMouseHelper.SetMchoseDpiStage(targetStage) : MchoseMouseHelper.SetMchoseDpi(targetDpi, targetDpi, 1);
                     }
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId))
+                    {
+                        ok = VgnDeviceHelper.SetYjxDpiStage(targetStage);
+                    }
                     else // Razer or other
                     {
                         string rzDevId = curDev.DeviceId;
@@ -1469,6 +1501,10 @@ namespace RazerBatteryTray
                     else if ((brand == "Mchose" || brand == "MCHOSE" || brand == "迈从") && curDev.Category == DeviceCategory.Mouse)
                     {
                         ok = (targetStage > 0) ? MchoseMouseHelper.SetMchoseDpiStage(targetStage) : MchoseMouseHelper.SetMchoseDpi(targetDpi, targetDpi, 1);
+                    }
+                    else if (VgnDeviceHelper.IsYjxDevice(curDev.DeviceId))
+                    {
+                        ok = VgnDeviceHelper.SetYjxDpiStage(targetStage);
                     }
                     else // Razer or other
                     {
@@ -2214,6 +2250,7 @@ namespace RazerBatteryTray
             bool isFdasMouse = (info != null && FdasRuntimeHelper.IsFdasMouse(info));
             bool isLogitech = (info.Brand == "Logitech" || info.Brand == "罗技");
             bool isVgn = (info.Brand == "VGN" && !isFdasDevice);
+            bool isVgnYjx = VgnDeviceHelper.IsYjxDevice(info.DeviceId);
             bool isRazer = (info.Brand == "Razer" || (info.DeviceId != null && info.DeviceId.StartsWith("Razer:1532:")));
             bool isValkyrieMouse = ((info.Brand == "Valkyrie" || info.Brand == "瓦尔基里") && info.Category == DeviceCategory.Mouse);
             bool isLogitechMouse = (isLogitech && info.Category == DeviceCategory.Mouse);
@@ -2597,7 +2634,7 @@ namespace RazerBatteryTray
 
                 if (rateMenu != null) rateMenu.Visible = false;
             }
-            else if (isVgn && !isFdasMouse)
+            else if (isVgn && !isVgnYjx && !isFdasMouse)
             {
                 AdjustPerformanceCardHeight((int)(160 * dpiScale));
                 if (lblPerfTitle != null) lblPerfTitle.Text = "VGN 鼠标状态与性能测速";
@@ -2695,7 +2732,7 @@ namespace RazerBatteryTray
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
             }
-            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isFdasMouse)
+            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isFdasMouse || isVgnYjx)
             {
                 if (lblPerfTitle != null)
                 {
@@ -2703,8 +2740,11 @@ namespace RazerBatteryTray
                     else if (isLogitechMouse) lblPerfTitle.Text = "罗技鼠标性能与档位调节";
                     else if (isRapooMouse) lblPerfTitle.Text = "雷柏鼠标性能与档位调节";
                     else if (isFdasMouse) lblPerfTitle.Text = (info.Brand ?? "外设") + " 鼠标性能与档位调节";
+                    else if (isVgnYjx) lblPerfTitle.Text = "VGN 鼠标性能与档位调节";
                     else lblPerfTitle.Text = "鼠标性能与档位调节";
                 }
+                if (tileRapooDpi != null) tileRapooDpi.Visible = false;
+                if (btnMouseRateTest != null) btnMouseRateTest.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = true;
 
                 if (lblDpiTitle != null) lblDpiTitle.Visible = true;
@@ -2733,6 +2773,22 @@ namespace RazerBatteryTray
                 if (chkNotifyToast != null) chkNotifyToast.Checked = gameRateNotifyToast;
                 if (chkNotifySound != null) chkNotifySound.Checked = gameRateNotifySound;
                 if (autoGameRateMenu != null) autoGameRateMenu.Visible = supportsAutoGameRate;
+                if (isVgnYjx && (info.DpiStages == null || info.DpiStages.Length == 0
+                    || (info.DpiStageCount > 0 && info.DpiStageCount != info.DpiStages.Length)))
+                {
+                    // 自定义/缓存设备条目可能只带名字与电量，缺少 DPI 档位。
+                    // 这里向 391D 接收器补一次性能帧，保证档位胶囊与"硬件生效"显示真实值。
+                    MouseBatteryInfo freshVgn = VgnDeviceHelper.QueryVgnDeviceInfo();
+                    if (freshVgn != null && freshVgn.DpiStages != null && freshVgn.DpiStages.Length > 0)
+                    {
+                        info.Dpi = freshVgn.Dpi;
+                        info.DpiStage = freshVgn.DpiStage;
+                        info.DpiStageCount = freshVgn.DpiStageCount;
+                        info.DpiStages = freshVgn.DpiStages;
+                        info.PollingRate = freshVgn.PollingRate;
+                        info.SupportedPollingRates = freshVgn.SupportedPollingRates;
+                    }
+                }
                 if (info.DpiStages != null && info.DpiStages.Length > 0)
                 {
                     bool differs = false;

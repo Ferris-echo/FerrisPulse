@@ -1990,7 +1990,8 @@ namespace RazerBatteryTray
             bool isValkyrie = (dev.Brand == "Valkyrie" || dev.Brand == "瓦尔基里");
             bool isMchose = ((dev.Brand == "Mchose" || dev.Brand == "MCHOSE" || dev.Brand == "迈从") && dev.Category == DeviceCategory.Mouse);
             bool isFdas = FdasRuntimeHelper.IsFdasMouse(dev);
-            return isRazer || isLogitech || isRapoo || isValkyrie || isMchose || isFdas;
+            bool isVgnYjx = (dev.Brand == "VGN" && dev.DeviceId != null && dev.DeviceId.StartsWith("VGN:391D:"));
+            return isRazer || isLogitech || isRapoo || isValkyrie || isMchose || isFdas || isVgnYjx;
         }
 
         public bool IsSelectedDeviceSupportingAutoGameRate()
