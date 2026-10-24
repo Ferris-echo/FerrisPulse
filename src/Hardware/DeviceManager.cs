@@ -1016,7 +1016,7 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.13 Query Razer wireless headsets (BlackShark V2 Pro 2.4, 64B PA/PI protocol)
+            // 2.13 Query Razer wireless headsets (BlackShark PA/PI and Kraken V4 0x60 protocol)
             try
             {
                 var razerHeadsets = RazerHeadsetHelper.QueryAllRazerHeadsets();
@@ -1108,12 +1108,17 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // ASUS OMNI keyboard channel is independent of the receiver's mouse channel.
+            try { list.AddRange(AsusDeviceHelper.QueryAllKeyboards()); }
+            catch { }
             // 3. Query Custom Devices (Bluetooth / Generic HID)
             try
             {
                 var customConfigs = LoadCustomDevices();
                 foreach (var cfg in customConfigs)
                 {
+                    if (AsusDeviceHelper.MergeLegacyKeyboardConfig(list, cfg)) continue;
+
                     bool isLogitech = (cfg.DeviceId != null && (cfg.DeviceId.StartsWith("Logitech:046D:", StringComparison.OrdinalIgnoreCase) || cfg.DeviceId.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0)) ||
                                       (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0);
 

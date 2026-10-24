@@ -322,8 +322,10 @@ namespace RazerBatteryTray
             if (evt == IntPtr.Zero) return false;
             OVERLAPPED overlapped = new OVERLAPPED();
             overlapped.hEvent = evt;
+            GCHandle pinned = default(GCHandle);
             try
             {
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
                 uint written = 0;
                 bool ok = WriteFile(handle, buffer, (uint)length, out written, ref overlapped);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
@@ -332,11 +334,12 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        GetOverlappedResult(handle, ref overlapped, out written, true);
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out written, false);
                 }
-                return ok && written > 0;
+                return ok && written == length;
             }
             catch
             {
@@ -344,6 +347,7 @@ namespace RazerBatteryTray
             }
             finally
             {
+                if (pinned.IsAllocated) pinned.Free();
                 CloseHandle(evt);
             }
         }
@@ -356,9 +360,11 @@ namespace RazerBatteryTray
             if (evt == IntPtr.Zero) return false;
             OVERLAPPED overlapped = new OVERLAPPED();
             overlapped.hEvent = evt;
+            GCHandle pinned = default(GCHandle);
             try
             {
                 byte[] buffer = new byte[length];
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
                 uint read = 0;
                 bool ok = ReadFile(handle, buffer, (uint)length, out read, ref overlapped);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
@@ -367,12 +373,14 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        GetOverlappedResult(handle, ref overlapped, out read, true);
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out read, false);
                 }
                 if (ok && read > 0)
                 {
+                    if (read != buffer.Length) Array.Resize(ref buffer, (int)read);
                     data = buffer;
                     return true;
                 }
@@ -384,6 +392,7 @@ namespace RazerBatteryTray
             }
             finally
             {
+                if (pinned.IsAllocated) pinned.Free();
                 CloseHandle(evt);
             }
         }
