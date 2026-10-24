@@ -37,6 +37,8 @@
   - 依据 VGN 官方 VHUB 设备表与产品字符串纠正品牌：`ROYUAN` 是方案商，用户侧品牌为 **VGN Neon75**；不再把 OEM 厂商名当产品品牌。
   - 修复 `ValkyrieDeviceHelper` 对 `VID_3151` 的泛化误识别：旧逻辑用 `payload[0]==1` 猜 Report ID 前缀，空闲回包 `payload[0]=0` 时把真实 100% 读成 0%；现由 `3151:5038` 与有线 `502D/502F/5054` 精确隔离，并改用报文总长度判定偏移。
   - 明确通道边界：2.4G Dongle 不转发 `0xF6`/`0x8F` 设置通道，灯光/按键/磁轴等写入需 USB 数据线；UI 不再把 100% 满电显示为“充电中”，改以 `payload[9]` 为唯一充电依据。
+  - 有线 `3151:502F` 经 `0x8F` 识别为 **VGN Neon75 Ultra（device id 2905）**；新增 `0x87` 读主灯、`0x07` 写主灯的 round-trip 引擎，实测常亮红色、关闭、恢复原始动态灯效均回读一致。
+  - 新增 `VgnKeyboardForm` 主灯调节面板（模式/亮度 0–4/速度 0–4/颜色/关闭/回读校验），选中 VGN 键盘时主界面显示“💡 VGN Neon75 灯光调节”。
 - **飞智 (Flydigi) APEX 6 / APEX 6 Pro / Vader 5 Pro** (#24)：
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：

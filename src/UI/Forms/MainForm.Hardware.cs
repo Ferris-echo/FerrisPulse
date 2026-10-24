@@ -2502,6 +2502,12 @@ namespace RazerBatteryTray
                     }
                     if (btnKeyboardSettings != null)
                     {
+                        bool isVgnNeon = info.Brand == "VGN" && VgnKeyboardHelper.IsVgnNeon75(info.DeviceId);
+                        bool isVgnWired = isVgnNeon && info.Transport != null &&
+                                          info.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0;
+                        btnKeyboardSettings.Text = isVgnNeon
+                            ? (isVgnWired ? "💡 VGN Neon75 灯光调节" : "💡 VGN Neon75 灯光调节 (需 Wired 档)")
+                            : "⌨️ 打开 Windows 键盘属性设置";
                         btnKeyboardSettings.Visible = true;
                         btnKeyboardSettings.SetBounds((int)(16 * dpiScale), row2Y, secW, btnH);
                     }

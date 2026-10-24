@@ -93,6 +93,7 @@ D:\FerrisPulse · 灵脉\
             ├── MainForm.Events.cs        [WndProc 消息泵与 TaskbarCreated 重建机制]
             ├── ModernDeviceSwitcherFlyout.cs [悬浮式现代外设快速切换器]
             ├── DpiOsdForm.cs             [零焦点置顶无感 DPI 悬浮提示窗]
+            ├── VgnKeyboardForm.cs        [VGN Neon75 主灯模式/亮度/速度/颜色调节与回读校验]
             ├── KeyRolloverSpeedForm.cs   [全键无冲与触发测速仪]
             ├── MouseRateTestDialog.cs    [回报率平滑度离线测试工具]
             ├── GameProcessManagerForm.cs [电竞游戏守护进程管理弹窗]
@@ -114,7 +115,7 @@ D:\FerrisPulse · 灵脉\
 | **托盘图标丢失 / Explorer 重启自愈** | `src/UI/Forms/MainForm.Events.cs` | 监听 `WM_TASKBARCREATED` 并自动恢复 |
 | **雷蛇 DPI 档位 / 8K 回报率 / XY 轴独立灵敏度** | `src/Hardware/RazerDeviceHelper.cs` | 雷蛇私有 HID 报文、独立 X/Y 轴与板载 Flash 写入 |
 | **瓦尔基里全系键盘/鼠标支持** | `src/Hardware/ValkyrieDeviceHelper.cs` | 瓦尔基里全系 2.4G 接收器/HID 协议解析、双模电量、8K 回报率与独立 X/Y 轴 DPI 调节 |
-| **VGN Neon75 键盘电量/充电** | `src/Hardware/VgnKeyboardHelper.cs` | `3151:5038` 2.4G Dongle 与 `502D/502F/5054` 有线端点；`0xF7` 的 `payload[1]` 电量、`payload[9]` 充电位；2.4G 不转发设置 |
+| **VGN Neon75 电量/充电/主灯调节** | `src/Hardware/VgnKeyboardHelper.cs` / `src/UI/Forms/VgnKeyboardForm.cs` | `3151:5038` 2.4G Dongle 与 `502D/502F/5054` 有线端点；`0xF7` 电量/`payload[9]` 充电；`0x87`/`0x07` 主灯读写与回读；2.4G 不转发设置 |
 | **飞智 APEX 6 / Vader 5 Pro 手柄电量** | `src/Hardware/FlydigiDeviceHelper.cs` | GPA6 0xFFA0 33 字节帧、命令 0x01 设备信息、0..10 档电量与充电状态 |
 | **迈从 G87 V2 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | 0x13/0x4A 无线、0x09/0x87 有线、校验和含 Report ID、休眠占位与离线缓存 |
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |

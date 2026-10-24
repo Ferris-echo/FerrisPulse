@@ -34,6 +34,8 @@ namespace RazerBatteryTray
 
         public const byte CmdReceiverStatus = 0xF7;
         public const byte CmdIdentify = 0x8F;
+        public const byte CmdGetMainLight = 0x87;
+        public const byte CmdSetMainLight = 0x07;
         public const int StatusReportLength = 65;
 
         public static int CachedBatteryPercent = -1;
@@ -142,6 +144,221 @@ namespace RazerBatteryTray
             int offset = (report.Length >= StatusReportLength) ? 1 : 0;
             modelId = report[offset + 1] | (report[offset + 2] << 8);
             return modelId > 0;
+        }
+
+        public static byte[] BuildLightReadPacket(byte command)
+        {
+            byte[] packet = new byte[StatusReportLength];
+            packet[0] = 0x00;
+            packet[1] = command;
+            int sum = 0;
+            for (int i = 1; i <= 7; i++) sum += packet[i];
+            packet[8] = (byte)(0xFF - (sum & 0xFF));
+            return packet;
+        }
+
+        public static byte[] BuildLightWritePacket(byte command, int mode, int speedWire,
+            int luminance, int flags, int red, int green, int blue)
+        {
+            byte[] packet = new byte[StatusReportLength];
+            packet[0] = 0x00;
+            packet[1] = command;
+            packet[2] = (byte)(mode & 0xFF);
+            packet[3] = (byte)(speedWire & 0xFF);
+            packet[4] = (byte)(luminance & 0xFF);
+            packet[5] = (byte)(flags & 0xFF);
+            packet[6] = (byte)(red & 0xFF);
+            packet[7] = (byte)(green & 0xFF);
+            packet[8] = (byte)(blue & 0xFF);
+            int sum = 0;
+            for (int i = 1; i <= 8; i++) sum += packet[i];
+            packet[9] = (byte)(0xFF - (sum & 0xFF));
+            return packet;
+        }
+
+        /// <summary>
+        /// 解析 0x87 主灯状态。回包布局（含 Report ID）：
+        /// [0]=0, [1]=0x87, [2]=mode, [3]=wire speed, [4]=luminance,
+        /// [5]=flags/direction, [6..8]=R,G,B。
+        /// </summary>
+        public static bool TryParseMainLight(byte[] report, out int mode, out int wireSpeed,
+            out int luminance, out int flags, out int red, out int green, out int blue)
+        {
+            mode = 0;
+            wireSpeed = 0;
+            luminance = 0;
+            flags = 0;
+            red = 0;
+            green = 0;
+            blue = 0;
+            if (report == null || report.Length < 10) return false;
+
+            int offset = (report.Length >= StatusReportLength) ? 1 : 0;
+            mode = report[offset + 1];
+            wireSpeed = report[offset + 2];
+            luminance = report[offset + 3];
+            flags = report[offset + 4];
+            red = report[offset + 5];
+            green = report[offset + 6];
+            blue = report[offset + 7];
+            return mode <= 25 && wireSpeed <= 7 && luminance <= 7;
+        }
+
+        private static HidDeviceDescriptor FindWiredEndpoint(out int pid)
+        {
+            pid = 0;
+            int[] pids = new int[] { Neon75WiredPid1, Neon75WiredPid2, Neon75WiredPid3 };
+            for (int p = 0; p < pids.Length; p++)
+            {
+                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VgnVid, pids[p]);
+                if (descriptors == null || descriptors.Count == 0) continue;
+                for (int i = 0; i < descriptors.Count; i++)
+                {
+                    HidDeviceDescriptor d = descriptors[i];
+                    if (d.UsagePage == 0xFFFF && d.Usage == 0x0002 && d.FeatureReportLength >= 10)
+                    {
+                        pid = pids[p];
+                        return d;
+                    }
+                }
+            }
+            return null;
+        }
+
+        public static bool IsWiredNeon75Present()
+        {
+            int pid;
+            return FindWiredEndpoint(out pid) != null;
+        }
+
+        public static bool TryReadMainLight(out int mode, out int uiSpeed, out int luminance,
+            out bool chroma, out int red, out int green, out int blue)
+        {
+            mode = 0;
+            uiSpeed = 0;
+            luminance = 0;
+            chroma = false;
+            red = 0;
+            green = 0;
+            blue = 0;
+
+            int pid;
+            HidDeviceDescriptor endpoint = FindWiredEndpoint(out pid);
+            if (endpoint == null) return false;
+
+            IntPtr handle = HidTransport.Open(endpoint.DevicePath);
+            if (!HidTransport.IsValidHandle(handle)) return false;
+            try
+            {
+                byte[] tx = BuildLightReadPacket(CmdGetMainLight);
+                if (!HidTransport.SetFeature(handle, tx)) return false;
+                Thread.Sleep(40);
+                byte[] rx = new byte[StatusReportLength];
+                if (!HidTransport.GetFeature(handle, rx)) return false;
+
+                int wireSpeed;
+                int flags;
+                bool ok = TryParseMainLight(rx, out mode, out wireSpeed, out luminance,
+                    out flags, out red, out green, out blue);
+                if (!ok) return false;
+                uiSpeed = 4 - Math.Max(0, Math.Min(4, wireSpeed));
+                chroma = (flags == 8);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                HidTransport.Close(handle);
+            }
+        }
+
+        /// <summary>
+        /// 写入主灯并回读校验。uiSpeed 0=最慢、4=最快；硬件 wire speed = 4 - uiSpeed。
+        /// 实测：mode=1/flags=7/RGB 可回读；mode=0 可关闭；原状态可无损恢复。
+        /// </summary>
+        public static bool SetMainLight(int mode, int uiSpeed, int luminance, bool chroma,
+            int red, int green, int blue, out string error)
+        {
+            int wireSpeed = 4 - Math.Max(0, Math.Min(4, uiSpeed));
+            int lum = Math.Max(0, Math.Min(4, luminance));
+            int flags = chroma ? 8 : 7;
+            return SetMainLightRaw(mode, wireSpeed, lum, flags, red, green, blue, out error);
+        }
+
+        public static bool SetMainLightRaw(int mode, int wireSpeed, int luminance, int flags,
+            int red, int green, int blue, out string error)
+        {
+            error = null;
+            int pid;
+            HidDeviceDescriptor endpoint = FindWiredEndpoint(out pid);
+            if (endpoint == null)
+            {
+                error = "未检测到 VGN Neon75 有线端点（请把模式开关拨到 Wired 档）";
+                return false;
+            }
+
+            int safeSpeed = Math.Max(0, Math.Min(7, wireSpeed));
+            int lum = Math.Max(0, Math.Min(4, luminance));
+            int safeFlags = flags & 0xFF;
+            int targetMode = Math.Max(0, Math.Min(25, mode));
+
+            IntPtr handle = HidTransport.Open(endpoint.DevicePath);
+            if (!HidTransport.IsValidHandle(handle))
+            {
+                error = "无法打开键盘配置端点";
+                return false;
+            }
+            try
+            {
+                byte[] tx = BuildLightWritePacket(CmdSetMainLight, targetMode, safeSpeed, lum,
+                    safeFlags, red, green, blue);
+                if (!HidTransport.SetFeature(handle, tx))
+                {
+                    error = "SetFeature 写入失败";
+                    return false;
+                }
+                Thread.Sleep(80);
+
+                byte[] rx = new byte[StatusReportLength];
+                if (!HidTransport.GetFeature(handle, rx))
+                {
+                    error = "写入后回读失败";
+                    return false;
+                }
+
+                int rMode, rSpeed, rLum, rFlags, rRed, rGreen, rBlue;
+                if (!TryParseMainLight(rx, out rMode, out rSpeed, out rLum, out rFlags,
+                    out rRed, out rGreen, out rBlue))
+                {
+                    error = "回读报文解析失败";
+                    return false;
+                }
+                if (rMode != targetMode)
+                {
+                    error = string.Format("回读模式不一致：写入 {0}，回读 {1}", targetMode, rMode);
+                    return false;
+                }
+                if (targetMode == 1 &&
+                    (rLum != lum || rSpeed != safeSpeed || rRed != red || rGreen != green || rBlue != blue))
+                {
+                    error = string.Format("常亮回读不一致：lum={0}/{1}, speed={2}/{3}, RGB={4},{5},{6}",
+                        rLum, lum, rSpeed, safeSpeed, rRed, rGreen, rBlue);
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+            finally
+            {
+                HidTransport.Close(handle);
+            }
         }
 
         public static MouseBatteryInfo QueryVgnKeyboardInfo()

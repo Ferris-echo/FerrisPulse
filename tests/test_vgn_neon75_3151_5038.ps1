@@ -17,7 +17,7 @@ if (-not (Test-Path $asmPath)) {
 }
 
 $bytes = [System.IO.File]::ReadAllBytes($asmPath)
-[System.Reflection.Assembly]::Load($bytes) | Out-Null
+$asm = [System.Reflection.Assembly]::Load($bytes)
 
 # 1. 源码存在、UTF-8 BOM 与 C# 5.0 语法铁律
 $helperPath = Join-Path $repoRoot "src\Hardware\VgnKeyboardHelper.cs"
@@ -175,5 +175,48 @@ if (-not [RazerBatteryTray.VgnKeyboardHelper]::GetModelName(0x502F, 2859, $true)
 }
 Write-Host "PASS 8: VGN Neon75 model mapping verified." -ForegroundColor Green
 
-Write-Host "ALL TESTS PASSED for VGN Neon75 3151:5038 adaptation!" -ForegroundColor Green
+# 9. 灯光命令帧与回读解析（实机 0x87 样本）
+$lightRead = [RazerBatteryTray.VgnKeyboardHelper]::BuildLightReadPacket(0x87)
+if ($lightRead.Length -ne 65 -or $lightRead[1] -ne 0x87 -or $lightRead[8] -ne 0x78) {
+    Write-Host ("FAIL: light read packet mismatch: len=" + $lightRead.Length + " [1]=" + $lightRead[1] + " [8]=" + $lightRead[8]) -ForegroundColor Red
+    exit 1
+}
+$lightWrite = [RazerBatteryTray.VgnKeyboardHelper]::BuildLightWritePacket(0x07, 1, 4, 3, 7, 255, 0, 0)
+if ($lightWrite[1] -ne 0x07 -or $lightWrite[2] -ne 1 -or $lightWrite[3] -ne 4 -or $lightWrite[4] -ne 3 -or $lightWrite[5] -ne 7 -or $lightWrite[6] -ne 255 -or $lightWrite[9] -ne 0xEA) {
+    Write-Host ("FAIL: light write packet mismatch: " + (($lightWrite[0..10] | ForEach-Object { '{0:X2}' -f $_ }) -join ' ')) -ForegroundColor Red
+    exit 1
+}
+
+$lightRx = New-Object byte[] 65
+$lightRx[0] = 0x00
+$lightRx[1] = 0x87
+$lightRx[2] = 0x06
+$lightRx[3] = 0x01
+$lightRx[4] = 0x03
+$lightRx[5] = 0x01
+$lightRx[6] = 0xFF
+$lightRx[7] = 0xFF
+$lightRx[8] = 0xFF
+$lm = 0
+$lw = 0
+$ll = 0
+$lf = 0
+$lr = 0
+$lg = 0
+$lb = 0
+$lok = [RazerBatteryTray.VgnKeyboardHelper]::TryParseMainLight($lightRx, [ref]$lm, [ref]$lw, [ref]$ll, [ref]$lf, [ref]$lr, [ref]$lg, [ref]$lb)
+if (-not $lok -or $lm -ne 6 -or $lw -ne 1 -or $ll -ne 3 -or $lf -ne 1 -or $lr -ne 255 -or $lg -ne 255 -or $lb -ne 255) {
+    Write-Host ("FAIL: 0x87 sample parse mismatch: ok=" + $lok + " mode=" + $lm + " speed=" + $lw + " lum=" + $ll + " flags=" + $lf + " rgb=" + $lr + "/" + $lg + "/" + $lb) -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASS 9: 0x87/0x07 light packets and real readback sample verified." -ForegroundColor Green
+
+# 10. 灯光调节窗体已编译存在
+if ($null -eq $asm.GetType("RazerBatteryTray.VgnKeyboardForm")) {
+    Write-Host "FAIL: VgnKeyboardForm type missing!" -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASS 10: VgnKeyboardForm compiled and available." -ForegroundColor Green
+
+Write-Host "ALL TESTS PASSED for VGN Neon75 3151:5038 adaptation and lighting!" -ForegroundColor Green
 exit 0

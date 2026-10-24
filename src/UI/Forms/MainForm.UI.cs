@@ -599,6 +599,16 @@ namespace RazerBatteryTray
             btnKeyboardSettings.Cursor = Cursors.Hand;
             btnKeyboardSettings.Visible = false;
             btnKeyboardSettings.Click += (s, e) => {
+                if (selectedDevice != null && selectedDevice.Brand == "VGN" &&
+                    VgnKeyboardHelper.IsVgnNeon75(selectedDevice.DeviceId))
+                {
+                    using (var dlg = new VgnKeyboardForm())
+                    {
+                        dlg.ShowDialog(this);
+                    }
+                    return;
+                }
+
                 ThreadPool.QueueUserWorkItem(_ => {
                     try
                     {
