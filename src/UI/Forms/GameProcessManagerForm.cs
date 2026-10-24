@@ -2,7 +2,8 @@
 // 模块名称: GameProcessManagerForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   游戏进程名单管理窗口，支持实时枚举前台可见窗口与后台进程、添加/删除白名单、全屏自动检测开关与进程防抖持久化保存。
+//   游戏进程名单管理窗口，支持实时枚举前台可见窗口与后台进程、添加/删除白名单、
+//   双模式选择 (进程存活常驻模式 vs 仅前台窗口激活模式)、全屏自动检测开关与进程防抖持久化保存。
 // 依赖关系: Controls.*, Core.ConfigManager, Models.RunningProcessItem, Services.GameDetector
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -26,7 +27,8 @@ namespace RazerBatteryTray
     {
         private List<string> monitoredList;
         private bool fallbackEnabled;
-        private Action<List<string>, bool> onSaveCallback;
+        private int currentMode; // 0 = 仅前台激活模式, 1 = 进程存活常驻模式 (推荐)
+        private Action<List<string>, bool, int> onSaveCallback;
 
         private ListBox lstRunning;
         private ListBox lstMonitored;
@@ -35,13 +37,22 @@ namespace RazerBatteryTray
         private ModernButton btnBrowseExe;
         private ModernButton btnRemove;
         private ModernButton btnClearAll;
+        private ModernButton btnModePersistent;
+        private ModernButton btnModeForeground;
+        private Label lblModeDesc;
         private ModernCheckBox chkFallback;
         private ModernButton btnClose;
 
-        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, Action<List<string>, bool> callback) : base(scale)
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, Action<List<string>, bool> callback)
+            : this(scale, initialList, initialFallback, 1, (list, fb, mode) => { if (callback != null) callback(list, fb); })
+        {
+        }
+
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode, Action<List<string>, bool, int> callback) : base(scale)
         {
             this.monitoredList = initialList != null ? new List<string>(initialList) : new List<string>();
             this.fallbackEnabled = initialFallback;
+            this.currentMode = (initialMode == 0) ? 0 : 1;
             this.onSaveCallback = callback;
 
             this.Text = "FerrisPulse · 电竞游戏进程管理与自动捕获";
@@ -51,27 +62,28 @@ namespace RazerBatteryTray
             this.StartPosition = FormStartPosition.CenterParent;
             this.BackColor = Color.FromArgb(20, 23, 30);
             this.ForeColor = Color.FromArgb(240, 245, 255);
-            this.ClientSize = new Size((int)(540 * dpiScale), (int)(520 * dpiScale));
+            this.ClientSize = new Size((int)(540 * dpiScale), (int)(540 * dpiScale));
             this.KeyPreview = true;
 
             int pad = (int)(16 * dpiScale);
             int clientW = this.ClientSize.Width;
+            int listW = clientW - (pad * 2);
 
             // Title
             Label lblTitle = new Label();
             lblTitle.Text = "🎮 电竞游戏进程管理与自动捕获";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 230, 118);
-            lblTitle.Location = new Point(pad, (int)(12 * dpiScale));
+            lblTitle.Location = new Point(pad, (int)(10 * dpiScale));
             lblTitle.Size = new Size(clientW - (pad * 2), (int)(22 * dpiScale));
             this.Controls.Add(lblTitle);
 
             // Subtitle
             Label lblSub = new Label();
-            lblSub.Text = "只需将游戏添加至守护列表，进入游戏时自动生效电竞回报率，切回桌面自动恢复节能。";
+            lblSub.Text = "将游戏添加至守护列表后，启动游戏即自动升频与切换 DPI 档位。";
             lblSub.Font = new Font("Microsoft YaHei UI", 8.2F);
             lblSub.ForeColor = Color.FromArgb(150, 160, 180);
-            lblSub.Location = new Point(pad, (int)(34 * dpiScale));
+            lblSub.Location = new Point(pad, (int)(32 * dpiScale));
             lblSub.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
             this.Controls.Add(lblSub);
 
@@ -80,26 +92,25 @@ namespace RazerBatteryTray
             lblSec1.Text = "⚡ 当前正在运行的应用与游戏 (双击或点击下方按钮添加):";
             lblSec1.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
             lblSec1.ForeColor = Color.FromArgb(220, 230, 245);
-            lblSec1.Location = new Point(pad, (int)(58 * dpiScale));
-            lblSec1.Size = new Size(clientW - (pad * 2), (int)(20 * dpiScale));
+            lblSec1.Location = new Point(pad, (int)(52 * dpiScale));
+            lblSec1.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
             this.Controls.Add(lblSec1);
 
             // ListBox Running
-            int listW = clientW - (pad * 2);
             lstRunning = new ListBox();
             lstRunning.BackColor = Color.FromArgb(28, 32, 42);
             lstRunning.ForeColor = Color.FromArgb(225, 235, 250);
             lstRunning.BorderStyle = BorderStyle.FixedSingle;
             lstRunning.Font = new Font("Microsoft YaHei UI", 8.8F);
             lstRunning.ItemHeight = (int)(20 * dpiScale);
-            lstRunning.Location = new Point(pad, (int)(80 * dpiScale));
-            lstRunning.Size = new Size(listW, (int)(125 * dpiScale));
+            lstRunning.Location = new Point(pad, (int)(72 * dpiScale));
+            lstRunning.Size = new Size(listW, (int)(100 * dpiScale));
             lstRunning.DoubleClick += (s, e) => AddSelectedRunning();
             this.Controls.Add(lstRunning);
 
             // Action buttons below Running
-            int actY1 = (int)(212 * dpiScale);
-            int btnH = (int)(26 * dpiScale);
+            int actY1 = (int)(176 * dpiScale);
+            int btnH = (int)(25 * dpiScale);
 
             btnAddRunning = new ModernButton();
             btnAddRunning.Text = "➕ 添加选中的应用";
@@ -125,7 +136,7 @@ namespace RazerBatteryTray
             btnRefreshRunning.CornerRadius = (int)(5 * dpiScale);
             btnRefreshRunning.Cursor = Cursors.Hand;
             btnRefreshRunning.Location = new Point(pad + (int)(148 * dpiScale), actY1);
-            btnRefreshRunning.Size = new Size((int)(100 * dpiScale), btnH);
+            btnRefreshRunning.Size = new Size((int)(90 * dpiScale), btnH);
             btnRefreshRunning.Click += (s, e) => RefreshRunningProcesses();
             this.Controls.Add(btnRefreshRunning);
 
@@ -138,8 +149,8 @@ namespace RazerBatteryTray
             btnBrowseExe.TextColor = Color.FromArgb(190, 200, 220);
             btnBrowseExe.CornerRadius = (int)(5 * dpiScale);
             btnBrowseExe.Cursor = Cursors.Hand;
-            btnBrowseExe.Location = new Point(pad + (int)(256 * dpiScale), actY1);
-            btnBrowseExe.Size = new Size((int)(180 * dpiScale), btnH);
+            btnBrowseExe.Location = new Point(pad + (int)(246 * dpiScale), actY1);
+            btnBrowseExe.Size = new Size((int)(160 * dpiScale), btnH);
             btnBrowseExe.Click += (s, e) => BrowseLocalExe();
             this.Controls.Add(btnBrowseExe);
 
@@ -148,8 +159,8 @@ namespace RazerBatteryTray
             lblSec2.Text = "📋 已生效的电竞游戏守护列表 (命中时自动切入电竞回报率):";
             lblSec2.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
             lblSec2.ForeColor = Color.FromArgb(220, 230, 245);
-            lblSec2.Location = new Point(pad, (int)(248 * dpiScale));
-            lblSec2.Size = new Size(clientW - (pad * 2), (int)(20 * dpiScale));
+            lblSec2.Location = new Point(pad, (int)(208 * dpiScale));
+            lblSec2.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
             this.Controls.Add(lblSec2);
 
             // ListBox Monitored
@@ -159,13 +170,13 @@ namespace RazerBatteryTray
             lstMonitored.BorderStyle = BorderStyle.FixedSingle;
             lstMonitored.Font = new Font("Microsoft YaHei UI", 8.8F);
             lstMonitored.ItemHeight = (int)(20 * dpiScale);
-            lstMonitored.Location = new Point(pad, (int)(270 * dpiScale));
-            lstMonitored.Size = new Size(listW, (int)(115 * dpiScale));
+            lstMonitored.Location = new Point(pad, (int)(228 * dpiScale));
+            lstMonitored.Size = new Size(listW, (int)(85 * dpiScale));
             lstMonitored.DoubleClick += (s, e) => RemoveSelectedMonitored();
             this.Controls.Add(lstMonitored);
 
             // Action buttons below Monitored
-            int actY2 = (int)(392 * dpiScale);
+            int actY2 = (int)(318 * dpiScale);
             btnRemove = new ModernButton();
             btnRemove.Text = "✕ 移除选中的游戏";
             btnRemove.Font = new Font("Microsoft YaHei UI", 8.2F);
@@ -176,7 +187,7 @@ namespace RazerBatteryTray
             btnRemove.CornerRadius = (int)(5 * dpiScale);
             btnRemove.Cursor = Cursors.Hand;
             btnRemove.Location = new Point(pad, actY2);
-            btnRemove.Size = new Size((int)(140 * dpiScale), btnH);
+            btnRemove.Size = new Size((int)(130 * dpiScale), btnH);
             btnRemove.Click += (s, e) => RemoveSelectedMonitored();
             this.Controls.Add(btnRemove);
 
@@ -189,16 +200,56 @@ namespace RazerBatteryTray
             btnClearAll.TextColor = Color.FromArgb(160, 170, 190);
             btnClearAll.CornerRadius = (int)(5 * dpiScale);
             btnClearAll.Cursor = Cursors.Hand;
-            btnClearAll.Location = new Point(pad + (int)(148 * dpiScale), actY2);
-            btnClearAll.Size = new Size((int)(80 * dpiScale), btnH);
+            btnClearAll.Location = new Point(pad + (int)(138 * dpiScale), actY2);
+            btnClearAll.Size = new Size((int)(75 * dpiScale), btnH);
             btnClearAll.Click += (s, e) => {
                 monitoredList.Clear();
                 RefreshMonitoredList();
             };
             this.Controls.Add(btnClearAll);
 
+            // Section 3: Optimization Mode Selection
+            int modeTitleY = (int)(350 * dpiScale);
+            Label lblModeTitle = new Label();
+            lblModeTitle.Text = "⚙️ 策略选项 (避免切出游戏看时间时频繁跳变 DPI/回报率):";
+            lblModeTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblModeTitle.ForeColor = Color.FromArgb(220, 230, 245);
+            lblModeTitle.Location = new Point(pad, modeTitleY);
+            lblModeTitle.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
+            this.Controls.Add(lblModeTitle);
+
+            int modeBtnY = (int)(372 * dpiScale);
+            int modeBtnW = (listW - (int)(8 * dpiScale)) / 2;
+            int modeBtnH = (int)(28 * dpiScale);
+
+            btnModePersistent = new ModernButton();
+            btnModePersistent.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold);
+            btnModePersistent.CornerRadius = (int)(5 * dpiScale);
+            btnModePersistent.Cursor = Cursors.Hand;
+            btnModePersistent.Location = new Point(pad, modeBtnY);
+            btnModePersistent.Size = new Size(modeBtnW, modeBtnH);
+            btnModePersistent.Click += (s, e) => SetGameOptMode(1);
+            this.Controls.Add(btnModePersistent);
+
+            btnModeForeground = new ModernButton();
+            btnModeForeground.Font = new Font("Microsoft YaHei UI", 8.2F);
+            btnModeForeground.CornerRadius = (int)(5 * dpiScale);
+            btnModeForeground.Cursor = Cursors.Hand;
+            btnModeForeground.Location = new Point(pad + modeBtnW + (int)(8 * dpiScale), modeBtnY);
+            btnModeForeground.Size = new Size(modeBtnW, modeBtnH);
+            btnModeForeground.Click += (s, e) => SetGameOptMode(0);
+            this.Controls.Add(btnModeForeground);
+
+            lblModeDesc = new Label();
+            lblModeDesc.Font = new Font("Microsoft YaHei UI", 8.0F);
+            lblModeDesc.Location = new Point(pad, (int)(404 * dpiScale));
+            lblModeDesc.Size = new Size(listW, (int)(26 * dpiScale));
+            this.Controls.Add(lblModeDesc);
+
+            SetGameOptMode(this.currentMode);
+
             // Fallback checkbox & Close button
-            int botY = (int)(430 * dpiScale);
+            int botY = (int)(438 * dpiScale);
             chkFallback = new ModernCheckBox();
             chkFallback.Text = "开启未在列表中的全屏游戏通用自动探测 (兜底模式)";
             chkFallback.Font = new Font("Microsoft YaHei UI", 8.2F);
@@ -218,10 +269,10 @@ namespace RazerBatteryTray
             btnClose.TextColor = Color.FromArgb(10, 24, 15);
             btnClose.CornerRadius = (int)(6 * dpiScale);
             btnClose.Cursor = Cursors.Hand;
-            btnClose.Location = new Point(clientW - pad - (int)(110 * dpiScale), (int)(465 * dpiScale));
+            btnClose.Location = new Point(clientW - pad - (int)(110 * dpiScale), (int)(475 * dpiScale));
             btnClose.Size = new Size((int)(110 * dpiScale), (int)(34 * dpiScale));
             btnClose.Click += (s, e) => {
-                if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked);
+                if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked, currentMode);
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             };
@@ -230,13 +281,54 @@ namespace RazerBatteryTray
             this.KeyDown += (s, e) => {
                 if (e.KeyCode == Keys.Escape)
                 {
-                    if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked);
+                    if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked, currentMode);
                     this.Close();
                 }
             };
 
             RefreshRunningProcesses();
             RefreshMonitoredList();
+        }
+
+        private void SetGameOptMode(int mode)
+        {
+            currentMode = mode;
+            if (mode == 1)
+            {
+                btnModePersistent.Text = "🟢 进程存活常驻 (推荐)";
+                btnModePersistent.NormalColor = Color.FromArgb(20, 48, 30);
+                btnModePersistent.HoverColor = Color.FromArgb(28, 64, 40);
+                btnModePersistent.BorderColor = Color.FromArgb(0, 230, 118);
+                btnModePersistent.TextColor = Color.FromArgb(0, 230, 118);
+
+                btnModeForeground.Text = "⚪ 仅前台窗口激活";
+                btnModeForeground.NormalColor = Color.FromArgb(28, 32, 42);
+                btnModeForeground.HoverColor = Color.FromArgb(42, 48, 62);
+                btnModeForeground.BorderColor = Color.FromArgb(56, 64, 84);
+                btnModeForeground.TextColor = Color.FromArgb(160, 170, 190);
+
+                lblModeDesc.Text = "💡 推荐模式: 只要游戏在后台存活，切屏查看时间、查攻略、聊天绝不反复切鼠标；彻底退出游戏才恢复常规桌面参数。";
+                lblModeDesc.ForeColor = Color.FromArgb(120, 220, 160);
+            }
+            else
+            {
+                btnModePersistent.Text = "⚪ 进程存活常驻 (推荐)";
+                btnModePersistent.NormalColor = Color.FromArgb(28, 32, 42);
+                btnModePersistent.HoverColor = Color.FromArgb(42, 48, 62);
+                btnModePersistent.BorderColor = Color.FromArgb(56, 64, 84);
+                btnModePersistent.TextColor = Color.FromArgb(160, 170, 190);
+
+                btnModeForeground.Text = "🟢 仅前台窗口激活";
+                btnModeForeground.NormalColor = Color.FromArgb(20, 48, 30);
+                btnModeForeground.HoverColor = Color.FromArgb(28, 64, 40);
+                btnModeForeground.BorderColor = Color.FromArgb(0, 230, 118);
+                btnModeForeground.TextColor = Color.FromArgb(0, 230, 118);
+
+                lblModeDesc.Text = "💡 传统前台模式: 仅当游戏位于最顶层活动窗口时生效；切换到桌面或其他应用时，经 2 秒防抖立即恢复常规桌面设置。";
+                lblModeDesc.ForeColor = Color.FromArgb(160, 175, 195);
+            }
+            btnModePersistent.Invalidate();
+            btnModeForeground.Invalidate();
         }
 
         private void RefreshRunningProcesses()

@@ -2,7 +2,7 @@
 // 模块名称: LogitechDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   罗技 (Logitech) HID++ 1.0/2.0 私有协议通信、电量检测、DPI调节 (Feature 0x2201/0x2202 支持XY轴独立) 与回报率设置 (Feature 0x8060/0x8061 最高8000Hz) 实现
+//   罗技 (Logitech) HID++ 1.0/2.0 私有协议通信、电量检测、DPI调节 (Feature 0x2201/0x2202 支持XY轴独立) 与回报率设置 (Feature 0x8060/0x8061 最高8000Hz) 实现
 //   另含 G PRO X Wireless 耳机 (046D:0ABA) 专属 HID++ 4.2 电量通道 (Feature 0x1F20 ADC_MEASUREMENT)
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
 //
@@ -409,7 +409,7 @@ public static class LogitechDeviceHelper
             case 0x409B: return "Logitech G PRO X 60 游戏键盘";
             case 0x4088: return "Logitech G733 LIGHTSPEED 耳机";
             case 0x4097: return "Logitech G PRO X 2 LIGHTSPEED 耳机";
-            case 0x408C:
+            case 0x408C:
             case 0x0ABA: return "Logitech G PRO X Wireless 游戏耳机";
             case 0x4085: return "Logitech G435 无线耳机";
             case 0x4080: return "Logitech G533 无线耳机";
@@ -705,14 +705,14 @@ public static class LogitechDeviceHelper
         }
         return null;
     }
-
+
     public static List<MouseBatteryInfo> QueryAllLogitechDevices()
     {
         lock (hidLock)
         {
             List<MouseBatteryInfo> results = new List<MouseBatteryInfo>();
-            List<LogitechRawEndpoint> rawEndpoints = new List<LogitechRawEndpoint>();
-
+            List<LogitechRawEndpoint> rawEndpoints = new List<LogitechRawEndpoint>();
+
             try
             {
                 MouseBatteryInfo headset = QueryLogitechProXHeadset();

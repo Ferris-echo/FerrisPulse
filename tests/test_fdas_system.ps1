@@ -44,6 +44,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "PASS: 索尼 INZONE Buds 规范包校验完全成立" -ForegroundColor Green
 
+$vgnAdapter = "$ProjectDir\adapters\VGN_Dragonfly_F2_Pro_Max.fp-adapter.json"
+if (Test-Path $vgnAdapter) {
+    & powershell -ExecutionPolicy Bypass -File "$ProjectDir\tools\integrate_adaptation.ps1" -AdapterFile $vgnAdapter -ValidateOnly
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "FAIL: VGN 蜻蜓 F2 Pro Max 规范包校验未通过！" -ForegroundColor Red; exit 1
+    }
+    Write-Host "PASS: VGN 蜻蜓 F2 Pro Max 规范包校验完全成立" -ForegroundColor Green
+}
+
 Write-Host "`n--- 3. 验证 AddDeviceWizardForm 硬件探针动态注入能力 ---" -ForegroundColor Cyan
 $exePath = "$ProjectDir\FerrisPulse.exe"
 $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exePath).Path)

@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -501,7 +501,8 @@ namespace RazerBatteryTray
             }
             catch { }
         }
-
+
+
         public static void CleanupDuplicateHyperXDevices()
         {
             try
@@ -637,7 +638,8 @@ namespace RazerBatteryTray
             CleanupDuplicateRazerDevices();
             CleanupDuplicateValkyrieDevices();
             CleanupDuplicateRapooDevices();
-            CleanupDuplicateHyperXDevices();
+            CleanupDuplicateHyperXDevices();
+
             CleanupDuplicateSteelSeriesDevices();
             CleanupPhantomAppleDevices();
 
@@ -1084,25 +1086,44 @@ namespace RazerBatteryTray
                     {
                         if (dev != null && dev.IsConnected)
                         {
-                            bool alreadyInList = false;
+                            var variants = GetDeviceIdVariants(dev.DeviceId);
+                            int existingIdx = -1;
                             for (int i = 0; i < list.Count; i++)
                             {
                                 if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
                                     (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    alreadyInList = true;
+                                    existingIdx = i;
                                     break;
                                 }
+                                for (int vi = 0; vi < variants.Count; vi++)
+                                {
+                                    if (list[i].DeviceId.Equals(variants[vi], StringComparison.OrdinalIgnoreCase) ||
+                                        (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(variants[vi], StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        existingIdx = i;
+                                        break;
+                                    }
+                                }
+                                if (existingIdx >= 0) break;
                             }
 
-                            if (!alreadyInList)
+                            if (existingIdx >= 0)
+                            {
+                                var oldDev = list[existingIdx];
+                                dev.IsCustom = oldDev.IsCustom;
+                                if (!string.IsNullOrEmpty(oldDev.CustomName)) dev.CustomName = oldDev.CustomName;
+                                list[existingIdx] = dev;
+                            }
+                            else
                             {
                                 dev.IsCustom = false;
                                 list.Add(dev);
-                                if (dev.BatteryPercent >= 0)
-                                {
-                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
-                                }
+                            }
+
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
                             }
                         }
                     }
@@ -1162,13 +1183,22 @@ namespace RazerBatteryTray
                     string normCfgId = isRazer ? RazerDeviceHelper.NormalizeRazerDeviceId(cfg.DeviceId) : cfg.DeviceId;
                     string normFpId = (isRazer && !string.IsNullOrEmpty(cfg.HardwareFingerprint)) ? RazerDeviceHelper.NormalizeRazerDeviceId(cfg.HardwareFingerprint) : cfg.HardwareFingerprint;
 
-                    // Check if already in list (either direct DeviceId match or normalized Razer match)
+                    // Check if already in list (either direct DeviceId match, variant match across prefixes, or normalized Razer match)
                     var existDev = list.Find(x => {
                         if (x.DeviceId.Equals(cfg.DeviceId, StringComparison.OrdinalIgnoreCase) ||
                             (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && x.DeviceId.Equals(cfg.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)) ||
                             (!string.IsNullOrEmpty(x.HardwareFingerprint) && x.HardwareFingerprint.Equals(cfg.DeviceId, StringComparison.OrdinalIgnoreCase)))
                         {
                             return true;
+                        }
+                        var variants = GetDeviceIdVariants(x.DeviceId);
+                        for (int vi = 0; vi < variants.Count; vi++)
+                        {
+                            if (variants[vi].Equals(cfg.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && variants[vi].Equals(cfg.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                return true;
+                            }
                         }
                         if (isRazer && (x.Brand == "Razer" || (x.DeviceId != null && x.DeviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))))
                         {
@@ -1444,10 +1474,33 @@ namespace RazerBatteryTray
                     var devInfo = new MouseBatteryInfo();
                     devInfo.DeviceId = cfg.DeviceId;
                     devInfo.HardwareFingerprint = cfg.HardwareFingerprint;
-                    devInfo.Brand = isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : (isValkyrie ? "Valkyrie" : (isRapoo ? "Rapoo" : (isHyperX ? "HyperX" : "Custom")))));
                     devInfo.Category = cfg.Category;
                     devInfo.CustomName = cfg.CustomName;
-                    devInfo.DeviceName = !string.IsNullOrEmpty(friendlyName) ? friendlyName : (!string.IsNullOrEmpty(cfg.OriginalName) ? cfg.OriginalName : cfg.CustomName);
+
+                    var fdasDef = FdasRuntimeHelper.FindAdapterByDeviceId(cfg.DeviceId) ?? 
+                                  (!string.IsNullOrEmpty(cfg.HardwareFingerprint) ? FdasRuntimeHelper.FindAdapterByDeviceId(cfg.HardwareFingerprint) : null);
+                    if (fdasDef != null)
+                    {
+                        devInfo.Brand = fdasDef.Brand;
+                        if (fdasDef.Category != DeviceCategory.Generic) devInfo.Category = fdasDef.Category;
+                        devInfo.DeviceName = !string.IsNullOrEmpty(cfg.CustomName) ? cfg.CustomName : (!string.IsNullOrEmpty(cfg.OriginalName) ? cfg.OriginalName : (fdasDef.Brand + " " + fdasDef.Model));
+                        if (devInfo.Category == DeviceCategory.Mouse)
+                        {
+                            devInfo.DpiStages = (fdasDef.DefaultStages != null && fdasDef.DefaultStages.Length > 0) ? fdasDef.DefaultStages : new int[] { 400, 800, 1600, 3200, 6400 };
+                            devInfo.DpiStageCount = devInfo.DpiStages.Length;
+                            devInfo.Dpi = fdasDef.CurrentDpi > 0 ? fdasDef.CurrentDpi : (devInfo.DpiStages.Length > 2 ? devInfo.DpiStages[2] : devInfo.DpiStages[0]);
+                            devInfo.DpiStage = fdasDef.CurrentDpiStage > 0 ? fdasDef.CurrentDpiStage : 3;
+                            devInfo.IsXyIndependent = fdasDef.SupportsXyIndependence;
+                            devInfo.SupportedPollingRates = (fdasDef.SupportedRates != null && fdasDef.SupportedRates.Length > 0) ? fdasDef.SupportedRates : new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 };
+                            devInfo.MaxPollingRate = fdasDef.MaxRate > 0 ? fdasDef.MaxRate : 8000;
+                            devInfo.PollingRate = fdasDef.CurrentPollingRate > 0 ? fdasDef.CurrentPollingRate : (fdasDef.ActiveRate > 0 ? fdasDef.ActiveRate : 1000);
+                        }
+                    }
+                    else
+                    {
+                        devInfo.Brand = isNuphy ? "NuPhy" : (isRazer ? "Razer" : (isLogitech ? "Logitech" : (isValkyrie ? "Valkyrie" : (isRapoo ? "Rapoo" : (isHyperX ? "HyperX" : "Custom")))));
+                        devInfo.DeviceName = !string.IsNullOrEmpty(friendlyName) ? friendlyName : (!string.IsNullOrEmpty(cfg.OriginalName) ? cfg.OriginalName : cfg.CustomName);
+                    }
                     if (!string.IsNullOrEmpty(devInfo.DeviceName) && devInfo.DeviceName.IndexOf("Wireless iAP", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         devInfo.DeviceName = (devInfo.Brand == "Beats") ? "Beats 蓝牙耳机" : "Apple 音频外设";

@@ -537,6 +537,14 @@ namespace RazerBatteryTray
 
         private bool fallbackFullscreenEnabled = false;
 
+        private int gameOptMode = 1; // 0 = 仅前台激活模式, 1 = 进程存活常驻模式 (推荐)
+
+        public int GameOptMode
+        {
+            get { return gameOptMode; }
+            set { gameOptMode = value; }
+        }
+
         private System.Windows.Forms.Timer cardAnimTimer = null;
 
         private int animStartCardH = 0;
@@ -861,8 +869,8 @@ namespace RazerBatteryTray
 
             LogitechDeviceHelper.LoadHardwareCache();
 
-            HyperXDeviceHelper.LoadHardwareCache();
-
+            HyperXDeviceHelper.LoadHardwareCache();
+
             SteelSeriesDeviceHelper.LoadHardwareCache();
 
             InitializeFormUI();
@@ -1977,6 +1985,10 @@ namespace RazerBatteryTray
 
                         if (fallbackVal != null) fallbackFullscreenEnabled = (int)fallbackVal == 1;
 
+                        var gameOptModeVal = key.GetValue("GameOptMode");
+                        if (gameOptModeVal != null) gameOptMode = (int)gameOptModeVal;
+                        else gameOptMode = 1; // 默认进程存活常驻模式 (推荐)
+
 
 
                         var customDpiVal = key.GetValue("CustomDpiStages") as string;
@@ -2230,6 +2242,7 @@ namespace RazerBatteryTray
                         }
 
                         key.SetValue("FallbackFullscreenEnabled", fallbackFullscreenEnabled ? 1 : 0);
+                        key.SetValue("GameOptMode", gameOptMode);
 
                         if (savedWindowX > -3000 && savedWindowY > -3000)
 
@@ -2254,246 +2267,29 @@ namespace RazerBatteryTray
 
 
         public static void CleanupLegacyAutoStart()
-
         {
-
-            try
-
-            {
-
-                using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
-
-                {
-
-                    if (key != null)
-
-                    {
-
-                        foreach (var legacyName in LegacyAppNames)
-
-                        {
-
-                            try { key.DeleteValue(legacyName, false); } catch { }
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            catch { }
-
-
-
-            try
-
-            {
-
-                using (var key = Registry.CurrentUser.OpenSubKey(StartupApprovedRunKey, true))
-
-                {
-
-                    if (key != null)
-
-                    {
-
-                        foreach (var legacyName in LegacyAppNames)
-
-                        {
-
-                            try { key.DeleteValue(legacyName, false); } catch { }
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            catch { }
-
+            // 由 StartupManager 统一维护与清理历史启动项
         }
-
-
 
         private bool IsAutoStartEnabled()
-
         {
-
-            try
-
-            {
-
-                using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, false))
-
-                {
-
-                    if (key != null)
-
-                    {
-
-                        var val = key.GetValue(AppName);
-
-                        if (val != null) return true;
-
-                        foreach (var legacyName in LegacyAppNames)
-
-                        {
-
-                            if (key.GetValue(legacyName) != null) return true;
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            catch { }
-
-            return false;
-
+            return StartupManager.IsAutoStartConfigured();
         }
-
-
 
         private void SyncAutoStartRegistry()
-
         {
-
-            CleanupLegacyAutoStart();
-
-            try
-
-            {
-
-                using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
-
-                {
-
-                    if (key != null)
-
-                    {
-
-                        var val = key.GetValue(AppName) as string;
-
-                        string exePath = Application.ExecutablePath;
-
-                        string expected = "\"" + exePath + "\" --autostart";
-
-                        if (!string.IsNullOrEmpty(val))
-
-                        {
-
-                            if (!string.Equals(val.Trim(), expected, StringComparison.OrdinalIgnoreCase))
-
-                            {
-
-                                key.SetValue(AppName, expected);
-
-                            }
-
-                        }
-
-                        else
-
-                        {
-
-                            key.SetValue(AppName, expected);
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            catch { }
-
+            StartupManager.SyncAutoStartRegistry();
         }
 
-
-
         private void SetAutoStart(bool enabled, bool showNotification = false)
-
         {
-
-            CleanupLegacyAutoStart();
-
-            try
-
+            string errMsg;
+            bool ok = StartupManager.SetAutoStart(enabled, out errMsg);
+            if (!ok && !string.IsNullOrEmpty(errMsg))
             {
-
-                using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
-
-                {
-
-                    if (key != null)
-
-                    {
-
-                        if (enabled)
-
-                        {
-
-                            string exePath = Application.ExecutablePath;
-
-                            key.SetValue(AppName, "\"" + exePath + "\" --autostart");
-
-                        }
-
-                        else
-
-                        {
-
-                            key.DeleteValue(AppName, false);
-
-                            try
-
-                            {
-
-                                using (var appKey = Registry.CurrentUser.OpenSubKey(StartupApprovedRunKey, true))
-
-                                {
-
-                                    if (appKey != null)
-
-                                    {
-
-                                        appKey.DeleteValue(AppName, false);
-
-                                    }
-
-                                }
-
-                            }
-
-                            catch { }
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            catch (Exception ex)
-
-            {
-
-                MessageBox.Show("设置开机启动失败: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-
+                MessageBox.Show("设置开机启动失败: " + errMsg, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
-
             }
-
-
 
             isUpdatingUI = true;
 

@@ -29,6 +29,8 @@ namespace RazerBatteryTray
         public static readonly string[] LegacyAppNames = new string[] { "RazerBatteryTray", "RazerBattery", "RazerTray" };
         public const string RunRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         public const string StartupApprovedRunKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        public const string StartupApprovedFolderKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
+        public const string StartupShortcutName = "FerrisPulse · 灵脉.lnk";
         public const string AppUserModelId = "FerrisPulse.App";
 
         /// <summary>
@@ -39,16 +41,69 @@ namespace RazerBatteryTray
         {
             try
             {
+                // 1. 优先校验开始菜单 Startup 文件夹快捷方式
+                try
+                {
+                    string startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+                    if (!string.IsNullOrEmpty(startupFolder) && Directory.Exists(startupFolder))
+                    {
+                        string lnk = Path.Combine(startupFolder, StartupShortcutName);
+                        if (File.Exists(lnk))
+                        {
+                            bool folderDisabled = false;
+                            using (var approvedFolderKey = Registry.CurrentUser.OpenSubKey(StartupApprovedFolderKey, false))
+                            {
+                                if (approvedFolderKey != null)
+                                {
+                                    byte[] val = approvedFolderKey.GetValue(StartupShortcutName) as byte[];
+                                    if (val != null && val.Length > 0 && (val[0] % 2 != 0))
+                                    {
+                                        folderDisabled = true;
+                                    }
+                                }
+                            }
+                            if (!folderDisabled) return true;
+                        }
+                    }
+                }
+                catch { }
+
+                // 2. 校验注册表 Run 键
                 using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, false))
                 {
                     if (key != null)
                     {
                         var val = key.GetValue(AppName);
-                        if (val != null) return true;
+                        bool hasRunKey = (val != null);
+                        string matchedName = AppName;
 
-                        foreach (var legacyName in LegacyAppNames)
+                        if (!hasRunKey)
                         {
-                            if (key.GetValue(legacyName) != null) return true;
+                            foreach (var legacyName in LegacyAppNames)
+                            {
+                                if (key.GetValue(legacyName) != null)
+                                {
+                                    hasRunKey = true;
+                                    matchedName = legacyName;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (hasRunKey)
+                        {
+                            using (var approvedKey = Registry.CurrentUser.OpenSubKey(StartupApprovedRunKey, false))
+                            {
+                                if (approvedKey != null)
+                                {
+                                    byte[] appVal = approvedKey.GetValue(matchedName) as byte[];
+                                    if (appVal != null && appVal.Length > 0 && (appVal[0] % 2 != 0))
+                                    {
+                                        return false;
+                                    }
+                                }
+                            }
+                            return true;
                         }
                     }
                 }
@@ -120,7 +175,7 @@ namespace RazerBatteryTray
             errorMessage = null;
             try
             {
-                using (var runKey = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
+                using (var runKey = Registry.CurrentUser.CreateSubKey(RunRegistryKey))
                 {
                     if (runKey == null)
                     {
@@ -142,9 +197,9 @@ namespace RazerBatteryTray
                                 if (approvedKey != null)
                                 {
                                     byte[] val = approvedKey.GetValue(AppName) as byte[];
-                                    if (val != null && val.Length > 0 && val[0] == 0x03) // 0x03 表示在任务管理器中被禁用
+                                    if (val != null && val.Length > 0 && (val[0] % 2 != 0))
                                     {
-                                        // 恢复为启用（第一字节为 0x02），或直接移除交由 Windows 重新接管
+                                        // 恢复为启用（第一字节为 0x02）
                                         val[0] = 0x02;
                                         approvedKey.SetValue(AppName, val, RegistryValueKind.Binary);
                                     }
@@ -152,6 +207,9 @@ namespace RazerBatteryTray
                             }
                         }
                         catch { }
+
+                        // 双通道容灾守护：同步开始菜单 Startup 文件夹快捷方式
+                        SyncStartupFolderShortcut(true);
 
                         // 只有在新键名成功写入后，才清理旧键名，杜绝时序倒挂
                         CleanupLegacyRunKeys(runKey);
@@ -176,6 +234,9 @@ namespace RazerBatteryTray
                             }
                         }
                         catch { }
+
+                        // 彻底清理开始菜单 Startup 文件夹快捷方式与策略
+                        SyncStartupFolderShortcut(false);
                     }
                 }
                 return true;
@@ -190,6 +251,108 @@ namespace RazerBatteryTray
         /// <summary>
         /// 刷新并保持注册表中的自启动命令行与当前执行文件绝对路径一致
         /// </summary>
+        /// <summary>
+        /// 双通道容灾守护：创建或清理开始菜单 Startup 文件夹快捷方式并同步 StartupApproved 策略
+        /// </summary>
+        public static bool SyncStartupFolderShortcut(bool enabled)
+        {
+            try
+            {
+                string startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+                if (string.IsNullOrEmpty(startupFolder) || !Directory.Exists(startupFolder)) return false;
+
+                string lnkPath = Path.Combine(startupFolder, StartupShortcutName);
+
+                // 清理可能遗留的历史名称快捷方式
+                foreach (var legacy in LegacyAppNames)
+                {
+                    try
+                    {
+                        string oldLnk = Path.Combine(startupFolder, legacy + ".lnk");
+                        if (File.Exists(oldLnk)) File.Delete(oldLnk);
+                    }
+                    catch { }
+                }
+
+                if (enabled)
+                {
+                    string targetExe = GetApplicationExecutablePath();
+                    string dir = Path.GetDirectoryName(targetExe);
+                    string icoPath = Path.Combine(dir, "app.ico");
+                    if (!File.Exists(icoPath)) icoPath = targetExe;
+
+                    IShellLinkW link = (IShellLinkW)new ShellLink();
+                    link.SetPath(targetExe);
+                    link.SetArguments("--autostart");
+                    link.SetWorkingDirectory(dir);
+                    link.SetIconLocation(icoPath, 0);
+                    link.SetDescription("FerrisPulse · 灵脉 外设电量感知引擎");
+
+                    IPropertyStore store = (IPropertyStore)link;
+                    PROPERTYKEY key = new PROPERTYKEY();
+                    key.fmtid = new Guid("{9F4C2855-9F79-4BDE-A8E1-E1DE34EB1AE8}");
+                    key.pid = 5;
+
+                    PROPVARIANT pv = new PROPVARIANT();
+                    pv.vt = 31; // VT_LPWSTR
+                    pv.pwszVal = Marshal.StringToCoTaskMemUni(AppUserModelId);
+                    try
+                    {
+                        store.SetValue(ref key, ref pv);
+                        store.Commit();
+                    }
+                    finally
+                    {
+                        Marshal.FreeCoTaskMem(pv.pwszVal);
+                    }
+
+                    IPersistFile file = (IPersistFile)link;
+                    file.Save(lnkPath, true);
+
+                    // 协同修复 StartupApproved\StartupFolder 中的禁用状态
+                    try
+                    {
+                        using (var approvedFolderKey = Registry.CurrentUser.OpenSubKey(StartupApprovedFolderKey, true))
+                        {
+                            if (approvedFolderKey != null)
+                            {
+                                byte[] val = approvedFolderKey.GetValue(StartupShortcutName) as byte[];
+                                if (val != null && val.Length > 0 && (val[0] % 2 != 0))
+                                {
+                                    val[0] = 0x02;
+                                    approvedFolderKey.SetValue(StartupShortcutName, val, RegistryValueKind.Binary);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                else
+                {
+                    if (File.Exists(lnkPath))
+                    {
+                        try { File.Delete(lnkPath); } catch { }
+                    }
+                    try
+                    {
+                        using (var approvedFolderKey = Registry.CurrentUser.OpenSubKey(StartupApprovedFolderKey, true))
+                        {
+                            if (approvedFolderKey != null)
+                            {
+                                approvedFolderKey.DeleteValue(StartupShortcutName, false);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static void SyncAutoStartRegistry()
         {
             if (!IsAutoStartConfigured()) return;

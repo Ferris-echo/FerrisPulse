@@ -253,7 +253,7 @@ namespace RazerBatteryTray
                 int bpH = (int)(18 * DpiScale);
                 int bpY = tRect.Y + (tabH - bpH) / 2;
                 Rectangle bpRect = new Rectangle(tabX + (int)(6 * DpiScale), bpY, bpW, bpH);
-                string bpText = dev.Brand == "Rapoo" ? "雷柏" : (dev.Brand == "VGN" ? "VGN" : (dev.Brand == "Razer" ? "雷蛇" : (dev.Category == DeviceCategory.Headset ? "耳机" : (dev.Category == DeviceCategory.Gamepad ? "手柄" : (dev.Category == DeviceCategory.Keyboard ? "键盘" : "外设")))));
+                string bpText = dev.Brand == "Rapoo" ? "雷柏" : (dev.Brand == "VGN" ? "VGN" : (dev.Brand == "Razer" ? "雷蛇" : (dev.Category == DeviceCategory.Headset ? "耳机" : (dev.Category == DeviceCategory.Gamepad ? "手柄" : (dev.Category == DeviceCategory.Keyboard ? "键盘" : (dev.Category == DeviceCategory.Mouse ? (!string.IsNullOrEmpty(dev.Brand) && dev.Brand != "Custom" ? dev.Brand : "鼠标") : "外设"))))));
                 Color bpBg = isSel ? (dev.Brand == "Rapoo" ? Color.FromArgb(0, 150, 230) : (dev.Brand == "VGN" ? Color.FromArgb(240, 110, 0) : ((dev.Brand == "NuPhy" || dev.Category == DeviceCategory.Keyboard) ? Color.FromArgb(0, 229, 255) : Color.FromArgb(0, 200, 83)))) :
                                       (dev.Brand == "Rapoo" ? Color.FromArgb(24, 44, 60) : (dev.Brand == "VGN" ? Color.FromArgb(48, 30, 16) : ((dev.Brand == "NuPhy" || dev.Category == DeviceCategory.Keyboard) ? Color.FromArgb(12, 40, 48) : Color.FromArgb(30, 42, 36))));
                 Color bpFg = isSel ? (dev.Brand == "Rapoo" ? Color.FromArgb(10, 24, 35) : (dev.Brand == "VGN" ? Color.FromArgb(30, 15, 0) : ((dev.Brand == "NuPhy" || dev.Category == DeviceCategory.Keyboard) ? Color.FromArgb(5, 25, 30) : Color.FromArgb(10, 24, 15)))) : dev.BrandColor;

@@ -233,7 +233,7 @@ namespace RazerBatteryTray
                 IsXyIndependent = (stState != null) ? stState.IsXyIndependent : false,
                 XyRatio = (stState != null && stState.XyRatio > 0) ? stState.XyRatio : 1.0,
                 PollingRate = (stState != null && stState.PollingRate > 0) ? stState.PollingRate : 1000,
-                MaxPollingRate = GetMaxPollingRateForModel(curPid, !string.IsNullOrEmpty(resolvedModelName) ? resolvedModelName : (stState != null ? stState.DeviceName : CachedDeviceName)),
+                MaxPollingRate = GetMaxPollingRateForModel(curPid, !string.IsNullOrEmpty(resolvedModelName) ? resolvedModelName : (stState != null ? stState.DeviceName : CachedDeviceName)),
                 SupportedPollingRates = GetSupportedPollingRatesForModel(curPid, !string.IsNullOrEmpty(resolvedModelName) ? resolvedModelName : (stState != null ? stState.DeviceName : CachedDeviceName))
             };
         }
@@ -362,7 +362,7 @@ namespace RazerBatteryTray
             { 0x00B3, "Razer DeathAdder V3 HyperSpeed" },
             { 0x00B0, "Razer DeathAdder V3" },
             { 0x00A2, "Razer DeathAdder V2 Pro" },
-            { 0x00A3, "Razer DeathAdder V2 Pro" },
+            { 0x00A3, "Razer DeathAdder V2 Pro" },
             { 0x009C, "Razer DeathAdder V2 X HyperSpeed" },
             { 0x008A, "Razer DeathAdder V2" },
             { 0x007C, "Razer DeathAdder V2 Mini" },
@@ -602,7 +602,7 @@ namespace RazerBatteryTray
             if (curPid == 0x0099 || // Orochi V2
                 curPid == 0x0085 || curPid == 0x0086 || // Basilisk X HyperSpeed
                 curPid == 0x00AC || // Viper V3 HyperSpeed
-                curPid == 0x009C || // DeathAdder V2 X HyperSpeed (AA 干电池，纯无线)
+                curPid == 0x009C || // DeathAdder V2 X HyperSpeed (AA 干电池，纯无线)
                 curPid == 0x0095 || // Naga V2 HyperSpeed
                 curPid == 0x008D || curPid == 0x008E) // Atheris
             {
@@ -1287,7 +1287,7 @@ namespace RazerBatteryTray
                                                         DpiStageCount = stageCount,
                                                         DpiStages = stageList,
                                                         PollingRate = pollingRate,
-                                                        MaxPollingRate = GetMaxPollingRateForModel(curPid, resolvedModelName),
+                                                        MaxPollingRate = GetMaxPollingRateForModel(curPid, resolvedModelName),
                                                         SupportedPollingRates = GetSupportedPollingRatesForModel(curPid, resolvedModelName)
                                                     };
 

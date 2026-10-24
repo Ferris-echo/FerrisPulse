@@ -141,6 +141,18 @@ namespace RazerBatteryTray
             {
                 if (path.IndexOf("VID_3554", StringComparison.OrdinalIgnoreCase) >= 0 || path.IndexOf("VID_258A", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             }
+            else if (devId.Contains(":"))
+            {
+                string[] parts = devId.Split(':');
+                for (int pi = 0; pi < parts.Length - 1; pi++)
+                {
+                    if (parts[pi].Length == 4 && parts[pi + 1].Length == 4)
+                    {
+                        string vidToken = "VID_" + parts[pi];
+                        if (path.IndexOf(vidToken, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                    }
+                }
+            }
 
             // Fallback match: if DeviceId or HardwareId has matching PID
             string devPathOrId = targetMouse.DeviceId ?? targetMouse.HardwareId ?? "";

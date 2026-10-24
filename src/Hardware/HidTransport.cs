@@ -145,6 +145,12 @@ namespace RazerBatteryTray
         [DllImport("hid.dll", SetLastError = true)]
         private static extern int HidP_GetCaps(IntPtr PreparsedData, ref HIDP_CAPS Capabilities);
 
+        [DllImport("hid.dll", SetLastError = true)]
+        private static extern bool HidD_SetFeature(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        private static extern bool HidD_GetFeature(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateFile(string FileName, uint DesiredAccess, uint ShareMode, IntPtr SecurityAttributes, uint CreationDisposition, uint FlagsAndAttributes, IntPtr TemplateFile);
 
@@ -380,6 +386,18 @@ namespace RazerBatteryTray
             {
                 CloseHandle(evt);
             }
+        }
+
+        public static bool SetFeature(IntPtr handle, byte[] buffer)
+        {
+            if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
+            return HidD_SetFeature(handle, buffer, buffer.Length);
+        }
+
+        public static bool GetFeature(IntPtr handle, byte[] buffer)
+        {
+            if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
+            return HidD_GetFeature(handle, buffer, buffer.Length);
         }
 
         public static bool DrainReports(IntPtr handle, int length, int maxReports)

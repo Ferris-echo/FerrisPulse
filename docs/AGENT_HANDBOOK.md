@@ -292,6 +292,51 @@
 
 **铁律**：任何"每 N 秒触发一次全量设备查询"的轮询机制，必须先确认 `RefreshBatteryStatus` 具备重入保护；私有协议（雷柏/VGN/迈从等）对鼠标所在通道的控制传输会物理性暂停鼠标输入上报，查询频次必须克制。
 
+### 3.12 FDAS 全品牌通用硬件适配与现场探针逆向机制
+
+为了让 FerrisPulse 能够驱动全球任意品牌、任意芯片主控（Compx、PixArt、SinoWealth、Nordic、Beken、Realtek、WCH 等）且**不改动一行 C# 代码**，FDAS v1.0 架构确立了以下核心工程范式：
+
+1. **现场探针工具 (`tools/probe_hid_device.ps1`)**：
+   - **零依赖与全内存反射**：采用 `[System.IO.File]::ReadAllBytes` 装配 `FerrisPulse.exe`，严禁 `Add-Type -Path` 产生文件句柄互斥锁死。
+   - **三级权限降级与端点自适应**：自动按 `GENERIC_READ | GENERIC_WRITE` -> `GENERIC_WRITE` -> `0 (FILE_READ_ATTRIBUTES)` 尝试打开设备句柄，键盘端点通过 0 权限避开 Windows 内核防监听独占锁。
+   - **双模通信测试**：支持 `-ReportType Interrupt`（WriteReport/ReadReport）与 `-ReportType Feature`（HidD_SetFeature/HidD_GetFeature），自动为出入缓冲区做长度对齐与排空。
+   - **快速探测命令**：
+     - 全局扫描：`powershell -ExecutionPolicy Bypass -File tools/probe_hid_device.ps1 -ScanAll`
+     - 单设备下发测试：`powershell -ExecutionPolicy Bypass -File tools/probe_hid_device.ps1 -VendorId 0xXXXX -ProductId 0xXXXX -TxHex "08 02 ..."`
+
+2. **任意 $N$ 字节长度与“静态穿透”解耦哲学**：
+   - **端点长度解耦**：不再对 17/32/64 字节设限，Win32 物理通道严格按硬件端点声明的物理报告长度（任意 $N$ 字节）开辟缓冲区。
+   - **静态穿透无需算校验和**：市面上 90% 外设的电量查询报文是固定握手字节。Agent 在探针中实测有效的完整 Hex 直接填入 `queryBatteryTxHex`，并将 `checksumType` 指定为 `"None"`，引擎原样透传下发，杜绝因未登记校验算法而阻断驱动。
+   - **动态调节模板占位符**：仅在调节 DPI / 回报率时才动态生成指令，引擎提供 `{stage}`, `{stage0}`, `{dpiX_lo}`, `{dpiX_hi}`, `{rateIndex}`, `{rateCode}` 等宏占位符及常见校验和（`VgnCompxSum55`, `SumMod256`, `XorSum`）计算。
+
+3. **解除一切电源状态偏见（客观物理状态）**：
+   - 严禁在提示词或代码中假定“2.4G 模式下绝不可能充电”。
+   - 现代无线外设处于 2.4G 连接的同时，完全可能放于无线充电座、磁吸座或插着 USB 充电线。充电判定必须严格由 `chargingByteOffset` 与 `chargingBitMask` 的物理实测位为准。
+
+4. **CompX (0x3554) / VGN / ATK / VXE 无线接收器会话唤醒与 EEPROM 读写体系（血泪避坑）**：
+   - **接收器 RF 网关状态门禁（Driver Active Handshake）**：
+     CompX 2.4G 接收器（VID `0x3554`，如 VGN Dragonfly F2 Pro Max / ATK 系列）内部有驱动状态机。在 PC 驱动未向其下发 `Cmd 0x02`（`08 02 00 00 00 01 01 00 00 00 00 00 00 00 00 00 49`）前，无线接收器拒绝将 RF 报文转发给无线鼠标！下发后接收器建立空中会话，电量查询 `Cmd 0x04` 方可成功回显。
+   - **DPI 与回报率调节采用 EEPROM 内存映射写入（Cmd 0x07）**：
+     CompX 固件不支持孤立的虚拟命令 ID。所有配置调节均为 EEPROM 内存映射读写：
+     - 写入命令：`0x07`，Report ID: `0x08`。
+     - 回报率：地址 `0x0000`，长度 2 字节，数据为 `[rateCode, (0x55 - rateCode) & 0xFF]`。
+       - 编码：125Hz=`0x08`, 250Hz=`0x04`, 500Hz=`0x02`, 1000Hz=`0x01`, 2000Hz=`0x10`, 4000Hz=`0x20`, 8000Hz=`0x40`。
+     - 激活档位：地址 `0x0004`，长度 2 字节，数据为 `[stage0, (0x55 - stage0) & 0xFF]`。
+     - 档位 DPI 数值：地址 `0x000C + stage0 * 4`，长度 4 字节，数据为 `[low, low, flags, (0x55 - low - low - flags) & 0xFF]`，其中 `encoded = (dpi / 50) - 1`，`low = encoded & 0xFF`，`high = (encoded >> 8) & 0x03`，`flags = (high << 2) | (high << 6)`。
+   - **FDAS 运行时防电量虚标铁律（杜绝回退假样本）**：
+     在 2.4G 模式下，设备休眠或超时未回显时，引擎必须保持最后真实读数 `LastBattery`，若从未读取过则置为 `-1`（标记未连接/休眠），**严禁直接回退到 `sampleBattery`**，否则会导致界面永久显示虚假固定的 85% 电量。
+
+5. **FDAS 自适配鼠标在 UI 动效与布局中的统一门禁 (`IsSelectedDeviceSupportingAutoGameRate`)**：
+   - 过去性能卡片高度调节 `UpdatePerformanceCardHeightForCurrentDevice`、控件排版 `RelayoutPerformanceControls`、回报率状态点亮 `UpdatePollingRateDisplayStates` 等处散落着硬编码品牌列表（如 `Brand == "Razer" || "Logitech" ...`）。当用户导入第三方 FDAS 鼠标（如 VGN 蜻蜓）后，点击“全屏游戏自动优化”时，卡片高度控制器误判设备不支持回报率，从而跳过重排与动画，导致卡片卡死在展开状态、无法平滑拉伸或收起。
+   - 现已收敛为统一判定 `IsSelectedDeviceSupportingAutoGameRate()`，强制纳入 `FdasRuntimeHelper.IsFdasMouse(dev)`，确保所有自适配鼠标在性能卡片展开 (255px) 与收回 (148px) 时拥有完整原生动效与子控件精准隐藏。
+
+6. **动态微表达式引擎 (`ExpressionEvaluator.cs`) 与开源社区生态飞轮**：
+   - **彻底废弃宏观硬编码**：严禁将某类芯片或品牌在 C# 中硬编码为所谓“芯片族大一统驱动”，硬件固件千差万别，强行做宏观归类依然会冲毁其他设备的配置扇区。
+   - **微表达式动态求值**：FDAS v1.0 架构内置纯内存微表达式求值器，支持在 JSON 的 `protocol.variables` 中声明派生计算（如 `"(0x55 - $rateCode) & 0xFF"`、`"($dpi / 50) - 1"`、`"$dpiHigh << 2"` 等）或直接在模板中使用内联表达式 `{ (0x55 - rateCode) & 0xFF }`，实现零编译、纯配置热加载驱动任意奇葩算法。
+   - **硬件安全第一与探针写保护锁**：严禁在下位机真机上盲测写指令（如 `Cmd 0x07` 写未知地址），以防冲毁 2.4G 接收器 RF 配对表导致变砖。探针工具 `tools/probe_hid_device.ps1` 内置物理安全锁，默认拦截未经授权的高危 EEPROM 写入。
+   - **首选官方 WebHID 源码逆向**：国内 90% 厂商均提供基于 Chrome WebHID 的网页驱动，按 F12 检索 `sendReport`、`write` 即可直接提取官方原厂验证过的 100% 安全算法。
+   - **双轨制逃生舱与生态反哺**：若遇到极特殊协议超出 JSON 表达能力，授权 Agent 直接修改本地 C# 源码并 `build.bat` 验证；并引导用户将成果通过 GitHub/Gitee Issue 或直连作者邮箱（`2949225840@qq.com` / `2949225840zpf@gmail.com`）反哺，收录为官方原生预设。
+
 ---
 
 ## 4. 版本发布标准作业程序 (Release SOP)
@@ -521,3 +566,99 @@ powershell -ExecutionPolicy Bypass -File tools/integrate_adaptation.ps1 -Adapter
 - 本次仅恢复该接收器的隐藏配置，完整扫描确认无线93%在线并恢复程序运行；未修改协议代码。
 
 - 验收补充：独立扫描成功不代表运行中窗口已呈现。后续用户仍报告缺失时，临时记录实际主进程收发，确认无线应答与卡片88%均可出现；诊断代码已全部撤回，正常版本重新编译。用户最终截图确认手柄已显示，有线充电保留最后有效电量91%。不能把这91%说成充电期间的实时电量；也不能把未稳定复现的界面遗漏归因于确定的协议故障。
+
+### 8.4 FDAS 动态设备全局“第一公民”与两阶段防幻觉逆向经验 (Two-Stage Anti-Hallucination & First-Class Citizen Architecture)
+
+在实际外设适配推进中，我们排查并攻坚了三大深层硬件与架构陷阱：
+
+1. **跨代固件 Opcode 幻觉陷阱与物理现场探针解法**：
+   - **痛点**：外部 AI Agent 极易受到网络旧资料或通用主控文档的过时诱导。例如将早期 VGN 蜻蜓 F1 1K 系列的 `08 04`（电量）与 `08 09`（DPI）指令误当成所有 CompX 方案的万能指令，捏造到 F2 Pro Max 8K 鼠标的 JSON 中，导致设备固件丢弃报文、现场测试 0 字节超时、功能完全无效。
+   - **对策**：推行“两阶段严谨逆向工作流”并内置零依赖硬件探针 `tools/probe_hid_device.ps1`。提示词强制 Agent 在输出 JSON 之前必须先在终端运行探针实测候选指令。若无物理回显，宁缺毋滥（仅保留电量，不编造虚假 DPI/回报率模板），以真实物理反馈（如 F2 8K 实测为 `08 02 ...` 指令，第 16 字节为电量）为唯一事实依据。
+
+2. **跨前缀硬件去重与就地升阶机制 (In-Place Upgrade & Deduplication)**：
+   - **痛点**：用户导入 JSON 后，软件界面同时出现两个相同设备（一个是免驱扫描到的 `VGN:3554:FB3E` 或 `Gaming:3554:FB3E`，另一个是导入的 `FDAS:3554:FB3E`）。
+   - **对策**：在 `DeviceManager` 的 `GetDeviceIdVariants` 中将 `FDAS` 纳入标准前缀池。在 `QueryAllDevices` 流水线中，当 FDAS 模块探测到活跃适配设备时，若列表中已有同一物理硬件（跨 VID:PID 匹配）的 stub 设备，自动执行“就地升阶”（保留用户别名与自定义配置，将设备实例无损升级为具备完整 DPI/回报率能力的 FDAS 设备），彻底消除多设备并存。
+
+3. **解除品牌白名单硬编码：全管线“第一公民”待遇**：
+   - **痛点**：以往老代码散落着大量 `curDev.Brand == "Razer" || curDev.Brand == "Logitech"` 的硬编码品牌白名单，导致非四大品牌鼠标：
+     - 点击 DPI 管理按钮被直接拦截退出（`OpenDpiManagementDialog` 无法打开）；
+     - 开启全屏电竞双模联动后，`ApplyGameOptimization` 穿透掉入 Razer 指令分支导致调节不生效；
+     - 休眠唤醒、回报率按钮或托盘菜单无法正确映射。
+   - **对策**：在 `FdasRuntimeHelper` 抽象出 `IsFdasMouse(dev)` 与 `IsFdasDevice(id)` 统筹判定，打通 `OpenDpiManagementDialog`（自动映射适配包声明的传感器精度与最高 DPI）、全屏游戏自动优化管线（`ApplyGameOptimization`、`ApplyGamePollingRate`、`ApplyGameDpiStage`）以及底层 RawInput 唤醒事件，确保任意品牌通过 FDAS 导入后均享受与雷蛇、罗技完全同等的原生旗舰体验！
+
+### 8.5 硬编码品牌门禁全景治理与双模式电竞优化架构 (Gatekeeper Purge & Dual-Mode Game Optimization)
+
+#### 1. 全代码库 Brand 检查定性与清白清单
+在代码库排查中，共发现 114 处涉及 `Brand` 的比较语句，经严苛工程审计，严格定性为两类：
+- **无害/必要逻辑 (112 处)**：
+  - *原厂品牌主题色*（37 处，`MouseBatteryInfo.cs`）：为已知品牌赋予辨识度极高的高级主题色（雷蛇绿、罗技蓝、苹果银、雷柏天蓝、VGN橙等），纯视觉渲染，FDAS 设备可自由指定自身色值，不阻断任何业务。
+  - *驱动协议派发层 (Dispatcher)*（约 30 处）：在真正向 USB 写入底层硬件二进制指令时，按设备类别分流至各芯片私有 Helper（如 `RazerDeviceHelper`、`LogitechDeviceHelper`、`RapooDeviceHelper`、`ValkyrieDeviceHelper`、`MchoseMouseHelper`、`FdasRuntimeHelper`）。此为各厂商硬件专有协议通信必不可少的派发器，FDAS 在第一优先级被直接分发给动态引擎。
+  - *设备配对白名单与去重*（约 15 处，`DeviceManager.cs`）：Apple/Beats 经典蓝牙防路人误扫白名单、NuPhy 键盘双模去重等。
+  - *专属硬件控制台*（约 8 处）：NuPhy 键盘侧翼灯效调节与物理休眠管理面板等。
+- **已彻底拔除的恶性拦截门禁 (2 处)**：
+  - ⛔ `StartGameMonitor()` 第 892 行：曾残留 `if (curDev.Brand != "Razer" && curDev.Brand != "Valkyrie" && ... ) return;`，导致任何 FDAS 适配鼠标（VGN、迈从等）即使配置了游戏优化，后台监控也会瞬间 `return` 阻断！现已彻底拔除，统一替换为基于设备物理能力的 `IsDeviceSupportingAutoGameRate(curDev)`。
+  - ⛔ `OpenDpiManagementDialog()` 曾对非 FDAS 设备使用硬编码品牌白名单，现已彻底解耦，统一由 `IsDeviceSupportingAutoGameRate` 判定放行。
+
+#### 2. “游戏检测偶发失效、必须回桌面打开灵脉才生效”的根因与解法
+- **根因分析**：旧版 `StartGameMonitor()` 与所有档位切换方法盲目依赖 `var curDev = selectedDevice;`。若用户在灵脉主界面当前查看的是机械键盘或耳机卡片，`selectedDevice` 即为键盘；后台定时器轮询时检测到其不支持电竞回报率，直接抛弃检测！只有当用户切回桌面打开灵脉主界面、点击鼠标卡片后，`selectedDevice` 才被重置为鼠标，造成“必须回桌面打开灵脉才偶尔生效”的假象。
+- **工程解法**：全面引入 `GetActiveMouseDevice()` 动态寻路穿透机制。后台游戏轮询及所有应用优化逻辑（`ApplyGameOptimization`、`ApplyGamePollingRate`、`RestoreDesktopPollingRate`、`ApplyGameDpiStage`、`RestoreDesktopDpiStage`）全部统一调用 `GetActiveMouseDevice()`。即便当前主界面正浏览键盘或耳机，后台也能瞬间跨设备寻路至已连接的电竞鼠标，杜绝一切漏报与假死！
+
+#### 3. 电竞优化双模式设计与防反复跳变机制
+针对用户“看个时间、切去聊天也会导致鼠标频繁在游戏与桌面参数间来回切换”的痛点，推出双模切换架构并在 `GameProcessManagerForm.cs` 中提供直观的可视化切换面板：
+- **模式 1: 进程存活常驻模式 (ProcessPersistent - 默认推荐)**：
+  - 只要系统进程列表中**有任意一个受监控的游戏进程仍在存活运行**（`Process.GetProcessesByName` 命中），即便用户 Alt-Tab 切到桌面查攻略、看时间、回复微信，鼠标 DPI 与回报率依然保持在电竞状态，彻底杜绝来回跳变的不适感；
+  - 只有当该游戏的所有进程彻底退出/销毁后，才经防抖恢复常规桌面节能参数。
+- **模式 0: 仅前台激活模式 (ForegroundActive)**：
+  - 严格保持传统前台窗口感知：仅当受监控游戏处于前台活动窗口时拉升，切出后经 2 秒防抖立即恢复桌面参数。
+- **配置持久化**：用户偏好通过注册表 `GameOptMode`（0 或 1）实时同步与持久化恢复。
+
+### 8.6 开机自启动双通道容灾与 2.4G 无线外设半双工避让铁律 (Autostart Resilience & Wireless Motion Guard)
+
+#### 1. 开机自启动失效深层机理与双通道自愈架构
+- **根因全景剖析**：
+  1. *Windows 10/11 任务管理器仲裁陷阱 (`StartupApproved\Run`)*：Windows 10/11 引入了独立的启动项仲裁注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`。如果用户或系统优化软件曾禁用过软件，该键值第一字节会被写入奇数（如 `0x03`）。旧版 `MainForm.cs` 中存在一套陈旧的独立 `SetAutoStart`，仅仅向 `HKCU\...\Run` 写入启动命令，**完全未触碰 `StartupApproved\Run`**！导致 Windows Explorer 在开机时发现禁用标记直接跳过自启动，而软件主界面内的复选框却误以为自启已开启。
+  2. *第三方管家与组策略静默拦截*：火绒、360、联想电脑管家等软件常常静默限制对注册表 `Run` 键的写入或在开机时延后拉起无数字签名的便携软件。
+- **双通道自愈体系 (Dual-Channel Resilience)**：
+  1. *双通道协同登记*：自启动同时挂载 **注册表 `Run` 键** 与 **Windows 用户级开始菜单启动文件夹 (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\FerrisPulse · 灵脉.lnk --autostart`)**。无论系统采用注册表管道还是 Shell 快捷方式管道，只要任意一个触发，进程即可通过单实例互斥体极速拉起，另一个通道触发后无缝安全退避退出。
+  2. *StartupApproved 奇数禁用位自动治愈*：在开启自启动时，自动遍历 `StartupApproved\Run` 与 `StartupApproved\StartupFolder`，若检测到第一字节为奇数禁用态（`val[0] % 2 != 0`），强制修复回 `0x02`（启用状态）或干净重置，彻底粉碎 Windows 任务管理器对启动项的静默封锁！
+  3. *代码架构单一真理源 (Single Source of Truth)*：拔除 `MainForm.cs` 中所有重复残余方法，100% 汇流至 `StartupManager.cs` 统一调度。
+
+#### 2. 雷柏 (Rapoo) 鼠标防卡死与舒缓轮询规范
+- **偶发卡死历史根因与复盘**：
+  1. *时序漏置导致 50ms 狂暴轰炸*：旧版 `DpiMonitorWorker` 中，`lastRapooDpiPollTime = DateTime.Now;` 曾被错误放置在 `if (FastQueryDpi(...))` 成功分支内部。一旦鼠标休眠、正在位移或无线微丢包导致 `FastQueryDpi` 返回 `false`，轮询时间戳**完全不更新**！导致工作线程在随后的每一个 50ms 循环中，**以每秒 20 次的疯狂频率持续向 USB 堆叠阻塞式 Feature Report 查询**！
+  2. *5 次同步阻塞重试累积延迟*：`ReadRegister` 内部循环 `Thread.Sleep(5)` 并调用同步 Win32 内核 `HidD_GetFeature`，重试高达 5 次。在鼠标休眠或无响应时，单次调用可阻塞内核数百毫秒，持续死锁 `hidLock`。
+  3. *端点打开权限过度占用*：Feature Report 端点使用了 `GENERIC_READ | GENERIC_WRITE`，促使 Windows HID 类驱动建立独占队列，与 2.4G 接收器的指针输入集合争夺总线带宽。
+  4. *2.4G 物理半双工射频冲突*：2.4G 游戏鼠标的单芯片射频在 1000Hz~8000Hz 高速回报下几乎占满空口。在用户高速移动光标时强行插发 33 字节双向 EEPROM 控制包，必定导致接收器射频缓冲溢出与指针包丢弃。
+- **极简极速防护体系 (Clean & Responsive Guard)**：
+  1. *精简纯粹轮询与绝对时间戳推移*：坚决剔除复杂的“光标拉枪/位移速率检测”以免引入误判与切档 OSD 延迟；无论查询成功与否，强制推移 `lastRapooDpiPollTime = DateTime.Now`，维持 200ms 舒缓轮询，彻底封死 50ms 狂轰死循环漏洞。
+  2. *错误指数温和退避*：`ReadRegister` 或 `WriteRegister` 遇到任何通信阻断或无回显，重试上限严格限制为 2~3 次，失败时触发 400ms 温和退避，坚决不在休眠或离线状态下高频重试。
+  3. *0 权限特征端点直连*：探测与 Feature 端点彻底改用 `0` 权限（`FILE_READ_ATTRIBUTES`），输出端点仅请求写权限，完全消除 HID 驱动层与鼠标指针输入端点的资源争抢。
+  4. *EEPROM 写入静默期扩大*：由 350ms 提升至 800ms，为雷柏外设 MCU 内置 Flash 擦写留足物理裕量。
+
+#### 3. 雷柏 (Rapoo) 官方 WebHID 逆向工程与 Report 0x07 (col09) 19 字节物理遥测流全景规范
+- **电量不准历史根因 (从 100% 盲测到真实电量)**：
+  - 过去错误假设雷柏电量存储于 EEPROM 寄存器中，导致 `CachedBatteryPercent` 常年未更新，UI 兜底返回 100%。经扫描 EEPROM 全部 Bank 寄存器，证实雷柏硬件根本不在 EEPROM 保存电量。
+  - 经深入逆向雷柏官方 WebHID 驱动（Rapoo AHUB 2.0 / `https://hub.rapoo.cn`），揭示官方核心驱动对 `VT_nrf54L` / `Dongle_NordicL5` 架构采用的是 **主动遥测流协议**！
+- **Report ID 0x07 (col09) 19 字节遥测报文结构**：
+  - 通信端点：`col09`（UsagePage `0xFF00`, Usage `0x0002`, InputReportLength = 19）。
+  - 报文格式：
+    - `Byte 0`: `0x07` (Report ID)
+    - `Byte 2`: 当前活跃 DPI 档位索引 (0-based，加 1 为实际档位)
+    - `Byte 3..4`: X 轴实时 DPI (uint16 little-endian: `Byte[3] | (Byte[4] << 8)`)
+    - `Byte 5..6`: Y 轴实时 DPI (uint16 little-endian: `Byte[5] | (Byte[6] << 8)`)
+    - `Byte 7`: 物理充电状态 (`0x01` 为放电/使用中, `0x02` 为充电中)
+    - `Byte 8`: **物理电池电量百分比** (真实硬件读值，如 `0x33` = 51%)
+    - `Byte 10`: 当前动态回报率代码
+    - `Byte 13..14`: 硬件 Product ID (如 `0x1413`)
+    - `Byte 17`: 设备支持的 DPI 档位总数 (如 5)
+- **非阻塞异步遥测架构与冷启动热恢复**：
+  1. *非阻塞异步流读取*：在 `RapooDeviceHelper.cs` 中打开 `col09` 时追加 `FILE_FLAG_OVERLAPPED`，使用 .NET 原生 `FileStream.BeginRead` / `EndRead` 监听 Report ID 0x07。有数据时微秒级消费并更新缓存，无数据时完全不阻塞工作线程。
+  2. *双通道极速返回*：`FastQueryDpi` 与 `QueryRapooDeviceInfo` 优先直接消费遥测流，3 秒内有活跃遥测即无需发起 EEPROM 特性读取，彻底消灭射频包冲突。
+  3. *冷启动热恢复*：通过静态构造函数 `static RapooDeviceHelper() { LoadHardwareCache(); }` 与注册表持久化机制，应用冷启动时立即毫秒级恢复上一次关机前的真实电量与档位，并在后台静默连通后瞬间刷新为最新物理电量。
+
+### PR #38 与官方遥测改动合并（2026-10-24）
+
+- 对历史 CRLF/BOM 差异先做三方文本规范化，再处理逻辑冲突；不能对整份 DeviceManager/MainForm 简单选择一边。保留官方 FDAS、游戏模式、自启动/CI 修复与本分支的 GameSir/GANSS、隐藏身份隔离和启动刷新防重入。
+- 雷柏遥测保留 RapooProtocol + RapooDeviceHelper.Status 的物理组绑定、可取消原生 I/O、真实采样时间及写后回读；不要并行合入另一套 FileStream 遥测线程。官方 ProcessTelemetryReport API 直接委托 ApplyStatusReport，共用严格解析。
+- 上游遥测测试夹具必须包含有效连接标志 [1]=0x10；不能为接受缺少连接标志的测试帧而削弱生产解析。补充无效传输拒绝和真实0%断言。
+- 合并基线 origin/main=4917a10，本轮 build.bat 成功，完整回归71/71 PASS；不提交exe或scratch诊断材料。

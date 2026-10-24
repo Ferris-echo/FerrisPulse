@@ -47,6 +47,12 @@ namespace RazerBatteryTray
             CachedXyRatio = 1.0;
         }
 
+        // Upstream compatibility entry: share the validated parser and state lock.
+        public static bool ProcessTelemetryReport(byte[] report)
+        {
+            return ApplyStatusReport(report);
+        }
+
         public static bool ApplyStatusReport(byte[] report)
         {
             RapooStatusReport status;

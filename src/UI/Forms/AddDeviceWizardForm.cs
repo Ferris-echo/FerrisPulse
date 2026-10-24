@@ -1015,7 +1015,7 @@ namespace RazerBatteryTray
             return false;
         }
 
-        private static string LookupVendorBrand(int vid)
+        private static string LookupVendorBrand(int vid, string prodStr, string mfgStr)
         {
             switch (vid)
             {
@@ -1023,14 +1023,36 @@ namespace RazerBatteryTray
                 case 0x046D: return "罗技 (Logitech)";
                 case 0x3837: return "迈从 (MCHOSE)";
                 case 0x5253: return "迈从 (MCHOSE)";
-                case 0x3419: return "VGN / VXE / ATK";
+                case 0x3419: return "VGN / VXE / ATK (倍思 / 拓步 OEM)";
+                case 0x373B: return "ATK / VXE (Beken / Compx 方案)";
                 case 0x37D7: return "飞智 (Flydigi)";
                 case 0x320F: return "蓝图 (LAMZU)";
                 case 0x361D: return "狼蛛 (AULA)";
                 case 0x0C45: return "松翰 / 黑爵 (AJAZZ)";
                 case 0x258A: return "赛诺伟思 / 达摩鲨 (Darmoshark) / 多彩 (Delux)";
                 case 0x24AE: return "雷柏 (Rapoo)";
-                case 0x3554: return "瓦尔基里 (Valkyrie)";
+                case 0x3554:
+                    if (!string.IsNullOrEmpty(prodStr) || !string.IsNullOrEmpty(mfgStr))
+                    {
+                        string combined = ((prodStr ?? "") + " " + (mfgStr ?? "")).ToLowerInvariant();
+                        if (combined.Contains("vgn") || combined.Contains("dragonfly") || combined.Contains("f1") || combined.Contains("f2") || combined.Contains("atk") || combined.Contains("vxe"))
+                            return "VGN / VXE / ATK (康普讯 Compx 方案)";
+                        if (combined.Contains("vk") || combined.Contains("valkyrie") || combined.Contains("m5") || combined.Contains("m7"))
+                            return "瓦尔基里 (Valkyrie / 康普讯 Compx 方案)";
+                        if (combined.Contains("zaopin"))
+                            return "造品 (Zaopin / 康普讯 Compx 方案)";
+                        if (combined.Contains("scyrox"))
+                            return "Scyrox (康普讯 Compx 方案)";
+                        if (combined.Contains("incott"))
+                            return "英菲克 (Incott / 康普讯 Compx 方案)";
+                        if (combined.Contains("darmoshark"))
+                            return "达摩鲨 (Darmoshark / 康普讯 Compx 方案)";
+                        if (combined.Contains("waizowl"))
+                            return "枭鲨 (Waizowl / 康普讯 Compx 方案)";
+                        if (combined.Contains("wlmouse"))
+                            return "盈石 (WLMOUSE / 康普讯 Compx 方案)";
+                    }
+                    return "康普讯公版方案 (Compx OEM - 广泛代工国产 2.4G/8K 电竞外设)";
                 case 0x054C: return "索尼 (Sony)";
                 case 0x1038: return "赛睿 (SteelSeries)";
                 case 0x1B1C: return "美商海盗船 (Corsair)";
@@ -1078,8 +1100,9 @@ namespace RazerBatteryTray
                         if (!string.IsNullOrEmpty(d.ProductString) && romProd == "未知") romProd = d.ProductString;
                         if (!string.IsNullOrEmpty(d.ManufacturerString) && romMfg == "未知") romMfg = d.ManufacturerString;
 
-                        sb.Append(string.Format("  * 端点 {0}: UsagePage=0x{1:X4}, Usage=0x{2:X4}, InLen={3}, OutLen={4}, FeatureLen={5}\r\n",
-                            i + 1, d.UsagePage, d.Usage, d.InputReportLength, d.OutputReportLength, d.FeatureReportLength));
+                        string note = (d.UsagePage >= 0xFF00) ? " [推荐私有控制通道]" : "";
+                        sb.Append(string.Format("  * 端点 {0}: UsagePage=0x{1:X4}, Usage=0x{2:X4}, InLen={3}, OutLen={4}, FeatureLen={5}{6}\r\n",
+                            i + 1, d.UsagePage, d.Usage, d.InputReportLength, d.OutputReportLength, d.FeatureReportLength, note));
                     }
                 }
                 else
@@ -1107,7 +1130,7 @@ namespace RazerBatteryTray
             string romProd = "未知";
             string romMfg = "未知";
             string endpoints = (item != null) ? ProbeDeviceDetails(item, out vid, out pid, out romProd, out romMfg) : "  * （未在列表中指定特定设备）";
-            string brand = (vid != 0) ? LookupVendorBrand(vid) : "待反查厂商";
+            string brand = (vid != 0) ? LookupVendorBrand(vid, romProd, romMfg) : "待反查厂商";
             
             string userRefName = !string.IsNullOrEmpty(userTypedName) ? userTypedName.Trim() : 
                 ((item != null && !string.IsNullOrEmpty(item.CustomName)) ? item.CustomName : (item != null ? item.OriginalName : "未指定"));
@@ -1133,36 +1156,54 @@ namespace RazerBatteryTray
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v1.0 硬件适配规范包");
             sb.AppendLine();
-            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与 C# 智能体工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份符合 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON）。");
+            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份严格符合 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON）。");
             sb.AppendLine();
-            sb.AppendLine("## ⚠️ 第 1 步必读：继承工程经验（杜绝踩坑）");
-            sb.AppendLine("在动工前，必须首先参阅工程根目录下的 `docs/AGENT_HANDBOOK.md`、`AGENT_RULES.md` 与 `docs/ADAPTER_SPECIFICATION.md`！");
-            sb.AppendLine("本项目已沉淀 11 大底层铁律（严格 C# 5.0 / .NET 4.0 语法基准、Win32 键盘 HID 0 权限握手避内核拦截、DWM 原生窗口抗白框、测试全内存反射防句柄锁死等），请务必全盘继承前序经验！");
+            sb.AppendLine("## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）");
+            sb.AppendLine("你必须严格按以下两阶段开展工作：");
             sb.AppendLine();
-            sb.AppendLine("## 2. 官方源码仓库与规范索引");
+            sb.AppendLine("### 阶段一：硬件物理安全第一与官方 WebHID 源码逆向 (Safety First)");
+            sb.AppendLine("1. **严厉安全红线：严禁在真机上下发盲测性质的写指令 (如 Cmd 0x07、写未知内存地址)**！");
+            sb.AppendLine("   - 现代国产无线外设（如 CompX、PixArt 等主控）多将单片机板载 EEPROM / Flash 直接映射为写指令。");
+            sb.AppendLine("   - 盲猜写指令或写错地址/长度，会瞬间冲毁 2.4G RF 配对表、校验扇区或引导记录，导致接收器硬件彻底死锁变砖！");
+            sb.AppendLine("2. **官方 WebHID 源码逆向法（首选且唯一推荐的写指令来源，100% 零风险）**：");
+            sb.AppendLine("   - 现代外设厂商（VGN, ATK, VXE, 迈从, 达摩鲨, 狼蛛, 雷神, 机械师等）90% 均提供官方 Web 驱动（Chrome 浏览器网页端，如 hub.vgn.cn、hub.atk.pro 等）。");
+            sb.AppendLine("   - 请优先让用户或你在浏览器打开该网页驱动，按 F12 打开开发者工具：在 Sources / Network 面板中检索 `sendReport`、`write`、`0x07`、`0x55`、`rate`、`dpi` 等关键词；");
+            sb.AppendLine("   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！");
+            sb.AppendLine("3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。");
+            sb.AppendLine();
+            sb.AppendLine("### 阶段二：FDAS v1.0 动态微表达式与规范包封装 (Dynamic Calculation)");
+            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
+            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
+            sb.AppendLine("1. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验，例如：");
+            sb.AppendLine("   - `\"rateParity\": \"(0x55 - $rateCode) & 0xFF\"` (CompX 互补校验位)");
+            sb.AppendLine("   - `\"dpiEncoded\": \"($dpi / 50) - 1\"` (PAW3950/3395 编码)");
+            sb.AppendLine("   - `\"dpiLow\": \"$dpiEncoded & 0xFF\"`");
+            sb.AppendLine("   - `\"dpiHigh\": \"($dpiEncoded >> 8) & 0x03\"`");
+            sb.AppendLine("   - `\"dpiFlags\": \"($dpiHigh << 2) | ($dpiHigh << 6)\"`");
+            sb.AppendLine("   - `\"dpiParity\": \"(0x55 - $dpiLow - $dpiLow - $dpiFlags) & 0xFF\"`");
+            sb.AppendLine("   - `\"dpiAddrLo\": \"(0x000C + $stage0 * 4) & 0xFF\"`");
+            sb.AppendLine("2. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
+            sb.AppendLine("3. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：若设备查询电量需先唤醒接收器再查询，可声明执行序列：`[\"08 02 ...\", \"08 04 ...\"]`");
+            sb.AppendLine("4. **内联表达式支持**：模板中直接支持 `{ (0x55 - rateCode) & 0xFF }` 动态求值。");
+            sb.AppendLine();
+            sb.AppendLine("## 🛡️ 逃生舱机制：代码级深度定制授权");
+            sb.AppendLine("如果该设备的物理协议极其罕见或复杂（例如非标准加解密哈希、流式分片压缩等），确实超出了动态 JSON 的表达边界：");
+            sb.AppendLine("**明确授权你直接深入修改 FerrisPulse 本地 C# 源码（位于 `src/Hardware/` 目录下）**，并在本地运行 `cmd.exe /c \"build.bat\"` 编译验证，确保用户立即能用上，绝不受技术教条限制！");
+            sb.AppendLine();
+            sb.AppendLine("## 🤝 开源生态飞轮：社区反哺指引");
+            sb.AppendLine("无论你是通过【FDAS 动态 JSON】还是【C# 源码修改】成功适配了该设备，请务必在回答末尾输出一份《灵脉设备适配成果报告》，并热忱引导用户将此成果提交给官方：");
+            sb.AppendLine("1. **GitHub Issues / PR**: https://github.com/Ferris-echo/FerrisPulse/issues");
+            sb.AppendLine("2. **Gitee Issues / PR**: https://gitee.com/Ferris-echo/FerrisPulse/issues");
+            sb.AppendLine("3. **作者个人邮箱直连投递**: 2949225840@qq.com 或 2949225840zpf@gmail.com");
+            sb.AppendLine("官方团队将以最快速度将你的适配收录进下一版本的内置原生驱动库，并在版本发布说明中对你公开鸣谢，造福全网所有使用该设备的用户！");
+            sb.AppendLine();
+            sb.AppendLine("## 2. 官方源码规范索引");
             sb.AppendLine("- GitHub (首选): https://github.com/Ferris-echo/FerrisPulse.git");
             sb.AppendLine("- Gitee (镜像): https://gitee.com/Ferris-echo/ferris-pulse.git");
             sb.AppendLine("- 规范文档: docs/ADAPTER_SPECIFICATION.md");
+            sb.AppendLine("- 避坑指南: docs/AGENT_HANDBOOK.md & AGENT_RULES.md");
             sb.AppendLine();
-            sb.AppendLine("## 3. 智能体反查与防错铁律（侦探法则）");
-            sb.AppendLine("1. **绝不盲目信任用户输入名称**：");
-            sb.AppendLine(string.Format("   - 界面上用户输入的参考名称为：【{0}】（此名称由用户手工录入，可能极不精准、存在错别字或仅填了“鼠标/耳机”等通用词）。", userRefName));
-            if (vid != 0)
-            {
-                sb.AppendLine(string.Format("   - **你必须以物理真理为准**：请优先基于下方的 VID: 0x{0:X4} 与 PID: 0x{1:X4}、芯片固件原名「{2}」以及硬件厂商「{3}」，调用你的知识库、全球 USB 硬件库或网络检索，反查其真实官方商业品牌与具体设备型号！", vid, pid, romProd, romMfg));
-            }
-            else
-            {
-                sb.AppendLine("   - **你必须以物理真理为准**：请基于设备的硬件指纹反查真实官方商业品牌与具体设备型号！");
-            }
-            sb.AppendLine("2. **芯片方案与通信拓扑推导**：");
-            sb.AppendLine("   - 结合下方列出的通信端点（UsagePage、Usage、报告长度），识别其采用的主控与无线方案（如 Nordic nRF52840 / 52833、博通 Beken、合泰 Holtek、赛诺伟思 CX52850、原相 PAW3395/3950 等公版通信协议）。");
-            sb.AppendLine("   - 若为鼠标：必须同时适配【精准电量/充电状态】、【DPI 各档位/步进/XY轴分离规则】以及【回报率数组(125~8000Hz)及切换指令】！");
-            sb.AppendLine("   - 若为非鼠标（键盘/手柄/耳机/耳塞）：必须适配【精准电量/充电状态】，耳塞需支持三节点独立电量。");
-            sb.AppendLine("3. **抓包样本闭环铁律（杜绝凭空捏造）**：");
-            sb.AppendLine("   - 规范包中必须提供一组与实际协议一致的抓包 Hex 样本（sampleRxHex 与 sampleTxHex），以便 FerrisPulse 自动化测试套件进行回放验证。");
-            sb.AppendLine();
-            sb.AppendLine("## 4. 当前硬件现场物理指纹（由 FerrisPulse 硬件探针实时捕获）：");
+            sb.AppendLine("## 3. 当前硬件现场物理指纹（由 FerrisPulse 硬件探针实时捕获）：");
             sb.AppendLine(string.Format("- 设备推测分类: {0} ({1})", catStr, catCn));
             sb.AppendLine(string.Format("- 用户参考名称: {0}", userRefName));
             sb.AppendLine(string.Format("- 透视厂商归属: {0}", brand));
@@ -1173,27 +1214,31 @@ namespace RazerBatteryTray
             sb.AppendLine("- HID 通信拓扑端点列表:");
             sb.AppendLine(endpoints);
             sb.AppendLine();
-            sb.AppendLine("## 5. 输出要求与契约规范");
-            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容必须完全符合 FDAS v1.0 规范，包含以下分区：");
-            sb.AppendLine("1. `metadata`: brand, model (纠正后的真实官方型号), category, author, description");
-            sb.AppendLine("2. `hardware`: vendorId, productId, endpointTopology (选定用于私有通信的主 UsagePage/Usage/Length)");
+            sb.AppendLine("## 4. 输出格式与契约规范");
+            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容符合 FDAS v1.0 规范，包含：");
+            sb.AppendLine("1. `metadata`: brand, model, category, author, description");
+            sb.AppendLine("2. `hardware`: vendorId, productId, endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
             sb.AppendLine("3. `capabilities`:");
             sb.AppendLine("   - `battery`: reportId, batteryPercentByteOffset, chargingByteOffset, chargingBitMask, batteryFormula, sampleRxHex");
             if (item == null || item.Category == DeviceCategory.Mouse)
             {
-                sb.AppendLine("   - `mouse`:");
+                sb.AppendLine("   - `mouse`: (若需支持 DPI/回报率)");
                 sb.AppendLine("     - `dpi`: minDpi, maxDpi, step, defaultStages, supportsXyIndependence, ratioPresets, activeStageByteOffset, dpiXLoByteOffset, dpiXHiByteOffset, dpiYLoByteOffset, dpiYHiByteOffset, sampleDpiRxHex");
                 sb.AppendLine("     - `pollingRate`: supportedRates, defaultRate, maxRate, rateIndexMap");
             }
             sb.AppendLine("4. `protocol`:");
-            sb.AppendLine("   - queryBatteryTxHex (若需主动查询)");
+            sb.AppendLine("   - queryBatteryTxHex (或 queryBatteryPipeline)");
             if (item == null || item.Category == DeviceCategory.Mouse)
             {
-                sb.AppendLine("   - setDpiTxTemplate, setPollingRateTxTemplate");
+                sb.AppendLine("   - variables (动态算式字典，如 rateParity, dpiLow, dpiParity 等)");
+                sb.AppendLine("   - rateCodeMap (厂商私有回报率编码映射)");
+                sb.AppendLine("   - setDpiTxTemplate (档位写入模板，支持占位符与微表达式)");
+                sb.AppendLine("   - setDpiValueTxTemplate (DPI 分辨率写入模板，若无独立数值包可省略)");
+                sb.AppendLine("   - setPollingRateTxTemplate (回报率写入模板)");
             }
-            sb.AppendLine("   - checksumType (None / SumMod256 / XorSum / SonyInzone)");
+            sb.AppendLine("   - checksumType (None / SumMod256 / VgnCompxSum55 / XorSum / SonyInzone)");
             sb.AppendLine();
-            sb.AppendLine("请直接输出该设备的 FDAS v1.0 标准 JSON 代码块，用户将直接把文件导入 FerrisPulse 自动点亮外设！");
+            sb.AppendLine("用户将直接把文件保存为 `{brand}_{model}.fp-adapter.json` 导入 FerrisPulse 自动点亮外设！");
             return sb.ToString();
         }
     }
