@@ -143,7 +143,7 @@ if (-not $dmContent.Contains("AcerDeviceHelper.QueryAllAcerDevices()")) {
 Write-Host "PASSED: R332 -> OMR331 旗舰版，且已接入 DeviceManager" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host " [测试 5/5] 状态栏供电文案跟随充电状态（防自相矛盾）" -ForegroundColor Cyan
+Write-Host " [测试 5/6] 状态栏供电文案跟随充电状态（防自相矛盾）" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 顶部卡片显示「充电中」、状态栏却写死「电池供电」会造成同屏自相矛盾
@@ -159,5 +159,27 @@ if (-not $hwContent.Contains('info.IsCharging ? "正在充电" : "电池供电"'
     Write-Host "FAILED: 状态栏供电文案未跟随 info.IsCharging" -ForegroundColor Red; exit 1
 }
 Write-Host "PASSED: 状态栏供电文案由 info.IsCharging 驱动，充电时显示「正在充电」" -ForegroundColor Green
+
+Write-Host "`n==========================================================" -ForegroundColor Cyan
+Write-Host " [测试 6/6] 充电哨兵值不得当作真实电量展示" -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+
+# 设备在外部供电时把电量字段填 100 当哨兵（实测：拔线 58%，插线瞬间 100%），
+# 展示时必须退回最近一次非充电实测值，否则用户看到“一插线就满电”。
+$resolve = $type.GetMethod("ResolveDisplayedBattery", [System.Reflection.BindingFlags]"Public,Static")
+if ($null -eq $resolve) { Write-Host "FAILED: 缺少 ResolveDisplayedBattery" -ForegroundColor Red; exit 1 }
+
+$r1 = $resolve.Invoke($null, @([int]100, [bool]$true, [int]58))
+if ($r1 -ne 58) { Write-Host ("FAILED: 充电中哨兵 100 未回退到实测值，得到 " + $r1) -ForegroundColor Red; exit 1 }
+
+$r2 = $resolve.Invoke($null, @([int]100, [bool]$false, [int]58))
+if ($r2 -ne 100) { Write-Host ("FAILED: 未充电时必须保留设备上报值，得到 " + $r2) -ForegroundColor Red; exit 1 }
+
+$r3 = $resolve.Invoke($null, @([int]100, [bool]$true, [int]-1))
+if ($r3 -ne 100) { Write-Host ("FAILED: 无历史实测值时应原样返回，得到 " + $r3) -ForegroundColor Red; exit 1 }
+
+$r4 = $resolve.Invoke($null, @([int]58, [bool]$true, [int]58))
+if ($r4 -ne 58) { Write-Host ("FAILED: 充电中非哨兵电量应原样返回，得到 " + $r4) -ForegroundColor Red; exit 1 }
+Write-Host "PASSED: 充电哨兵 100 回退到实测 58；未充电/非哨兵/无缓存三种情况均正确" -ForegroundColor Green
 
 Write-Host "`nALL ACER TESTS PASSED" -ForegroundColor Green

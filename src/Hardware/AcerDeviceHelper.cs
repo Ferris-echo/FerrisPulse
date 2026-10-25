@@ -15,10 +15,14 @@
 //       [5..8]="R332" 设备 ID, [9..10]=0x0185 固件版本,
 //       [13]=充电标志(0x01 充电中 / 0x00 未充电),
 //       [14]=0x64 电池百分比(100), [15]=恒定 0x01 的设备状态位。
-//   充电位 A/B 实测（2026-10-25, 各连续 8 帧, 帧内完全稳定）:
+// 充电位 A/B 实测（2026-10-25, 各连续 8 帧, 帧内完全稳定）:
 //       充电中 100%: 00 10 00 01 0B 52 33 33 32 85 01 19 01 |01| 64 01 ... F0
 //       拔线后 58% : 00 10 00 01 0B 52 33 33 32 85 01 19 01 |00| 3A 01 ... C5
 //       两次抓包除电量外，唯一稳定差异就是 [13]；[12]/[14]/[15] 均不变。
+//   充电时电量字段是「哨兵值」: 插线瞬间 [14] 由 0x3A(58%) 直接变成 0x64(100%)，
+//   物理上不可能瞬间充满，说明固件在外部供电时把百分比填成 100 表示“已接电源”。
+//   因此充电状态下 100% 不能当作真实电量展示（否则一插线就跳 100%），
+//   由 ResolveDisplayedBattery() 退回到最近一次非充电状态下的实测值。
 //   历史误判说明: 旧实现把 [15] 当充电位，但 [15] 是恒定 0x01 的设备状态位，
 //   真正随充电切换的是它前面一格 [13]，故旧逻辑永远读不到充电状态。
 //   设备不支持 Feature Report（FeatureReportByteLength=0），必须走
@@ -66,6 +70,10 @@ namespace RazerBatteryTray
         private static DateTime lastQueryTime = DateTime.MinValue;
         private static List<MouseBatteryInfo> cachedDevices = new List<MouseBatteryInfo>();
         private static int cachedBattery = -1;
+        // 最近一次「非充电」状态下实测到的真实电量：充电时设备回 100 哨兵值，
+        // 展示时用它替代，避免一插线就跳 100%（-1 表示尚无有效实测值）。
+        private static int cachedLastRealBattery = -1;
+        private const int ChargingBatterySentinel = 100;
         private static bool cachedCharging = false;
         private static string cachedDeviceName = "Acer 2.4G 无线鼠标";
         private static string cachedDevId = "";
@@ -194,6 +202,22 @@ namespace RazerBatteryTray
             return true;
         }
 
+        /// <summary>
+        /// 把「充电状态下设备回报的原始电量」换算成可展示电量。
+        /// 该接收器在外部供电时会把电量字段填成 100 作为哨兵值（实测：拔线 58%，
+        /// 插线瞬间就变 100%，物理上不可能），因此充电且原始值为 100 时，
+        /// 退回到最近一次非充电状态下的实测值；没有历史值则原样返回。
+        /// </summary>
+        public static int ResolveDisplayedBattery(int rawBattery, bool isCharging, int lastRealBattery)
+        {
+            if (!isCharging) return rawBattery;
+            if (rawBattery >= ChargingBatterySentinel && lastRealBattery >= 0 && lastRealBattery < ChargingBatterySentinel)
+            {
+                return lastRealBattery;
+            }
+            return rawBattery;
+        }
+
         private static void LoadHardwareCache()
         {
             try
@@ -203,6 +227,8 @@ namespace RazerBatteryTray
                     if (key == null) return;
                     object batt = key.GetValue("BatteryPercent");
                     if (batt != null) cachedBattery = Convert.ToInt32(batt);
+                    object lastReal = key.GetValue("LastRealBattery");
+                    if (lastReal != null) cachedLastRealBattery = Convert.ToInt32(lastReal);
                     object chg = key.GetValue("IsCharging");
                     if (chg != null) cachedCharging = Convert.ToInt32(chg) == 1;
                     string name = key.GetValue("DeviceName") as string;
@@ -237,6 +263,20 @@ namespace RazerBatteryTray
                     key.SetValue("DeviceName", deviceName, RegistryValueKind.String);
                     key.SetValue("DevId", devId, RegistryValueKind.String);
                     key.SetValue("LastUpdated", DateTime.Now.ToString("o"), RegistryValueKind.String);
+                }
+            }
+            catch { }
+        }
+
+        private static void SaveLastRealBattery(int battery)
+        {
+            cachedLastRealBattery = battery;
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(CacheRegistryKey))
+                {
+                    if (key == null) return;
+                    key.SetValue("LastRealBattery", battery, RegistryValueKind.DWord);
                 }
             }
             catch { }
@@ -378,12 +418,19 @@ namespace RazerBatteryTray
 
                 if (ok)
                 {
-                    info.BatteryPercent = battery;
-                    info.ExactBatteryPercent = battery;
+                    // 充电时设备把电量填成 100 哨兵值，展示层用最近一次真实实测值替代，
+                    // 避免“一插线就 100%”；非充电状态下才刷新真实值缓存。
+                    int displayBattery = ResolveDisplayedBattery(battery, charging, cachedLastRealBattery);
+                    if (!charging)
+                    {
+                        SaveLastRealBattery(battery);
+                    }
+                    info.BatteryPercent = displayBattery;
+                    info.ExactBatteryPercent = displayBattery;
                     info.IsCharging = charging;
                     info.IsSleeping = false;
                     info.LastUpdated = DateTime.Now;
-                    SaveHardwareCache(battery, charging, modelName, devId);
+                    SaveHardwareCache(displayBattery, charging, modelName, devId);
                 }
                 else
                 {
