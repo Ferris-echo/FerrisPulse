@@ -129,7 +129,7 @@ if ($args4[4] -ne $false) { Write-Host "FAILED: 拔线后必须判定为未充�
 Write-Host "PASSED: [13] 充电标志 0x01/0x00 判定正确；[15] 状态位不再误报；电量 100%/58%/78% 解析正确" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host " [测试 4/4] 型号映射与 DeviceManager 接入" -ForegroundColor Cyan
+Write-Host " [测试 4/5] 型号映射与 DeviceManager 接入" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $modelMethod = $type.GetMethod("GetModelNameFromDevId", [System.Reflection.BindingFlags]"Public,Static")
@@ -141,5 +141,23 @@ if (-not $dmContent.Contains("AcerDeviceHelper.QueryAllAcerDevices()")) {
     Write-Host "FAILED: DeviceManager 未接入 Acer 查询" -ForegroundColor Red; exit 1
 }
 Write-Host "PASSED: R332 -> OMR331 旗舰版，且已接入 DeviceManager" -ForegroundColor Green
+
+Write-Host "`n==========================================================" -ForegroundColor Cyan
+Write-Host " [测试 5/5] 状态栏供电文案跟随充电状态（防自相矛盾）" -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+
+# 顶部卡片显示「充电中」、状态栏却写死「电池供电」会造成同屏自相矛盾
+# （2026-10-25 Acer OMR331 插线时实测出现），此处锁死该文案不得写死。
+$hwContent = [System.IO.File]::ReadAllText("$ProjectDir\src\UI\Forms\MainForm.Hardware.cs", [System.Text.Encoding]::UTF8)
+if ($hwContent.Contains("| 供电: 电池供电")) {
+    Write-Host "FAILED: 状态栏供电文案仍被写死为「电池供电」" -ForegroundColor Red; exit 1
+}
+if (-not $hwContent.Contains("供电: {1}")) {
+    Write-Host "FAILED: 状态栏供电文案未改为动态占位" -ForegroundColor Red; exit 1
+}
+if (-not $hwContent.Contains('info.IsCharging ? "正在充电" : "电池供电"')) {
+    Write-Host "FAILED: 状态栏供电文案未跟随 info.IsCharging" -ForegroundColor Red; exit 1
+}
+Write-Host "PASSED: 状态栏供电文案由 info.IsCharging 驱动，充电时显示「正在充电」" -ForegroundColor Green
 
 Write-Host "`nALL ACER TESTS PASSED" -ForegroundColor Green
