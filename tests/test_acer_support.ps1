@@ -71,33 +71,62 @@ Write-Host " [测试 3/4] R332 设备信息/电量/充电解析" -ForegroundColo
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 实机抓包（2026-10-22, Acer OMR331 旗舰版, dev_id R332, [15]=0x01 但设备并未充电）
-$rxCharging = [byte[]]@(
+$rxLegacyStateA = [byte[]]@(
     0x00,0x10,0x00,0x01,0x0B,0x52,0x33,0x33,0x32,0x85,0x01,
     0x19,0x01,0x00,0x4E,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD9
 )
 # 同一设备另一时刻（[15] 由 0x01 -> 0x00，校验和同步变为 0xD8；同样未充电）
-$rxIdle = [byte[]]@(
+$rxLegacyStateB = [byte[]]@(
     0x00,0x10,0x00,0x01,0x0B,0x52,0x33,0x33,0x32,0x85,0x01,
     0x19,0x01,0x00,0x4E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xD8
 )
+# 2026-10-25 插线充电中（100%，[13]=0x01，[32] 校验和 0xF0）——连续 8 帧一致
+$rxCharging = [byte[]]@(
+    0x00,0x10,0x00,0x01,0x0B,0x52,0x33,0x33,0x32,0x85,0x01,
+    0x19,0x01,0x01,0x64,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xF0
+)
+# 2026-10-25 拔线后（58%，[13]=0x00，[32] 校验和 0xC5）——连续 8 帧一致
+$rxUnplugged = [byte[]]@(
+    0x00,0x10,0x00,0x01,0x0B,0x52,0x33,0x33,0x32,0x85,0x01,
+    0x19,0x01,0x00,0x3A,0x01,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xC5
+)
 
 $parse = $type.GetMethod("ParseInfoResponse", [System.Reflection.BindingFlags]"Public,Static")
-$args = [object[]]@($rxCharging, 33, "", 0, $false, 0)
+
+# 断言 1: 历史帧（[13]=0x00, [15]=0x01）必须仍然判定为未充电
+$args = [object[]]@($rxLegacyStateA, 33, "", 0, $true, 0)
 $ok = $parse.Invoke($null, $args)
-if (-not $ok) { Write-Host "FAILED: 充电帧解析失败" -ForegroundColor Red; exit 1 }
+if (-not $ok) { Write-Host "FAILED: 历史帧解析失败" -ForegroundColor Red; exit 1 }
 if ($args[2] -ne "R332") { Write-Host ("FAILED: 设备 ID 错误: " + $args[2]) -ForegroundColor Red; exit 1 }
 if ($args[3] -ne 78) { Write-Host ("FAILED: 电量错误: " + $args[3]) -ForegroundColor Red; exit 1 }
 if ($args[4] -ne $false) { Write-Host "FAILED: [15]=0x01 时不得误报充电" -ForegroundColor Red; exit 1 }
 if ($args[5] -ne 0x0185) { Write-Host ("FAILED: 固件版本错误: " + $args[5]) -ForegroundColor Red; exit 1 }
 
-$args2 = [object[]]@($rxIdle, 33, "", 0, $true, 0)
+$args2 = [object[]]@($rxLegacyStateB, 33, "", 0, $true, 0)
 $ok2 = $parse.Invoke($null, $args2)
-if (-not $ok2) { Write-Host "FAILED: 放电帧解析失败" -ForegroundColor Red; exit 1 }
-if ($args2[3] -ne 78) { Write-Host "FAILED: 放电帧电量错误" -ForegroundColor Red; exit 1 }
-if ($args2[4] -ne $false) { Write-Host "FAILED: 未充电帧充电标志错误" -ForegroundColor Red; exit 1 }
-Write-Host "PASSED: R332 电量 78%、固件 1.85 解析正确；[15] 漂移不再误报充电" -ForegroundColor Green
+if (-not $ok2) { Write-Host "FAILED: 历史帧 B 解析失败" -ForegroundColor Red; exit 1 }
+if ($args2[3] -ne 78) { Write-Host "FAILED: 历史帧 B 电量错误" -ForegroundColor Red; exit 1 }
+if ($args2[4] -ne $false) { Write-Host "FAILED: 历史帧 B 充电标志错误" -ForegroundColor Red; exit 1 }
+
+# 断言 2: 插线充电帧（[13]=0x01, 100%）必须判定为充电中
+$args3 = [object[]]@($rxCharging, 33, "", 0, $false, 0)
+$ok3 = $parse.Invoke($null, $args3)
+if (-not $ok3) { Write-Host "FAILED: 充电帧解析失败" -ForegroundColor Red; exit 1 }
+if ($args3[2] -ne "R332") { Write-Host ("FAILED: 充电帧设备 ID 错误: " + $args3[2]) -ForegroundColor Red; exit 1 }
+if ($args3[3] -ne 100) { Write-Host ("FAILED: 充电帧电量错误: " + $args3[3]) -ForegroundColor Red; exit 1 }
+if ($args3[4] -ne $true) { Write-Host "FAILED: [13]=0x01 时必须判定为充电中" -ForegroundColor Red; exit 1 }
+
+# 断言 3: 拔线帧（[13]=0x00, 58%）必须判定为未充电
+$args4 = [object[]]@($rxUnplugged, 33, "", 0, $true, 0)
+$ok4 = $parse.Invoke($null, $args4)
+if (-not $ok4) { Write-Host "FAILED: 拔线帧解析失败" -ForegroundColor Red; exit 1 }
+if ($args4[3] -ne 58) { Write-Host ("FAILED: 拔线帧电量错误: " + $args4[3]) -ForegroundColor Red; exit 1 }
+if ($args4[4] -ne $false) { Write-Host "FAILED: 拔线后必须判定为未充电" -ForegroundColor Red; exit 1 }
+Write-Host "PASSED: [13] 充电标志 0x01/0x00 判定正确；[15] 状态位不再误报；电量 100%/58%/78% 解析正确" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host " [测试 4/4] 型号映射与 DeviceManager 接入" -ForegroundColor Cyan

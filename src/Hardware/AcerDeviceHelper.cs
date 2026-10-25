@@ -8,14 +8,19 @@
 //   电池百分比与充电标志。
 // 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, Microsoft.Win32
 //
-// 协议实测（OMR331 旗舰版 / dev_id R332，2026-10-22 抓包）:
+// 协议实测（OMR331 旗舰版 / dev_id R332，2026-10-22 与 2026-10-25 抓包）:
 //   TX: 00 10 00 00 ... (33 字节, 首字节为 Report ID 0x00)
-//   RX: 00 10 00 01 0B 52 33 33 32 85 01 19 01 00 4E 01 ... D9
+//   RX: 00 10 00 01 0B 52 33 33 32 85 01 19 01 01 64 01 ... F0
 //       [1]=0x10 命令回显, [2]=0x00 成功, [4]=0x0B 负载长度,
 //       [5..8]="R332" 设备 ID, [9..10]=0x0185 固件版本,
-//       [14]=0x4E 电池百分比(78)。
-//       [15] 为不稳定的设备状态位（未充电时实测 0x01/0x00 均出现），
-//       严禁据此判定充电状态；充电位尚未定位，当前一律按未充电处理。
+//       [13]=充电标志(0x01 充电中 / 0x00 未充电),
+//       [14]=0x64 电池百分比(100), [15]=恒定 0x01 的设备状态位。
+//   充电位 A/B 实测（2026-10-25, 各连续 8 帧, 帧内完全稳定）:
+//       充电中 100%: 00 10 00 01 0B 52 33 33 32 85 01 19 01 |01| 64 01 ... F0
+//       拔线后 58% : 00 10 00 01 0B 52 33 33 32 85 01 19 01 |00| 3A 01 ... C5
+//       两次抓包除电量外，唯一稳定差异就是 [13]；[12]/[14]/[15] 均不变。
+//   历史误判说明: 旧实现把 [15] 当充电位，但 [15] 是恒定 0x01 的设备状态位，
+//   真正随充电切换的是它前面一格 [13]，故旧逻辑永远读不到充电状态。
 //   设备不支持 Feature Report（FeatureReportByteLength=0），必须走
 //   WriteFile / ReadFile 的 Input/Output Report 通道。
 //
@@ -51,7 +56,10 @@ namespace RazerBatteryTray
         private const int ReportLength = 33;
         private const int CommandOffset = 1;
         private const int BatteryFieldOffset = 13;
-        private const int ChargingFieldOffset = 14;
+        // 充电标志位相对命令字回显的偏移 = 12（电池百分比前一格）。
+        // 2026-10-25 A/B 实测：充电 0x01、未充电 0x00，各 8 帧稳定；
+        // 旧值 14 对应恒定为 0x01 的设备状态位，导致充电状态永远读不到。
+        private const int ChargingFieldOffset = 12;
         private const int ReadTimeoutMs = 320;
         private const int QueryThrottleMs = 3000;
 
@@ -180,10 +188,9 @@ namespace RazerBatteryTray
             int battery = report[commandIndex + BatteryFieldOffset];
             if (battery < 0 || battery > 100) return false;
             batteryPercent = battery;
-            // 实测 byte[15] 在鼠标未充电时也会在 0x01/0x00 之间漂移
-            // （与设备活动状态相关，且会被官方 MouseHub 的通道占用影响），
-            // 不能作为充电标志。充电位尚未定位，这里一律按未充电处理。
-            isCharging = false;
+            // 充电标志：插上充电线时设备置 1，拔线后回 0（2026-10-25 A/B 实测，
+            // 各 8 帧稳定）。注意它位于电池百分比前一格，而非早期的 [15]。
+            isCharging = report[commandIndex + ChargingFieldOffset] != 0;
             return true;
         }
 
