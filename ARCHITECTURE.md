@@ -40,7 +40,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── NuphyDeviceHelper.cs [NuPhy 键盘电量协议与侧灯控制]
     │   ├── ValkyrieDeviceHelper.cs [瓦尔基里全系键盘/鼠标私有 HID 协议、2.4G 接收器多模解析、8K 回报率与 DPI 调节]
     │   ├── FlydigiDeviceHelper.cs [飞智 APEX 6 / Vader 5 Pro GPA6 协议、0xFFA0 33B 帧、电量/充电解析]
-    │   ├── MchoseDeviceHelper.cs [迈从 G87 V2 键盘 0x4A/0x87 电池协议、接收器休眠占位与离线缓存]
+    │   ├── MchoseDeviceHelper.cs [迈从 G87 V2 65B 与 Z75S 20B 键盘协议、型号握手、独立端点电量缓存]
     │   ├── MchoseMouseHelper.cs  [迈从 A5 V2 Ultra 三模无线鼠标 WebHID 协议、XY轴独立 DPI 调节与 8K 回报率]
     │   ├── SteelSeriesDeviceHelper.cs [赛睿 Arctis Nova 5 / 5X 无线耳机 0x00B0 报文、UsagePage 0xFFC0 通信]
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
@@ -114,7 +114,7 @@ D:\FerrisPulse · 灵脉\
 | **雷蛇 DPI 档位 / 8K 回报率 / XY 轴独立灵敏度** | `src/Hardware/RazerDeviceHelper.cs` | 雷蛇私有 HID 报文、独立 X/Y 轴与板载 Flash 写入 |
 | **瓦尔基里全系键盘/鼠标支持** | `src/Hardware/ValkyrieDeviceHelper.cs` | 瓦尔基里全系 2.4G 接收器/HID 协议解析、双模电量、8K 回报率与独立 X/Y 轴 DPI 调节 |
 | **飞智 APEX 6 / Vader 5 Pro 手柄电量** | `src/Hardware/FlydigiDeviceHelper.cs` | GPA6 0xFFA0 33 字节帧、命令 0x01 设备信息、0..10 档电量与充电状态 |
-| **迈从 G87 V2 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | 0x13/0x4A 无线、0x09/0x87 有线、校验和含 Report ID、休眠占位与离线缓存 |
+| **迈从 G87 V2 / Z75S 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | G87 V2 保留 65B 0x55 性能查询；Z75S 使用 FF02/0002 20B 0x05 型号握手、0x4A 电量、完整校验与每接收器独立缓存；经 DeviceManager 接入键盘卡片和托盘 |
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |
