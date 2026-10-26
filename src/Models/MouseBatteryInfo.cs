@@ -263,6 +263,9 @@ namespace RazerBatteryTray
                         if (DeviceName.Contains("PRO Wireless") || DeviceName.Contains("GPW")) return "GPW";
                         if (DeviceName.Contains("G PRO HERO") || DeviceName.Contains("G PRO 游戏鼠标")) return "G PRO";
                         if (DeviceName.Contains("POWERPLAY")) return "POWERPLAY";
+                        // G502 X 家族细分：PLUS 必须先于无线版判断，避免窄名称吞掉 PLUS。
+                        if (DeviceName.Contains("G502 X PLUS")) return "G502 X PLUS";
+                        if (DeviceName.Contains("G502 X Wireless")) return "G502 X 无线";
                         if (DeviceName.Contains("G502 X")) return "G502 X";
                         if (DeviceName.Contains("G502")) return "G502";
                         if (DeviceName.Contains("G309")) return "G309";

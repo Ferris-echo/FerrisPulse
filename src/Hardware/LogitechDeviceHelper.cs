@@ -245,15 +245,19 @@ public static class LogitechDeviceHelper
         catch { }
     }
 
+    // 严格按设备 ID 隔离的缓存查询。
+    // 历史缺陷：旧实现会在未命中本设备缓存时回退到全局 CachedBatteryPercent，
+    // 导致同一接收器 / 同一枚举轮次下的其它外设（如 Yeti Nano 麦克风）继承鼠标电量。
+    // 无自身缓存记录时必须返回 -1（未知），绝不跨设备借用。
     public static int GetCachedBatteryForDevice(string deviceId)
     {
-        if (string.IsNullOrEmpty(deviceId)) return CachedBatteryPercent;
+        if (string.IsNullOrEmpty(deviceId)) return -1;
         int val;
-        if (deviceBatteryCache.TryGetValue(deviceId, out val) && val > 0)
+        if (deviceBatteryCache.TryGetValue(deviceId, out val) && val > 0 && val <= 100)
         {
             return val;
         }
-        return (HasValidHardwareReading && CachedBatteryPercent > 0) ? CachedBatteryPercent : -1;
+        return -1;
     }
 
     private static byte[] SendAndReceive(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs, int outLen = 0, byte matchDevIdx = 0xFF, byte matchFeatIdx = 0xFF, byte matchSwid = 0xFF)
@@ -385,7 +389,11 @@ public static class LogitechDeviceHelper
             case 0xC08D: return "Logitech G502 LIGHTSPEED";
             case 0x408E:
             case 0xC096: return "Logitech G502 X PLUS / LIGHTSPEED";
-            case 0xC095: return "Logitech G502 X (有线版)";
+            // libratbag data/devices/logitech-g502-x-plus.device:
+            //   DeviceMatch=usb:046d:4099;usb:046d:c095
+            // 本机实测（USB 有线，HID 产品串 "G502 X PLUS"）同样为 c095。
+            // 旧代码把 c095 标成「G502 X (有线版)」，在 HID++ 名称采样失败时会给出错误型号。
+            case 0xC095: return "Logitech G502 X PLUS";
             case 0xC08B: return "Logitech G502 HERO (有线版)";
             case 0xC07D: return "Logitech G502 Proteus Spectrum";
             case 0xC084: return "Logitech G203 / G102 Prodigy";
@@ -453,6 +461,32 @@ public static class LogitechDeviceHelper
             return DeviceCategory.Headset;
         }
         return DeviceCategory.Mouse;
+    }
+
+    // 罗技非外设类音频硬件（Blue Microphones 麦克风 / 桌面音箱）也会枚举出 UsagePage 0xFF00 的
+    // HID++ 端点并对 ping 有应答，但它们没有 0x1000 / 0x1004 电池特性。
+    // 历史缺陷：旧逻辑会把它们按「鼠标」入库并按 USB 有线设备展示，误导用户。
+    // 本机实测样本：046D:0AB1 Blue Microphones Yeti Nano（麦克风，无电池）。
+    public static bool IsLogitechAudioOnlyPeripheral(int pid, string name)
+    {
+        string text = ((name == null) ? "" : name).ToUpperInvariant();
+
+        if (text.Contains("YETI") || text.Contains("BLUE MICROPHONES") || text.Contains("MICROPHONE") ||
+            text.Contains("麦克风") || text.Contains("SPEAKER") || text.Contains("音箱") ||
+            text.Contains("SOUNDBAR") || text.Contains("回音壁"))
+        {
+            return true;
+        }
+
+        // 罗技音频产品段 0x0A00..0x0AFF，排除已知带电池且走 HID++ 电量的耳机型号。
+        if (pid >= 0x0A00 && pid <= 0x0AFF)
+        {
+            bool isKnownBatteryHeadset = (pid == 0x0ABA || pid == 0x0AB5 || pid == 0x0A87 ||
+                                          pid == 0x0A66 || pid == 0x0AFE || pid == 0x0AC4);
+            if (!isKnownBatteryHeadset) return true;
+        }
+
+        return false;
     }
 
     private class LogitechRawEndpoint
@@ -1006,13 +1040,18 @@ public static class LogitechDeviceHelper
                                             if (pct >= 0 && pct <= 100)
                                             {
                                                 batteryPercent = pct;
+                                                // 0x1004 getStatus 字段定义（对齐 Solaar decipher_battery_unified）：
+                                                //   rx[4] = 放电百分比
+                                                //   rx[5] = 电量档位码（8 FULL / 4 GOOD / 2 LOW / 1 CRITICAL），不是充电标志
+                                                //   rx[6] = BatteryStatus（0x00 放电 / 0x01 充电中 / 0x02 接近充满 / 0x03 充满 / 0x04 慢充）
+                                                // 历史缺陷：旧代码把 rx[5] == 1 当作充电，会把 level=CRITICAL 的低电量设备误判为正在充电。
                                                 if (rxBat.Length > 6)
                                                 {
-                                                    isCharging = (rxBat[6] >= 1 && rxBat[6] <= 4) || (rxBat[5] == 1);
+                                                    isCharging = (rxBat[6] >= 1 && rxBat[6] <= 4);
                                                 }
                                                 else
                                                 {
-                                                    isCharging = (rxBat[5] == 1);
+                                                    isCharging = false;
                                                 }
                                             }
                                         }
@@ -1232,6 +1271,15 @@ public static class LogitechDeviceHelper
                                 }
 
                                 string finalName = !string.IsNullOrEmpty(detectedName) ? detectedName : GetModelName(detectedPid, foundName);
+
+                                // 音频类硬件（麦克风 / 音箱）虽然对 HID++ ping 有应答，但没有电池特性。
+                                // 绝不入库：否则会以「鼠标 + 未知电量」污染设备列表。
+                                if (IsLogitechAudioOnlyPeripheral(detectedPid, finalName) ||
+                                    IsLogitechAudioOnlyPeripheral(detectedPid, foundName))
+                                {
+                                    continue;
+                                }
+
                                 DeviceCategory cat = DetectCategory(detectedPid, finalName);
                                 string deviceId = "Logitech:" + foundVid.ToString("X4") + ":" + detectedPid.ToString("X4") + (devIdx != 0xFF ? (":" + devIdx) : "");
 
