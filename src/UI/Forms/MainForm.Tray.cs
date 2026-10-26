@@ -549,13 +549,17 @@ namespace RazerBatteryTray
                         {
                             battStr = "供电中";
                         }
+                        else if (dev.IsSleeping)
+                        {
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (休眠)" : "休眠";
+                        }
                         else if (dev.IsCharging || (dev.Brand == "NuPhy" && dev.BatteryPercent >= 100))
                         {
-                            battStr = "充电中";
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (充电中)" : "充电中";
                         }
                         else
                         {
-                            battStr = dev.BatteryPercent > 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
+                            battStr = dev.BatteryPercent >= 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
                         }
                     }
                     else
@@ -594,7 +598,7 @@ namespace RazerBatteryTray
             // Context-sensitive controls based on primary tray device
             if (primary != null && primary.IsConnected)
             {
-                if (primary.Brand == "NuPhy" || primary.Category == DeviceCategory.Keyboard)
+                if (primary.Brand == "NuPhy" && primary.Category == DeviceCategory.Keyboard)
                 {
                     // Primary is NuPhy keyboard: Show NuPhy controls, hide Mouse DPI/Rate
                     if (dpiMenu != null) dpiMenu.Visible = false;
@@ -685,7 +689,7 @@ namespace RazerBatteryTray
                 }
                 else
                 {
-                    // Other device (Headset, Gamepad)
+                    // Other keyboards / headsets / gamepads: no NuPhy-specific hardware commands.
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
                     if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;

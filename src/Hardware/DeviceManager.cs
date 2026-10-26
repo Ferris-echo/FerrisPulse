@@ -812,7 +812,7 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.96 Query MCHOSE (G87 V2 tri-mode mechanical keyboard)
+            // 2.96 Query MCHOSE keyboards (G87 V2 / Z75S; separate receiver protocols)
             try
             {
                 var mchoseDevices = MchoseDeviceHelper.QueryAllMchoseDevices();
@@ -839,7 +839,7 @@ namespace RazerBatteryTray
                                 list.Add(dev);
                                 if (dev.BatteryPercent >= 0)
                                 {
-                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, dev.LastUpdated);
                                 }
                             }
                         }

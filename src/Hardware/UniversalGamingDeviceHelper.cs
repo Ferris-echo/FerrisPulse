@@ -673,6 +673,10 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // 258A:01BB 的 Z75/Z75S 为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
+            if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
             // MCHOSE G87 V2 键盘 (3837:3033) 由 MchoseDeviceHelper 的键盘电量协议接管，
             // 禁止通用鼠标协议向键盘 Vendor 集合误发 64 字节 Feature 报文。
             if (vid == VID_MCHOSE && !string.IsNullOrEmpty(path))
