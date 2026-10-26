@@ -22,7 +22,7 @@ Malformed/truncated packets; shared VID/PID with a different keyboard; cold-star
 
 ### Task 1: Protocol and native integration
 
-Files: src/Hardware/MchoseDeviceHelper.cs, src/Hardware/UniversalGamingDeviceHelper.cs, src/Hardware/DeviceManager.cs, src/UI/Forms/MainForm.Hardware.cs, src/UI/Forms/MainForm.Tray.cs, tests/test_mchose_z75s_*.ps1.
+Files: src/Hardware/MchoseDeviceHelper.cs, src/Hardware/HidTransport.cs, src/Hardware/UniversalGamingDeviceHelper.cs, src/Hardware/DeviceManager.cs, src/UI/Forms/MainForm.Hardware.cs, src/UI/Forms/MainForm.Tray.cs, tests/test_mchose_z75s_*.ps1.
 UI integration was extended after real control tests exposed 0%/full/charging/sleep binding defects; see the ledger ruling.
 Interfaces: BuildZ75sIdentityFrame(), BuildZ75sBatteryFrame(), ParseZ75sIdentityResponse(byte[], int), ParseZ75sBatteryResponse(byte[], int, out int, out bool), existing QueryAllMchoseDevices().
 
@@ -41,4 +41,6 @@ Files: ARCHITECTURE.md, docs/AGENT_HANDBOOK.md, docs/MCHOSE_Z75S_ADAPTATION.md.
 - [x] Document protocol, sources, real samples, exact validation results and practical limitations.
 ### Whole-branch review and handoff
 
-- [ ] Perform a fresh review of the diff, check BOM/C# syntax, rebuild after reflection tests to verify no binary lock, and create a local patch.
+- [x] Perform a fresh review of the diff, check BOM/C# syntax, rebuild after reflection tests to verify no binary lock, and create a local patch.
+
+Final review found a transport-length issue, reproduced with a real local pipe and fixed with ReadReportExact. Native build and 65/65 test scripts PASS; post-fix hardware verified 100% / not charging. One minor first-sample sleeping tray wording issue is deferred in the contribution notes. The patch was checked against baseline 4917a10; the local branch is retained without push, merge or PR creation.

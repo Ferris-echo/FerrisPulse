@@ -47,7 +47,7 @@ Z75S 键盘通过 2.4GHz 接收器连接时，读取硬件百分比（0–100%�
 | 6 | 电量命令的状态：高半字节充电，低半字节充满 |
 | 19 | `sum(bytes[0..18]) & 0xFF` |
 
-解析拒绝错误长度、Report ID、命令、分包头、载荷长度、校验和及大于 100 的百分比。先取得匹配型号响应，再发送电量查询；不同型号不接入 Z75S 卡片。查询只发送只读命令 `05` 与 `4A`。
+中断读取通过 `HidTransport.ReadReportExact` 核验 Win32 实际收取的 20 字节，拒绝短回包被缓冲区补零后伪造为完整帧。解析再拒绝错误长度、Report ID、命令、分包头、载荷长度、校验和及大于 100 的百分比。先取得匹配型号响应，再发送电量查询；不同型号不接入 Z75S 卡片。查询只发送只读命令 `05` 与 `4A`。
 
 ### 真实硬件样本
 
@@ -79,10 +79,11 @@ Z75S 键盘通过 2.4GHz 接收器连接时，读取硬件百分比（0–100%�
 ## 修改与验证
 
 - `src/Hardware/MchoseDeviceHelper.cs`：型号识别、20 字节协议、严格解析、单独轮询/持久化；保留 G87 V2 路径。
+- `src/Hardware/HidTransport.cs`：增加严格实际字节数的 `ReadReportExact`；旧接口保持兼容，Z75S 使用严格接口。
 - `src/Hardware/UniversalGamingDeviceHelper.cs`：排除键盘接收器，避免通用鼠标报文误探。
 - `src/Hardware/DeviceManager.cs`：复用已有品牌注册，缓存更新采用设备实际采样时间。
 - `src/UI/Forms/MainForm.Hardware.cs`、`MainForm.Tray.cs`：正确显示 0%/100%、充电、休眠缓存，传递托盘充电标志，隐藏其他品牌的硬件菜单。
-- `tests/test_mchose_z75s_*.ps1`：真实协议样本、损坏包、型号排除、端点选择、缓存持久化/隔离和实际控件显示。
+- `tests/test_mchose_z75s_*.ps1`：真实协议样本、损坏包、型号排除、端点选择、缓存持久化/隔离和实际控件显示；本地双向管道覆盖真实 Win32 完整/截断/无关帧读写边界。
 - `ARCHITECTURE.md`、`AGENT_HANDBOOK.md`：同步架构与避坑经验；`docs/superpowers/` 保存设计与实现计划。
 
 严格 C# 5.0 / .NET 4.0 核心程序集，无 NuGet、第三方运行库；改动源码、测试及文档均使用 UTF-8 BOM。
@@ -94,12 +95,19 @@ cmd.exe /c "build.bat"
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_mchose_z75s_support.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_mchose_z75s_cache.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_mchose_z75s_ui.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_mchose_z75s_transport.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
 ```
 
 全量测试中的历史自启动用例会修改当前用户注册表和快捷方式；实机回归前应保存完整快照并在结束后恢复，不应把它当成无副作用的纯单元测试。本次使用本地包装器执行和恢复，日志/快照不纳入提交。
 
-验证结果：Windows 原生 `build.bat` 编译成功；新增协议 32 项、缓存/端点 14 项、UI 13 项断言通过；全量 `tools/run_all_tests.ps1` 共 64 项测试脚本，64 PASS、0 FAIL、0 TIMEOUT。真实接收器经 Helper 和 DeviceManager 接入一张 Keyboard 卡片，拔线后 100% / 未充电，DPI=0、无鼠标回报率能力；插线/拔线两态已实测。测试恢复包装器检查了启动项值类型/内容和快捷方式原始字节，全部通过。
+验证结果：Windows 原生 `build.bat` 编译成功；新增协议 32 项、缓存/端点 14 项、UI 13 项断言及真实传输边界 3 个用例通过；全量 `tools/run_all_tests.ps1` 共 65 项测试脚本，65 PASS、0 FAIL、0 TIMEOUT。真实接收器经 Helper 和 DeviceManager 接入一张 Keyboard 卡片，拔线后 100% / 未充电，DPI=0、无鼠标回报率能力；插线/拔线两态已实测。最终严格传输路径实测 Helper 用时 151ms，DeviceManager 总查询用时 682ms（单次观测，不是性能基准）。测试恢复包装器检查了该次启动项值类型/内容和快捷方式原始字节，全部通过。
+
+## 最终审查范围
+
+独立审查发现 Win32 实际短读长度丢失的问题；以 7 字节 `13 4A 01 00 02 00 A0` 经真实本地管道复现误收，再增加严格读取接口修复，未向设备发送异常帧。既有通用读取接口及其异步取消生命周期未在本次重构。
+
+暂缓的小问题：已有型号确认但从未取得电量的休眠键盘，主卡片正确等待首次读取，托盘悬浮提示仍可能显示通用“免驱在线 / 最后同步 00:00:00”。这仅影响提示措辞，不制造百分比。物理休眠、接收器拔接、多接收器、有线/蓝牙及固件电量校准均未扩大实机验证范围。
 
 ## 协议原始来源
 

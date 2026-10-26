@@ -334,7 +334,7 @@ namespace RazerBatteryTray
                 remaining = ReadTimeoutMs - (int)timer.ElapsedMilliseconds;
                 if (remaining <= 0) break;
                 byte[] data;
-                if (!HidTransport.ReadReport(handle, Z75sReportLength, remaining, out data)) break;
+                if (!HidTransport.ReadReportExact(handle, Z75sReportLength, remaining, out data)) break;
                 if (!IsZ75sResponse(data, data.Length, tx[1], tx[1] == 0x05 ? (byte)6 : (byte)2)) continue;
                 rx = data;
                 return true;
