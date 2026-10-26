@@ -1,0 +1,6 @@
+# FerrisPulse Linux：允许当前登录用户直接访问 2.4G 接收器的 hidraw 厂商通道
+# Acer OMR331 无线 (XCTECH) / 同方案有线变体
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="249a", ATTRS{idProduct}=="5c2f", TAG+="uaccess", MODE="0660", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="248a", ATTRS{idProduct}=="5d2e", TAG+="uaccess", MODE="0660", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="248a", ATTRS{idProduct}=="5e2e", TAG+="uaccess", MODE="0660", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="248a", ATTRS{idProduct}=="5c2f", TAG+="uaccess", MODE="0660", GROUP="plugdev"

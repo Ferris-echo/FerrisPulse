@@ -1,4 +1,4 @@
-﻿# ⚡ FerrisPulse · 灵脉 (跨品牌外设调度中心) v2.2.0
+# ⚡ FerrisPulse · 灵脉 (跨品牌外设调度中心) v2.2.0
 
 <p align="center">
   <img src="app.png" width="108" height="108" alt="FerrisPulse Logo" />
@@ -29,6 +29,23 @@
 * 🎮 **8000Hz 独占感知**：日常 1000Hz 节能续航；进入 CS2、无畏契约、Apex 等全屏游戏瞬间毫秒级直切 4000Hz/8000Hz，退出游戏平滑回退。
 * 🎯 **战术级穿透 OSD**：全屏游戏中调节 DPI / 回报率，右下角无感浮现战术 OSD 与柔和声效，绝不切回桌面、绝不吞枪、100% 穿透防误触。
 * 🔋 **Win11 原生 Mica 美学**：暗黑圆角磨砂、任务栏原生彩色流光电量、多设备拖拽排序、独家智能静置休眠感知算法。
+
+---
+
+## 🐧 Linux 版（本仓库 `linux/`）
+
+本仓库同时维护一个 **Linux 原生发行版**（Python 3 + GTK3 + AppIndicator，不走 Wine/.NET）：
+
+| 项 | 内容 |
+| --- | --- |
+| 代码 | [linux/](linux/) |
+| 首个适配设备 | Acer OMR331 旗舰版（XCTECH 2.4G 接收器 `249A:5C2F`），协议来自 PR #33 |
+| 安装 | `sudo linux/scripts/install.sh`，或构建 `.deb`：`linux/scripts/build-deb.sh` |
+| 验证 | `ferrispulse-linux --cli` → `Acer OMR331 旗舰版无线鼠标（R332） 电量 100% …` |
+| 托盘 | `ferrispulse-linux --hidden`（GNOME 需启用 `ubuntu-appindicators@ubuntu.com`） |
+| 范围 | 电量/充电/固件/型号/托盘/低电量通知；8000Hz、DPI、OSD 等 Windows 专属功能未移植 |
+
+详见 [linux/README.md](linux/README.md)。
 
 ---
 

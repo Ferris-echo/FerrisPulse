@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=FerrisPulse Linux（灵脉）
+Comment=Acer OMR331 / 2.4G 无线鼠标电量托盘
+Exec=/usr/local/bin/ferrispulse-linux --hidden
+Icon=ferrispulse-linux
+Terminal=false
+Type=Application
+Categories=Utility;HardwareSettings;
+StartupNotify=false

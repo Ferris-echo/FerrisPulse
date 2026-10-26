@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""FerrisPulse Linux 启动入口。"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_LINUX = os.path.dirname(HERE)
+if os.path.isdir(os.path.join(REPO_LINUX, "ferrispulse_linux")):
+    sys.path.insert(0, REPO_LINUX)
+else:
+    sys.path.insert(0, "/usr/local/lib/ferrispulse-linux")
+
+from ferrispulse_linux.__main__ import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

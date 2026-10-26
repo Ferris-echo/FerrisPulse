@@ -54,3 +54,7 @@ docs/RELEASE_WORKFLOW_SOP.md
 !docs/
 !src/
 !resources/
+
+# Linux port build artifacts
+linux/dist/
+__pycache__/
