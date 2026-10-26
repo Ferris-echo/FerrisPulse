@@ -13,6 +13,11 @@
   - 复用同一 `0xFF04 / 0x0001` 厂商控制通道与 64 字节 Output Report `0x02` 查询帧（`96 C3` key id、`0x41` PC→接收器寻址），无需新增传输层。
   - **电池槽按载荷宽度自适应分派**：头戴型号回传 2 字节 `[charger, percent]`，入耳型号回传 6 字节三组状态对；`ParseBatteryResponseAuto` 依 `hci_len - 12` 判宽，避免为每个新型号维护 PID 表。
   - 充电识别：状态字节非 `0x00` 即充电中，UI 与 Tooltip 同步点亮闪电标记；接收器在线但耳机未开机时保留在线占位并显示「耳机未连接」，绝不伪造电量。
+- **漫步者 (EDIFIER) 花再 Halo Space 2.4G 无线头戴式耳机 (`2D99:E049`)**：
+  - 新增 `EdifierDeviceHelper`，直连 `UsagePage 0xFF14 / Usage 0x0001` 的 64 字节中断端点，按 EC 私有协议组帧（`2E AA EC` 帧头 + 大端长度 + `XOR 0xA5` 载荷掩码 + 自下标 1 起算的 8 位累加和）。
+  - 实机验证并接入 `0xD0` 电量查询（`0x86 ^ 0xA5 = 35%`）、`0xC9` 设备名称（UTF-8 “花再 Halo Space”）、`0xC6` 固件版本（1.0.2）与 `0xC8` 蓝牙 MAC 查询；名称/版本/MAC 首次成功后缓存，轮询仅保留单条电量命令并节流 1 秒。
+  - **充电状态诚实缺省**：2.4G 无线模式下接入充电器会触发设备侧强制关机，叠加固件对 `0xF2` 设备状态查询在任何载荷长度下均不回包，无线模式本就没有可读的充电态；故不声明充电位、不渲染充电闪电图标，休眠/未连接时保留未知电量（`-1`）而非伪造 0%。
+  - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
 - **罗技 (Logitech) G502 X PLUS 旗舰无线鼠标与 Lightspeed 接收器重构修复**（感谢 [@TonySen1](https://github.com/TonySen1) 根因排查 #15）：
@@ -43,7 +48,7 @@
 
 ### 🛠️ 底层总线与自动化测试
 - **通用 HID 总线架构**：新增 `HidTransport`，统一 SetupAPI 枚举、HidD 属性/能力查询与重叠 I/O 超时读写，杜绝同步 `ReadFile` 阻塞 UI 轮询线程。
-- **全量契约测试**：新增 `test_sony_inzone_support.ps1`、`test_logitech_g502x_support.ps1`、`test_atk_angrymiao_metapanda.ps1` 与 `test_flydigi_mchose_support.ps1`，全量测试套件 51/51 100% 通过（新增 test_mchose_mouse_support.ps1）。
+- **全量契约测试**：新增 `test_edifier_halo_space.ps1`、`test_sony_inzone_support.ps1`、`test_logitech_g502x_support.ps1`、`test_atk_angrymiao_metapanda.ps1` 与 `test_flydigi_mchose_support.ps1`，全量测试套件 51/51 100% 通过（新增 test_mchose_mouse_support.ps1）。
 
 ---
 

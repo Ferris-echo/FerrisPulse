@@ -129,6 +129,7 @@ namespace RazerBatteryTray
                     }
                 }
                 if (Brand == "HyperX" || Brand == "极度未知") return Color.FromArgb(226, 0, 43);
+                if (Brand == "Edifier" || Brand == "漫步者") return Color.FromArgb(0, 140, 255);
                 if (Category == DeviceCategory.Headset) return Color.FromArgb(90, 160, 255);
                 if (Category == DeviceCategory.Earbuds) return Color.FromArgb(179, 136, 255);
                 if (Category == DeviceCategory.Gamepad) return Color.FromArgb(192, 132, 252);

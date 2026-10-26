@@ -1179,6 +1179,7 @@ namespace RazerBatteryTray
                             return "盈石 (WLMOUSE / 康普讯 Compx 方案)";
                     }
                     return "康普讯公版方案 (Compx OEM - 广泛代工国产 2.4G/8K 电竞外设)";
+                case 0x2D99: return "漫步者 (Edifier)";
                 case 0x054C: return "索尼 (Sony)";
                 case 0x1038: return "赛睿 (SteelSeries)";
                 case 0x1B1C: return "美商海盗船 (Corsair)";

@@ -40,7 +40,7 @@
 FerrisPulse/
 ├── src/
 │   ├── Core/         # 单例守护、Win32 消息循环、注册表自启动守护、原子热更新
-│   ├── Hardware/     # 底层 HID 通信、私有协议解构 (Razer 90B / Logitech HID++ / CompX)
+│   ├── Hardware/     # 底层 HID 通信、私有协议解构 (Razer 90B / Logitech HID++ / CompX / EDIFIER EC)
 │   ├── Models/       # 外设实体状态模型、配置持久化契约
 │   ├── Services/     # 前台游戏焦点检测仲裁、回报率动态调度、非阻塞声效反馈
 │   └── UI/           # Win11 Mica 窗体、GDI+ 高精度自绘引擎、零焦点穿透 OSD 浮窗
@@ -50,6 +50,7 @@ FerrisPulse/
 ### 1. 跨品牌硬件私有 HID 协议原生逆向直连
 * **雷蛇 (Razer)**：解构专有 90 字节双向 Report 协议，直连 2.4G 接收器与有线通道，免开雷云实现毫秒级电量获取与回报率切换。
 * **罗技 (Logitech)**：自研原生 **HID++ 1.0 / 2.0+** 协议引擎，握手 Lightspeed 与统一接收器，直接读取固件全称与精准百分比。
+* **漫步者 (EDIFIER)**：原生解构 **EC 私有协议**（64 字节中断帧 + `XOR 0xA5` 载荷掩码 + 自下标 1 起算的累加和），直读 2.4G 头戴耳机 **花再 Halo Space** 的电量、固件版本、设备名与蓝牙 MAC。
 * **NuPhy (努斐)**：全系客制化键盘休眠超时调节、WinLock 锁、RGB 背光与无级亮度控制。
 * **国产电竞矩阵 (CompX 方案)**：深度适配 ATK、VGN、VXE、迈从 (MCHOSE)、狼蛛 (AULA) 等国产主流 8K 无线鼠标。
 
