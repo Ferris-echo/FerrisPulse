@@ -123,7 +123,7 @@ $g502xResp1[5] = 0x08 # level (必须被忽略，不可作为充电态)
 $g502xResp1[6] = 0x00 # 0x00 = discharging
 
 $pct1 = [int]$g502xResp1[4]
-$isChg1 = if ($g502xResp1.Length -gt 6) { ($g502xResp1[6] -ge 1 -and $g502xResp1[6] -le 4) -or ($g502xResp1[5] -eq 1) } else { ($g502xResp1[5] -eq 1) }
+$isChg1 = if ($g502xResp1.Length -gt 6) { ($g502xResp1[6] -ge 1 -and $g502xResp1[6] -le 4) } else { $false }
 
 if ($pct1 -ne 97 -or $isChg1) {
     Write-Host "FAILED: 97% 放电状态解析异常 (pct=$pct1, isChg=$isChg1)" -ForegroundColor Red
@@ -136,7 +136,7 @@ if ($pct1 -ne 97 -or $isChg1) {
 $g502xResp2[6] = 0x01 # charging
 
 $pct2 = [int]$g502xResp2[4]
-$isChg2 = if ($g502xResp2.Length -gt 6) { ($g502xResp2[6] -ge 1 -and $g502xResp2[6] -le 4) -or ($g502xResp2[5] -eq 1) } else { ($g502xResp2[5] -eq 1) }
+$isChg2 = if ($g502xResp2.Length -gt 6) { ($g502xResp2[6] -ge 1 -and $g502xResp2[6] -le 4) } else { $false }
 
 if ($pct2 -ne 97 -or -not $isChg2) {
     Write-Host "FAILED: 97% 充电状态解析异常 (pct=$pct2, isChg=$isChg2)" -ForegroundColor Red
@@ -144,6 +144,38 @@ if ($pct2 -ne 97 -or -not $isChg2) {
 }
 Write-Host "PASSED: 0x1004 电量 97% 与 byte6 充放电状态解析 100% 精确，level 字段不产生干扰" -ForegroundColor Green
 
+# --- 反例：level=1 (CRITICAL) 且 status=0 (放电)，绝不可误判为充电 ---
+# 抓包样本: 11 01 06 18 05 01 00  (5% 低电量 / level=CRITICAL / 放电中)
+[byte[]]$g502xResp3 = New-Object byte[] 20
+[System.Array]::Copy($g502xResp1, $g502xResp3, 20)
+$g502xResp3[4] = 0x05 # 5%
+$g502xResp3[5] = 0x01 # level = CRITICAL
+$g502xResp3[6] = 0x00 # status = discharging
+
+$isChg3 = if ($g502xResp3.Length -gt 6) { ($g502xResp3[6] -ge 1 -and $g502xResp3[6] -le 4) } else { $false }
+
+if ($isChg3) {
+    Write-Host "FAILED: level=CRITICAL(1) 被误判为充电中 (isChg=$isChg3)" -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASSED: level=CRITICAL(1) + status=discharging 不被误判为充电" -ForegroundColor Green
+
+# --- 反例：FULL(3) 才是充电态，level=8(FULL) 但不等于充电 ---
+# 抓包样本: 11 01 06 18 64 08 03  (100% / level=FULL / 已充满)
+[byte[]]$g502xResp4 = New-Object byte[] 20
+[System.Array]::Copy($g502xResp1, $g502xResp4, 20)
+$g502xResp4[4] = 0x64 # 100%
+$g502xResp4[5] = 0x08 # level = FULL
+$g502xResp4[6] = 0x03 # status = FULL
+
+$isChg4 = if ($g502xResp4.Length -gt 6) { ($g502xResp4[6] -ge 1 -and $g502xResp4[6] -le 4) } else { $false }
+
+if (-not $isChg4) {
+    Write-Host "FAILED: FULL(3) 充电态未被识别 (isChg=$isChg4)" -ForegroundColor Red
+    exit 1
+}
+Write-Host "PASSED: status=FULL(3) 正确识别为充电/已满" -ForegroundColor Green
+
 Write-Host "`n==========================================================" -ForegroundColor Green
-Write-Host " ALL 5/5 LOGITECH G502X / LIGHTSPEED TESTS PASSED!" -ForegroundColor Green
+Write-Host " ALL 7/7 LOGITECH G502X / LIGHTSPEED TESTS PASSED!" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
