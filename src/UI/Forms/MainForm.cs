@@ -206,7 +206,7 @@ namespace RazerBatteryTray
 
         private System.Windows.Forms.Timer deviceChangeTimer2;
 
-        private int userSelectedInterval = 60000;
+        private int userSelectedInterval = 10000;
 
 
 
@@ -237,6 +237,8 @@ namespace RazerBatteryTray
         private ToolStripMenuItem osdStyleGaugeItem;
 
         private ToolStripMenuItem osdStyleCompactItem;
+
+        private ToolStripMenuItem int10sMenuItem;
 
         private ToolStripMenuItem int30sMenuItem;
 
@@ -432,6 +434,12 @@ namespace RazerBatteryTray
         private int pendingLogitechDpiCandidate = -1;
 
         private int pendingLogitechStageCandidate = -1;
+
+        private int lastMonitoredZaopinStage = -1;
+
+        private int pendingZaopinStageCandidate = -1;
+
+        private DateTime lastZaopinDpiPollTime = DateTime.MinValue;
 
         private DpiOsdForm osdForm;
 
@@ -661,11 +669,9 @@ namespace RazerBatteryTray
 
         private Label lblIntervalTitle;
 
-        private ModernSegmentButton btnInt30s;
+        private ModernSegmentButton[] btnIntPresets;
 
-        private ModernSegmentButton btnInt1m;
-
-        private ModernSegmentButton btnInt5m;
+        private ModernButton btnIntCustom;
 
         private Label lblOsdStyleTitle;
 
@@ -1202,6 +1208,9 @@ namespace RazerBatteryTray
 
             base.OnVisibleChanged(e);
 
+            ApplyAdaptiveInterval();
+
+
             if (this.Visible && this.WindowState != FormWindowState.Minimized)
 
             {
@@ -1213,6 +1222,18 @@ namespace RazerBatteryTray
                 UpdateManageGamesButtonText();
 
             }
+
+        }
+
+
+
+        protected override void OnResize(EventArgs e)
+
+        {
+
+            base.OnResize(e);
+
+            ApplyAdaptiveInterval();
 
         }
 
@@ -1543,13 +1564,167 @@ namespace RazerBatteryTray
 
 
 
+        // 按当前间隔点亮对应预设按钮
+        private void ApplyPresetSelection(int ms)
+
+        {
+
+            if (btnIntPresets == null) return;
+
+            int[] presets = new int[] { 10000, 30000, 60000 };
+
+            for (int i = 0; i < btnIntPresets.Length && i < presets.Length; i++)
+
+            {
+
+                if (btnIntPresets[i] == null) continue;
+
+                btnIntPresets[i].Selected = (presets[i] == ms);
+
+            }
+
+        }
+
+        // 打开刷新频率档位弹窗（结构同 DPI 档位配置）
+        private void OpenRefreshIntervalDialog()
+
+        {
+
+            using (RefreshIntervalDialog dlg = new RefreshIntervalDialog(userSelectedInterval))
+
+            {
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+
+                {
+
+                    SetInterval(dlg.SelectedIntervalMs, true);
+
+                }
+
+            }
+
+        }
+
+        // 自定义刷新间隔输入框（3 ~ 3600 秒）
+        private void PromptCustomInterval()
+
+        {
+
+            using (Form dlg = new Form())
+
+            {
+
+                dlg.Text = "自定义刷新间隔";
+
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+
+                dlg.StartPosition = FormStartPosition.CenterParent;
+
+                dlg.MinimizeBox = false;
+
+                dlg.MaximizeBox = false;
+
+                dlg.ClientSize = new Size(300, 138);
+
+                dlg.BackColor = Color.FromArgb(28, 30, 36);
+
+                dlg.ForeColor = Color.Gainsboro;
+
+                Label lbl = new Label();
+
+                lbl.Text = "刷新间隔（秒，3 ~ 3600）：";
+
+                lbl.ForeColor = Color.Gainsboro;
+
+                lbl.Location = new Point(16, 18);
+
+                lbl.AutoSize = true;
+
+                NumericUpDown num = new NumericUpDown();
+
+                num.Minimum = 3;
+
+                num.Maximum = 3600;
+
+                num.Value = Math.Max(3, Math.Min(3600, userSelectedInterval / 1000));
+
+                num.Location = new Point(16, 48);
+
+                num.Size = new Size(120, 24);
+
+                num.BackColor = Color.FromArgb(45, 48, 56);
+
+                num.ForeColor = Color.White;
+
+                num.BorderStyle = BorderStyle.FixedSingle;
+
+                Button ok = new Button();
+
+                ok.Text = "确定";
+
+                ok.DialogResult = DialogResult.OK;
+
+                ok.Location = new Point(120, 92);
+
+                ok.Size = new Size(72, 28);
+
+                Button cancel = new Button();
+
+                cancel.Text = "取消";
+
+                cancel.DialogResult = DialogResult.Cancel;
+
+                cancel.Location = new Point(200, 92);
+
+                cancel.Size = new Size(72, 28);
+
+                dlg.Controls.Add(lbl);
+
+                dlg.Controls.Add(num);
+
+                dlg.Controls.Add(ok);
+
+                dlg.Controls.Add(cancel);
+
+                dlg.AcceptButton = ok;
+
+                dlg.CancelButton = cancel;
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+
+                {
+
+                    SetInterval((int)num.Value * 1000, true);
+
+                }
+
+            }
+
+        }
+
+        // 自适应刷新：窗口可见时用用户设定（默认 10 秒），最小化/隐藏时不低于 30 秒以省电
+        private void ApplyAdaptiveInterval()
+
+        {
+
+            if (updateTimer == null) return;
+
+            bool background = (this.WindowState == FormWindowState.Minimized) || !this.Visible;
+
+            int target = background ? Math.Max(userSelectedInterval, 30000) : userSelectedInterval;
+
+            if (updateTimer.Interval != target) updateTimer.Interval = target;
+
+        }
+
         private void SetInterval(int ms, bool showNotification = false)
 
         {
 
             userSelectedInterval = ms;
 
-            if (updateTimer != null) updateTimer.Interval = ms;
+            ApplyAdaptiveInterval();
 
             SaveConfig();
 
@@ -1561,6 +1736,8 @@ namespace RazerBatteryTray
 
             {
 
+                if (int10sMenuItem != null) int10sMenuItem.Checked = (ms == 10000);
+
                 if (int30sMenuItem != null) int30sMenuItem.Checked = (ms == 30000);
 
                 if (int1mMenuItem != null) int1mMenuItem.Checked = (ms == 60000);
@@ -1569,11 +1746,7 @@ namespace RazerBatteryTray
 
 
 
-                if (btnInt30s != null) btnInt30s.Selected = (ms == 30000);
-
-                if (btnInt1m != null) btnInt1m.Selected = (ms == 60000);
-
-                if (btnInt5m != null) btnInt5m.Selected = (ms == 300000);
+                ApplyPresetSelection(ms);
 
             }
 
@@ -1861,11 +2034,12 @@ namespace RazerBatteryTray
 
                             userSelectedInterval = (int)rVal;
 
-                            if (userSelectedInterval != 30000 && userSelectedInterval != 60000 && userSelectedInterval != 300000)
+                            // 允许自定义间隔（3 秒 ~ 60 分钟），越界则回落默认 10 秒
+                            if (userSelectedInterval < 3000 || userSelectedInterval > 3600000)
 
                             {
 
-                                userSelectedInterval = 60000;
+                                userSelectedInterval = 10000;
 
                             }
 
@@ -2131,15 +2305,13 @@ namespace RazerBatteryTray
 
                 if (int30sMenuItem != null) int30sMenuItem.Checked = (userSelectedInterval == 30000);
 
+                if (int10sMenuItem != null) int10sMenuItem.Checked = (userSelectedInterval == 10000);
+
                 if (int1mMenuItem != null) int1mMenuItem.Checked = (userSelectedInterval == 60000);
 
                 if (int5mMenuItem != null) int5mMenuItem.Checked = (userSelectedInterval == 300000);
 
-                if (btnInt30s != null) btnInt30s.Selected = (userSelectedInterval == 30000);
-
-                if (btnInt1m != null) btnInt1m.Selected = (userSelectedInterval == 60000);
-
-                if (btnInt5m != null) btnInt5m.Selected = (userSelectedInterval == 300000);
+                ApplyPresetSelection(userSelectedInterval);
 
 
 

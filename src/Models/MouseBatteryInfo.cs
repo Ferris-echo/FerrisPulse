@@ -48,6 +48,7 @@ namespace RazerBatteryTray
         public int PollingRate { get; set; }
         public int[] SupportedPollingRates { get; set; }
         public int MaxPollingRate { get; set; }
+        public int BatteryVoltageMv { get; set; }
         public string CustomTooltip { get; set; }
         public bool IsPrimary { get; set; }
 
@@ -138,6 +139,7 @@ namespace RazerBatteryTray
                 if (Brand == "Logitech" || Brand == "罗技") return Color.FromArgb(0, 174, 239);
                 if (Brand == "Rapoo" || Brand == "雷柏") return Color.FromArgb(0, 185, 255);
                 if (Brand == "VGN") return Color.FromArgb(255, 120, 0);
+                if (Brand == "Zaopin" || Brand == "皂品") return Color.FromArgb(255, 145, 0);
                 if (Brand == "Razer" || Brand == "雷蛇") return Color.FromArgb(0, 230, 118);
                 return Color.FromArgb(0, 230, 118);
             }
@@ -227,6 +229,17 @@ namespace RazerBatteryTray
                         if (DeviceName.Contains("VGN") || DeviceName.Contains("VXE") || DeviceName.Contains("ATK")) return DeviceName;
                     }
                     return "VGN 蜻蜓鼠标";
+                }
+
+                if (Brand == "Zaopin" || Brand == "皂品")
+                {
+                    if (DeviceName != null)
+                    {
+                        if (DeviceName.Contains("Z2")) return "皂品 Z2";
+                        if (DeviceName.Contains("Z1")) return "皂品 Z1";
+                        if (DeviceName.Length > 0) return DeviceName;
+                    }
+                    return "皂品鼠标";
                 }
 
                 if (Brand == "Logitech" || Brand == "罗技")

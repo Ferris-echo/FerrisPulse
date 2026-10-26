@@ -35,7 +35,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── DeviceManager.cs    [外设扫描调度中心、优先级仲裁与多设备状态聚合]
     │   ├── RazerDeviceHelper.cs [雷蛇私有 HID 协议、90 字节报文、DPI 档位与 8K 轮询率]
     │   ├── RapooDeviceHelper.cs [雷柏无线鼠标 HID 通信协议]
-    │   ├── VgnDeviceHelper.cs   [VGN / 蜻蜓 / ATK 协议解析]
+    │   ├── VgnDeviceHelper.cs   [VGN / 蜻蜓 / ATK / 皂品 Z2 协议解析]
     │   ├── LogitechDeviceHelper.cs [罗技 HID++ 协议解析]
     │   ├── NuphyDeviceHelper.cs [NuPhy 键盘电量协议与侧灯控制]
     │   ├── ValkyrieDeviceHelper.cs [瓦尔基里全系键盘/鼠标私有 HID 协议、2.4G 接收器多模解析、8K 回报率与 DPI 调节]

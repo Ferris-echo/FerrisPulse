@@ -309,25 +309,36 @@ namespace RazerBatteryTray
 
             var intervalMenu = new ToolStripMenuItem("自动刷新频率");
             ConfigureSubMenuDropDown(intervalMenu.DropDown);
+            int10sMenuItem = new ToolStripMenuItem("10 秒（推荐）", null, (s, e) => {
+                SetInterval(10000, true);
+                int10sMenuItem.Checked = true;
+                int30sMenuItem.Checked = false;
+                int1mMenuItem.Checked = false;
+                int5mMenuItem.Checked = false;
+            });
             int30sMenuItem = new ToolStripMenuItem("30 秒", null, (s, e) => {
                 SetInterval(30000, true);
+                int10sMenuItem.Checked = false;
                 int30sMenuItem.Checked = true;
                 int1mMenuItem.Checked = false;
                 int5mMenuItem.Checked = false;
             });
             int1mMenuItem = new ToolStripMenuItem("1 分钟", null, (s, e) => {
                 SetInterval(60000, true);
+                int10sMenuItem.Checked = false;
                 int30sMenuItem.Checked = false;
                 int1mMenuItem.Checked = true;
                 int5mMenuItem.Checked = false;
             });
             int5mMenuItem = new ToolStripMenuItem("5 分钟", null, (s, e) => {
                 SetInterval(300000, true);
+                int10sMenuItem.Checked = false;
                 int30sMenuItem.Checked = false;
                 int1mMenuItem.Checked = false;
                 int5mMenuItem.Checked = true;
             });
-            intervalMenu.DropDownItems.AddRange(new ToolStripItem[] { int30sMenuItem, int1mMenuItem, int5mMenuItem });
+            ToolStripMenuItem intCustomMenuItem = new ToolStripMenuItem("更多档位…", null, (s, e) => OpenRefreshIntervalDialog());
+            intervalMenu.DropDownItems.AddRange(new ToolStripItem[] { int10sMenuItem, int30sMenuItem, int1mMenuItem, int5mMenuItem, intCustomMenuItem });
             contextMenu.Items.Add(intervalMenu);
 
             var styleMenu = new ToolStripMenuItem("托盘图标样式");

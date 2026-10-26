@@ -281,11 +281,85 @@ namespace RazerBatteryTray
                             }
                         }
                     }
+
+                    // 6. 皂品/VGN（CompX 方案）设备极速 DPI 档位监听：实体 DPI 键切换后读地址 0x04 同步（300ms 节流，避免与电量查询抢锁）
+                    if (selectedDevice != null && (selectedDevice.Brand == "Zaopin" || selectedDevice.Brand == "皂品" || selectedDevice.Brand == "VGN") && selectedDevice.Category == DeviceCategory.Mouse)
+                    {
+                        if ((DateTime.Now - lastZaopinDpiPollTime).TotalMilliseconds >= 300)
+                        {
+                            lastZaopinDpiPollTime = DateTime.Now;
+                            int zStage = VgnDeviceHelper.FastQueryVgnDpiStage();
+                            if (zStage >= 1)
+                            {
+                                int[] zStages = (selectedDevice.DpiStages != null && selectedDevice.DpiStages.Length > 0)
+                                    ? selectedDevice.DpiStages
+                                    : (dpiStageList != null && dpiStageList.Count > 0 ? dpiStageList.ToArray() : new int[] { 400, 800, 1600, 2400, 3200, 6400 });
+                                int zCount = zStages.Length;
+                                int zDpi = (zStage >= 1 && zStage <= zStages.Length) ? zStages[zStage - 1] : 1600;
+
+                                if (lastMonitoredZaopinStage != -1 && zStage != lastMonitoredZaopinStage)
+                                {
+                                    if (pendingZaopinStageCandidate == zStage)
+                                    {
+                                        pendingZaopinStageCandidate = -1;
+                                        int newDpi = zDpi;
+                                        int newStage = zStage;
+                                        int newCount = zCount;
+                                        try
+                                        {
+                                            this.BeginInvoke(new Action(() => {
+                                                OnDpiChanged("Zaopin", newDpi, newStage, newCount, null, -1);
+                                            }));
+                                        }
+                                        catch { }
+                                        lastMonitoredZaopinStage = zStage;
+                                    }
+                                    else
+                                    {
+                                        pendingZaopinStageCandidate = zStage;
+                                    }
+                                }
+                                else
+                                {
+                                    pendingZaopinStageCandidate = -1;
+                                    lastMonitoredZaopinStage = zStage;
+                                }
+                            }
+                        }
+                    }
                 }
                 catch { }
                 int pollSleep = isMouseSleeping ? 250 : 50; // 鼠标活跃时 50ms 极速响应，按键瞬间 OSD 丝滑弹出；待机时 250ms 静默
                 Thread.Sleep(pollSleep);
             }
+        }
+
+        // 电量连续渐变颜色：100% 绿色 → 0% 红色（HSV 色相 120°→0°，饱和/明度固定）
+        private static Color GetBatteryGradientColor(int batteryPercent)
+        {
+            int pct = batteryPercent < 0 ? 0 : (batteryPercent > 100 ? 100 : batteryPercent);
+            double hue = 120.0 * pct / 100.0; // 120=绿, 60=黄, 0=红
+            double s = 0.85;
+            double v = 0.95;
+
+            double c = v * s;
+            double x = c * (1.0 - Math.Abs((hue / 60.0) % 2.0 - 1.0));
+            double m = v - c;
+            double r, g, b;
+            if (hue < 60) { r = c; g = x; b = 0; }
+            else if (hue < 120) { r = x; g = c; b = 0; }
+            else if (hue < 180) { r = 0; g = c; b = x; }
+            else if (hue < 240) { r = 0; g = x; b = c; }
+            else if (hue < 300) { r = x; g = 0; b = c; }
+            else { r = c; g = 0; b = x; }
+
+            int R = (int)Math.Round((r + m) * 255.0);
+            int G = (int)Math.Round((g + m) * 255.0);
+            int B = (int)Math.Round((b + m) * 255.0);
+            if (R < 0) R = 0; if (R > 255) R = 255;
+            if (G < 0) G = 0; if (G > 255) G = 255;
+            if (B < 0) B = 0; if (B > 255) B = 255;
+            return Color.FromArgb(R, G, B);
         }
 
         private void OnDpiChanged(string brand, int newDpi, int newStage, int stageCount, string deviceId = null, int customDpiY = -1)
@@ -575,6 +649,40 @@ namespace RazerBatteryTray
                         OnDpiChanged("MCHOSE", dpi, targetStage > 0 ? targetStage : 1, dpiStageValues.Length, null, dpiY);
                     }));
                 }
+                else if (curDev != null && (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN"))
+                {
+                    int dpiY = dpi;
+                    if (targetStage > 0 && curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
+                    {
+                        dpiY = curDev.DpiStagesY[targetStage - 1];
+                    }
+                    else if (curDev.DpiY > 0)
+                    {
+                        dpiY = curDev.DpiY;
+                    }
+
+                    if (targetStage > 0)
+                    {
+                        VgnDeviceHelper.SetVgnDpiStage(targetStage);
+                    }
+                    else
+                    {
+                        // 自定义 DPI：把当前激活档位的值改为自定义值
+                        int activeStage = curDev.DpiStage > 0 ? curDev.DpiStage : 1;
+                        VgnDeviceHelper.SetVgnDpiValue(dpi, activeStage - 1);
+                    }
+
+                    this.BeginInvoke(new Action(() => {
+                        if (curDev != null)
+                        {
+                            curDev.Dpi = dpi;
+                            curDev.DpiY = dpiY;
+                            if (targetStage > 0) curDev.DpiStage = targetStage;
+                        }
+                        HighlightDpiStage(targetStage > 0 ? targetStage : 1);
+                        OnDpiChanged("Zaopin", dpi, targetStage > 0 ? targetStage : 1, dpiStageValues.Length, null, dpiY);
+                    }));
+                }
                 else
                 {
                     string rzDevId = curDev != null ? curDev.DeviceId : null;
@@ -653,6 +761,10 @@ namespace RazerBatteryTray
                     else if (curDev != null && (curDev.Brand == "Mchose" || curDev.Brand == "MCHOSE" || curDev.Brand == "迈从") && curDev.Category == DeviceCategory.Mouse)
                     {
                         ok = MchoseMouseHelper.SetMchosePollingRate(hz);
+                    }
+                    else if (curDev != null && (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN"))
+                    {
+                        ok = VgnDeviceHelper.SetVgnPollingRate(hz);
                     }
                     else if (curDev != null && (curDev.Brand == "Razer" || curDev.Brand == "雷蛇" || (curDev.DeviceId != null && curDev.DeviceId.StartsWith("Razer:1532:"))))
                     {
@@ -2218,6 +2330,7 @@ namespace RazerBatteryTray
             bool isValkyrieMouse = ((info.Brand == "Valkyrie" || info.Brand == "瓦尔基里") && info.Category == DeviceCategory.Mouse);
             bool isLogitechMouse = (isLogitech && info.Category == DeviceCategory.Mouse);
             bool isRapooMouse = (isRapoo && info.Category == DeviceCategory.Mouse);
+            bool isZaopinMouse = ((info.Brand == "Zaopin" || info.Brand == "皂品") && info.Category == DeviceCategory.Mouse);
 
             int secW = cardPerformance.ClientSize.Width - (int)(32 * dpiScale);
 
@@ -2695,13 +2808,14 @@ namespace RazerBatteryTray
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
             }
-            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isFdasMouse)
+            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isZaopinMouse || isFdasMouse)
             {
                 if (lblPerfTitle != null)
                 {
                     if (isValkyrieMouse) lblPerfTitle.Text = "瓦尔基里鼠标性能与档位调节";
                     else if (isLogitechMouse) lblPerfTitle.Text = "罗技鼠标性能与档位调节";
                     else if (isRapooMouse) lblPerfTitle.Text = "雷柏鼠标性能与档位调节";
+                    else if (isZaopinMouse) lblPerfTitle.Text = "皂品鼠标性能与档位调节";
                     else if (isFdasMouse) lblPerfTitle.Text = (info.Brand ?? "外设") + " 鼠标性能与档位调节";
                     else lblPerfTitle.Text = "鼠标性能与档位调节";
                 }
@@ -2822,6 +2936,20 @@ namespace RazerBatteryTray
                     pollingRateValues = clampList.ToArray();
                 }
 
+                // 按设备回报率上限裁剪，过滤超出上限的档位（如皂品 Z2 4K 版上限 4000Hz，杜绝 8K 档位出现）
+                if (info.MaxPollingRate > 0 && pollingRateValues != null)
+                {
+                    List<int> cappedList = new List<int>();
+                    for (int i = 0; i < pollingRateValues.Length; i++)
+                    {
+                        if (pollingRateValues[i] <= info.MaxPollingRate)
+                        {
+                            cappedList.Add(pollingRateValues[i]);
+                        }
+                    }
+                    if (cappedList.Count > 0) pollingRateValues = cappedList.ToArray();
+                }
+
                 RelayoutRateButtons();
 
                 if (btnRates != null)
@@ -2833,7 +2961,7 @@ namespace RazerBatteryTray
                             btnRates[i].AccentColor = brandAccent;
                             if (i < pollingRateValues.Length)
                             {
-                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isFdasMouse)
+                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isZaopinMouse || isFdasMouse)
                                 {
                                     btnRates[i].Selected = (pollingRateValues[i] == info.PollingRate);
                                 }
@@ -3182,19 +3310,13 @@ namespace RazerBatteryTray
             EnableMouseWakeDetector(false);
             if (updateTimer != null) updateTimer.Interval = userSelectedInterval;
 
-            Color accentColor;
-            if (info.BatteryPercent > 20 || info.IsCharging)
-                accentColor = brandAccent;
-            else if (info.BatteryPercent > 10)
-                accentColor = Color.FromArgb(255, 214, 0);
-            else
-                accentColor = Color.FromArgb(255, 45, 85);
+            // 连续渐变：电量 100% → 0% 由绿色平滑过渡到红色（HSV 色相 120°→0°），充电与否均按电量变色
+            Color accentColor = GetBatteryGradientColor(info.BatteryPercent);
 
             bool mouseIsWired = info.Transport != null && 
-                                (info.Transport.Equals("USB 有线", StringComparison.OrdinalIgnoreCase) || info.Transport.Equals("USB", StringComparison.OrdinalIgnoreCase)) &&
+                                (info.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 || info.Transport.Equals("USB", StringComparison.OrdinalIgnoreCase)) &&
                                 !info.Transport.Contains("无线") && 
-                                !info.Transport.Contains("2.4G") && 
-                                !info.IsDonglePresent;
+                                !info.Transport.Contains("蓝牙");
             bool mouseIsBle = info.Transport != null && info.Transport.Contains("蓝牙");
 
             string mouseConnPill;
@@ -3223,6 +3345,19 @@ namespace RazerBatteryTray
             lblBatteryBig.Text = awakeBattDisplay;
             lblBatteryBig.ForeColor = accentColor;
 
+            // 双显示悬停提示：固件电量计 + 电池电压换算值
+            if (toolTipTop != null)
+            {
+                if (!string.IsNullOrEmpty(info.CustomTooltip))
+                {
+                    toolTipTop.SetToolTip(lblBatteryBig, info.CustomTooltip);
+                }
+                else
+                {
+                    toolTipTop.SetToolTip(lblBatteryBig, null);
+                }
+            }
+
             pillStatus.SetStatus(mouseConnPill, accentColor);
             pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
 
@@ -3237,7 +3372,66 @@ namespace RazerBatteryTray
 
             string normalTimeStr = info.LastUpdated.ToString("HH:mm:ss");
             string chgDetail = info.IsCharging ? " · 正在充电" : " · 自动侦测硬件插拔";
-            lblUpdateTime.Text = "最后同步: " + normalTimeStr + chgDetail;
+            // 常驻显示电池电压（固件库仑计为主显示，电压作为参考对照官方驱动）
+            string voltDetail = (info.BatteryVoltageMv > 0) ? string.Format(" · {0}.{1:D3}V", info.BatteryVoltageMv / 1000, info.BatteryVoltageMv % 1000) : "";
+
+            // 剩余续航估算：基于固件电量计的放电速率
+            //   正式值：累计 ≥1.5 小时或下降 ≥3%    粗估：≥15 分钟且下降 ≥1%    都不满足：显示采集进度
+            BatteryRuntimeEstimator.Record(info.BatteryPercent, info.IsCharging, DateTime.Now, info.BatteryVoltageMv);
+            double remainHours = 0, pctPerHour = 0;
+            string runtimeDetail = "";
+            string runtimeTip = "";
+            if (!info.IsCharging)
+            {
+                if (BatteryRuntimeEstimator.TryEstimate(out remainHours, out pctPerHour))
+                {
+                    runtimeDetail = string.Format(" · 预计 {0:0.#}h", remainHours);
+                    runtimeTip = string.Format("\r\n放电速率: {0:0.0}%/小时 · 预计剩余 {1:0.#} 小时", pctPerHour, remainHours);
+                }
+                else if (BatteryRuntimeEstimator.TryEstimateRough(out remainHours, out pctPerHour))
+                {
+                    runtimeDetail = string.Format(" · 粗估 {0:0.#}h", remainHours);
+                    runtimeTip = string.Format("\r\n放电速率(粗估): {0:0.0}%/小时 · 预计剩余 {1:0.#} 小时\r\n数据不足 1.5 小时，误差较大", pctPerHour, remainHours);
+                }
+                else if (BatteryRuntimeEstimator.TryEstimateFromVoltage(info.BatteryVoltageMv, info.BatteryPercent, out remainHours, out pctPerHour))
+                {
+                    // 固件电量计长时间不刷新时，用电压趋势兜底（误差较大，单独标注）
+                    runtimeDetail = string.Format(" · 电压估算 {0:0.#}h", remainHours);
+                    runtimeTip = string.Format("\r\n电压趋势估算: {0:0.0}%/小时 · 预计剩余 {1:0.#} 小时\r\n依据电池电压下降速率（官方 21 点表），误差约 ±30%", pctPerHour, remainHours);
+                }
+                else
+                {
+                    double spanH; int dropPct;
+                    if (BatteryRuntimeEstimator.TryGetProgress(out spanH, out dropPct))
+                    {
+                        runtimeDetail = string.Format(" · 续航测算中 {0:0}m", spanH * 60);
+                        runtimeTip = string.Format("\r\n续航测算中: 已采集 {0:0} 分钟 · 电量变化 {1}%\r\n需累计 15 分钟且下降 1% 出粗估值", spanH * 60, -dropPct);
+                        // 电压趋势进度：电量计不动时用户仍能看到在积累
+                        double vSpanH; int vDropMv;
+                        if (BatteryRuntimeEstimator.TryGetVoltageProgress(out vSpanH, out vDropMv))
+                        {
+                            runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · 下降 {1}mV\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, vDropMv);
+                        }
+                        // 电量计长时间不动：多半是鼠标空闲休眠/极低放电，避免用户误以为卡住
+                        if (dropPct == 0 && spanH >= 0.5)
+                        {
+                            runtimeTip = string.Format("\r\n续航测算待机: 已采集 {0:0} 分钟，电量计未变化\r\n鼠标可能处于休眠/低功耗状态，活跃使用掉 1% 后即出估值", spanH * 60);
+                            if (BatteryRuntimeEstimator.TryGetVoltageProgress(out vSpanH, out vDropMv))
+                            {
+                                runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · 下降 {1}mV\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, vDropMv);
+                            }
+                        }
+                    }
+                }
+            }
+
+            lblUpdateTime.Text = "最后同步: " + normalTimeStr + voltDetail + runtimeDetail + chgDetail;
+
+            // 悬停提示补充续航信息（正式值 / 粗估 / 测算进度）
+            if (!string.IsNullOrEmpty(runtimeTip) && toolTipTop != null && !string.IsNullOrEmpty(info.CustomTooltip))
+            {
+                toolTipTop.SetToolTip(lblBatteryBig, info.CustomTooltip + runtimeTip);
+            }
 
             // Update Performance Card
             UpdatePerformanceSection(info, brandAccent);

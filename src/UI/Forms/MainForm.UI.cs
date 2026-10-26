@@ -916,34 +916,45 @@ namespace RazerBatteryTray
             cardSettings.Controls.Add(lblIntervalTitle);
 
             int seg2Gap = (int)(6 * dpiScale);
-            int seg2W = (secW - lblTitleW - (seg2Gap * 2)) / 3;
+            int gearW = (int)(28 * dpiScale);
+            int seg2W = (secW - lblTitleW - gearW - (seg2Gap * 3)) / 3;
 
-            btnInt30s = new ModernSegmentButton();
-            btnInt30s.Text = "30 秒";
-            btnInt30s.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnInt30s.Location = new Point(seg1X, row2Y);
-            btnInt30s.Size = new Size(seg2W, card3SegH);
-            btnInt30s.Click += (s, e) => SetInterval(30000, false);
-            cardSettings.Controls.Add(btnInt30s);
+            int[] presetMs = new int[] { 10000, 30000, 60000 };
+            string[] presetLabels = new string[] { "10 秒", "30 秒", "1 分钟" };
+            ModernSegmentButton[] presetButtons = new ModernSegmentButton[presetMs.Length];
 
-            btnInt1m = new ModernSegmentButton();
-            btnInt1m.Text = "1 分钟";
-            btnInt1m.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnInt1m.Location = new Point(seg1X + seg2W + seg2Gap, row2Y);
-            btnInt1m.Size = new Size(seg2W, card3SegH);
-            btnInt1m.Click += (s, e) => SetInterval(60000, false);
-            cardSettings.Controls.Add(btnInt1m);
+            for (int i = 0; i < presetMs.Length; i++)
+            {
+                int ms = presetMs[i];
+                ModernSegmentButton b = new ModernSegmentButton();
+                b.Text = presetLabels[i];
+                b.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
+                b.Location = new Point(seg1X + i * (seg2W + seg2Gap), row2Y);
+                b.Size = new Size(seg2W, card3SegH);
+                b.Click += (s2, e2) => SetInterval(ms, false);
+                cardSettings.Controls.Add(b);
+                presetButtons[i] = b;
+            }
+            btnIntPresets = presetButtons;
 
-            btnInt5m = new ModernSegmentButton();
-            btnInt5m.Text = "5 分钟";
-            btnInt5m.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnInt5m.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row2Y);
-            btnInt5m.Size = new Size(seg2W, card3SegH);
-            btnInt5m.Click += (s, e) => SetInterval(300000, false);
-            cardSettings.Controls.Add(btnInt5m);
+            btnIntCustom = new ModernButton();
+            btnIntCustom.IsGearButton = true;
+            btnIntCustom.CornerRadius = (int)(6 * dpiScale);
+            btnIntCustom.NormalColor = Color.FromArgb(28, 33, 45);
+            btnIntCustom.HoverColor = Color.FromArgb(40, 48, 65);
+            btnIntCustom.PressedColor = Color.FromArgb(20, 24, 33);
+            btnIntCustom.BorderColor = Color.FromArgb(65, 75, 95);
+            btnIntCustom.ForeColor = Color.FromArgb(210, 220, 235);
+            btnIntCustom.Cursor = Cursors.Hand;
+            btnIntCustom.Location = new Point(seg1X + presetMs.Length * (seg2W + seg2Gap), row2Y);
+            btnIntCustom.Size = new Size(gearW, card3SegH);
+            btnIntCustom.Click += (s, e) => OpenRefreshIntervalDialog();
+            toolTipTop.SetToolTip(btnIntCustom, "更多刷新档位设置");
+            cardSettings.Controls.Add(btnIntCustom);
 
             // Row 3: DPI 浮窗样式 (居中胶囊 / 阶梯能量 / 顶置微标)
             int row3Y = (int)(112 * dpiScale);
+            int osdW = (secW - lblTitleW - (seg2Gap * 2)) / 3;
 
             lblOsdStyleTitle = new Label();
             lblOsdStyleTitle.Text = "DPI 浮窗样式";
@@ -958,23 +969,23 @@ namespace RazerBatteryTray
             btnOsdStyleCapsule.Text = "居中胶囊";
             btnOsdStyleCapsule.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnOsdStyleCapsule.Location = new Point(seg1X, row3Y);
-            btnOsdStyleCapsule.Size = new Size(seg2W, card3SegH);
+            btnOsdStyleCapsule.Size = new Size(osdW, card3SegH);
             btnOsdStyleCapsule.Click += (s, e) => SetOsdStyle(0, true);
             cardSettings.Controls.Add(btnOsdStyleCapsule);
 
             btnOsdStyleGauge = new ModernSegmentButton();
             btnOsdStyleGauge.Text = "阶梯能量";
             btnOsdStyleGauge.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnOsdStyleGauge.Location = new Point(seg1X + seg2W + seg2Gap, row3Y);
-            btnOsdStyleGauge.Size = new Size(seg2W, card3SegH);
+            btnOsdStyleGauge.Location = new Point(seg1X + osdW + seg2Gap, row3Y);
+            btnOsdStyleGauge.Size = new Size(osdW, card3SegH);
             btnOsdStyleGauge.Click += (s, e) => SetOsdStyle(1, true);
             cardSettings.Controls.Add(btnOsdStyleGauge);
 
             btnOsdStyleCompact = new ModernSegmentButton();
             btnOsdStyleCompact.Text = "顶置微标";
             btnOsdStyleCompact.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
-            btnOsdStyleCompact.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row3Y);
-            btnOsdStyleCompact.Size = new Size(seg2W, card3SegH);
+            btnOsdStyleCompact.Location = new Point(seg1X + (osdW + seg2Gap) * 2, row3Y);
+            btnOsdStyleCompact.Size = new Size(osdW, card3SegH);
             btnOsdStyleCompact.Click += (s, e) => SetOsdStyle(2, true);
             cardSettings.Controls.Add(btnOsdStyleCompact);
 
@@ -2042,7 +2053,8 @@ namespace RazerBatteryTray
         {
             var curDev = selectedDevice;
             if (curDev == null) return;
-            if (!IsDeviceSupportingAutoGameRate(curDev)) return;
+            bool isZaopinMouse = (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN") && curDev.Category == DeviceCategory.Mouse;
+            if (!IsDeviceSupportingAutoGameRate(curDev) && !isZaopinMouse) return;
             bool isFdasMouse = FdasRuntimeHelper.IsFdasMouse(curDev);
 
             int curStage = curDev.DpiStage > 0 ? curDev.DpiStage : 1;
@@ -2102,6 +2114,16 @@ namespace RazerBatteryTray
                     Description = "瓦尔基里高精度电竞光学传感器 (PAW3395/PAW3950)"
                 };
             }
+            else if (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN")
+            {
+                cap = new RazerDeviceHelper.RazerDpiCapability
+                {
+                    MinDpi = 50,
+                    MaxDpi = 26000,
+                    Step = 50,
+                    Description = "皂品原相高精度电竞光学传感器 (PAW3395，最高 26,000 DPI)"
+                };
+            }
             else if (curDev.Brand == "Logitech" || curDev.Brand == "罗技")
             {
                 int maxDpi = 25600;
@@ -2139,6 +2161,9 @@ namespace RazerBatteryTray
                 }
                 cap = RazerDeviceHelper.GetDpiCapability(devName, pid);
             }
+
+            // CompX 方案（皂品/VGN 等）硬件协议无双轴 DPI，隐藏 X/Y 栏
+            DpiManagementDialog.SupportsXy = !(curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN");
 
             using (var dlg = new DpiManagementDialog(devName, stagesX, stagesY, isXy, xyRatio, curStage, cap))
             {
@@ -2207,6 +2232,10 @@ namespace RazerBatteryTray
                         else if (devBrand == "Rapoo" || devBrand == "雷柏")
                         {
                             RapooDeviceHelper.UpdateRapooHardwareStages(activeStage, newStagesX, newStagesY);
+                        }
+                        else if (devBrand == "Zaopin" || devBrand == "皂品" || devBrand == "VGN")
+                        {
+                            VgnDeviceHelper.UpdateVgnHardwareStages(activeStage, newStagesX);
                         }
                         else
                         {
@@ -2739,7 +2768,9 @@ namespace RazerBatteryTray
                     }
 
                     int row2Y = (int)(76 * dpiScale);
-                    int seg2Gap = (int)(6 * dpiScale);
+                    int seg2Gap = (int)(4 * dpiScale);
+                    int gearW = (int)(26 * dpiScale);
+                    // 其余行（托盘样式/OSD 样式）仍按 3 等分宽度布局
                     int seg2W = (secW - lblTitleW - (seg2Gap * 2)) / 3;
 
                     if (lblIntervalTitle != null)
@@ -2747,20 +2778,21 @@ namespace RazerBatteryTray
                         lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(2 * dpiScale));
                         lblIntervalTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
                     }
-                    if (btnInt30s != null)
+                    if (btnIntPresets != null && btnIntPresets.Length > 0)
                     {
-                        btnInt30s.Location = new Point(seg1X, row2Y);
-                        btnInt30s.Size = new Size(seg2W, segH);
-                    }
-                    if (btnInt1m != null)
-                    {
-                        btnInt1m.Location = new Point(seg1X + seg2W + seg2Gap, row2Y);
-                        btnInt1m.Size = new Size(seg2W, segH);
-                    }
-                    if (btnInt5m != null)
-                    {
-                        btnInt5m.Location = new Point(seg1X + (seg2W + seg2Gap) * 2, row2Y);
-                        btnInt5m.Size = new Size(seg2W, segH);
+                        int presetCount = btnIntPresets.Length;
+                        int presetW = (secW - lblTitleW - gearW - (seg2Gap * (presetCount + 1))) / presetCount;
+                        for (int i = 0; i < presetCount; i++)
+                        {
+                            if (btnIntPresets[i] == null) continue;
+                            btnIntPresets[i].Location = new Point(seg1X + i * (presetW + seg2Gap), row2Y);
+                            btnIntPresets[i].Size = new Size(presetW, segH);
+                        }
+                        if (btnIntCustom != null)
+                        {
+                            btnIntCustom.Location = new Point(seg1X + presetCount * (presetW + seg2Gap), row2Y);
+                            btnIntCustom.Size = new Size(gearW, segH);
+                        }
                     }
 
                     int row3Y = (int)(112 * dpiScale);

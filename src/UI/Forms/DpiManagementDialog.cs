@@ -41,6 +41,12 @@ namespace RazerBatteryTray
         private double currentRatio = 1.0;
         private int currentActiveStage = 1;
 
+        // 是否支持 X/Y 轴独立调节（CompX 方案如皂品/VGN 等硬件协议无双轴，置 false 隐藏 XY 栏）
+        public static bool SupportsXy = true;
+
+        // 板载最大档位数（皂品 Z2 等 CompX 方案硬件支持 6 档）
+        private const int MaxStageCount = 6;
+
         private Panel pnlXyBar;
         private DpiActionButton btnToggleXy;
         private DpiActionButton btnRatio1_1;
@@ -103,7 +109,7 @@ namespace RazerBatteryTray
 
             if (initialStagesX != null && initialStagesX.Length > 0)
             {
-                for (int i = 0; i < initialStagesX.Length && i < 5; i++)
+                for (int i = 0; i < initialStagesX.Length && i < MaxStageCount; i++)
                 {
                     stageValuesX.Add(initialStagesX[i]);
                     int sy = (initialStagesY != null && i < initialStagesY.Length && initialStagesY[i] > 0) ? initialStagesY[i] : initialStagesX[i];
@@ -167,7 +173,9 @@ namespace RazerBatteryTray
 
             // 2. Subtitle / Range Note
             Label lblSub = new Label();
-            lblSub.Text = string.Format("支持 1~5 档 · 范围 {0} ~ {1} DPI (支持 X/Y 轴独立调节)", minDpi, maxDpi.ToString("N0"));
+            lblSub.Text = SupportsXy
+                ? string.Format("支持 1~{0} 档 · 范围 {1} ~ {2} DPI (支持 X/Y 轴独立调节)", MaxStageCount, minDpi, maxDpi.ToString("N0"))
+                : string.Format("支持 1~{0} 档 · 范围 {1} ~ {2} DPI", MaxStageCount, minDpi, maxDpi.ToString("N0"));
             lblSub.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
             lblSub.ForeColor = Color.FromArgb(120, 135, 155);
             lblSub.Location = new Point(pad, S(36));
@@ -175,55 +183,18 @@ namespace RazerBatteryTray
             lblSub.BackColor = Color.Transparent;
             this.Controls.Add(lblSub);
 
-            // 3. XY Mode & Ratio ToolBar Card
-            pnlXyBar = new Panel();
-            pnlXyBar.Location = new Point(pad, S(56));
-            pnlXyBar.Size = new Size(clientW - pad * 2, S(32));
-            pnlXyBar.BackColor = Color.FromArgb(18, 23, 33);
-            pnlXyBar.Paint += (s, e) =>
+            // 3. XY Mode & Ratio ToolBar Card（不支持 XY 时隐藏，布局上移）
+            if (SupportsXy)
             {
-                Rectangle r = new Rectangle(0, 0, pnlXyBar.Width - 1, pnlXyBar.Height - 1);
-                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(r, S(6)))
-                {
-                    using (Pen p = new Pen(Color.FromArgb(36, 46, 64), 1f))
-                    {
-                        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                        e.Graphics.DrawPath(p, path);
-                    }
-                }
-            };
-            this.Controls.Add(pnlXyBar);
+                BuildXyBar(pad, clientW);
+            }
 
-            // Toggle XY Independent Button
-            btnToggleXy = new DpiActionButton(dpiScale);
-            btnToggleXy.Location = new Point(S(4), S(3));
-            btnToggleXy.Size = new Size(S(88), S(26));
-            btnToggleXy.CornerRadius = S(4);
-            btnToggleXy.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Bold);
-            btnToggleXy.Cursor = Cursors.Hand;
-            btnToggleXy.Click += (s, e) => ToggleXyMode();
-            pnlXyBar.Controls.Add(btnToggleXy);
-
-            // Preset: 1:1
-            btnRatio1_1 = CreateRatioButton("等比 1:1", S(96), S(60), 1.0);
-            pnlXyBar.Controls.Add(btnRatio1_1);
-
-            // Preset: 4:3 补偿 (75%)
-            btnRatio4_3 = CreateRatioButton("4:3拉伸补偿", S(160), S(82), 0.75);
-            pnlXyBar.Controls.Add(btnRatio4_3);
-
-            // Preset: 16:10 补偿 (90%)
-            btnRatio16_10 = CreateRatioButton("16:10补偿", S(246), S(74), 0.90);
-            pnlXyBar.Controls.Add(btnRatio16_10);
-
-            // Preset: 1.33x
-            btnRatio133 = CreateRatioButton("反向1.33x", S(324), S(60), 1.333333);
-            pnlXyBar.Controls.Add(btnRatio133);
-
-            // 4. Stages List Container
+            // 4. Stages List Container（无 XY 时上移并压缩高度）
+            int stagesY = SupportsXy ? S(96) : S(56);
+            int stagesH = SupportsXy ? S(245) : S(285);
             pnlStages = new Panel();
-            pnlStages.Location = new Point(pad, S(96));
-            pnlStages.Size = new Size(clientW - pad * 2, S(245));
+            pnlStages.Location = new Point(pad, stagesY);
+            pnlStages.Size = new Size(clientW - pad * 2, stagesH);
             pnlStages.BackColor = Color.Transparent;
             pnlStages.AutoScroll = true;
             this.Controls.Add(pnlStages);
@@ -248,14 +219,16 @@ namespace RazerBatteryTray
             lblError.Text = "";
             this.Controls.Add(lblError);
 
-            // 7. Hint Note
+            // 7. Hint Note（不支持 XY 时改为通用提示）
             Label lblHint = new Label();
             lblHint.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular);
             lblHint.ForeColor = Color.FromArgb(95, 110, 130);
             lblHint.Location = new Point(pad, S(402));
             lblHint.Size = new Size(clientW - pad * 2, S(20));
             lblHint.BackColor = Color.Transparent;
-            lblHint.Text = "💡 XY轴独立: 专为CS2/瓦罗兰特等4:3拉伸屏设计，调低Y轴可拉平横纵手感偏差；保存即写板载。";
+            lblHint.Text = SupportsXy
+                ? "💡 XY轴独立: 专为CS2/瓦罗兰特等4:3拉伸屏设计，调低Y轴可拉平横纵手感偏差；保存即写板载。"
+                : "💡 保存即写板载，实时生效。";
             this.Controls.Add(lblHint);
 
             // 8. Bottom Action Buttons
@@ -310,6 +283,48 @@ namespace RazerBatteryTray
 
             UpdateXyUiState();
             RebuildStageRows();
+        }
+
+        private void BuildXyBar(int pad, int clientW)
+        {
+            pnlXyBar = new Panel();
+            pnlXyBar.Location = new Point(pad, S(56));
+            pnlXyBar.Size = new Size(clientW - pad * 2, S(32));
+            pnlXyBar.BackColor = Color.FromArgb(18, 23, 33);
+            pnlXyBar.Paint += (s, e) =>
+            {
+                Rectangle r = new Rectangle(0, 0, pnlXyBar.Width - 1, pnlXyBar.Height - 1);
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(r, S(6)))
+                {
+                    using (Pen p = new Pen(Color.FromArgb(36, 46, 64), 1f))
+                    {
+                        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                        e.Graphics.DrawPath(p, path);
+                    }
+                }
+            };
+            this.Controls.Add(pnlXyBar);
+
+            btnToggleXy = new DpiActionButton(dpiScale);
+            btnToggleXy.Location = new Point(S(4), S(3));
+            btnToggleXy.Size = new Size(S(88), S(26));
+            btnToggleXy.CornerRadius = S(4);
+            btnToggleXy.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Bold);
+            btnToggleXy.Cursor = Cursors.Hand;
+            btnToggleXy.Click += (s, e) => ToggleXyMode();
+            pnlXyBar.Controls.Add(btnToggleXy);
+
+            btnRatio1_1 = CreateRatioButton("等比 1:1", S(96), S(60), 1.0);
+            pnlXyBar.Controls.Add(btnRatio1_1);
+
+            btnRatio4_3 = CreateRatioButton("4:3拉伸补偿", S(160), S(82), 0.75);
+            pnlXyBar.Controls.Add(btnRatio4_3);
+
+            btnRatio16_10 = CreateRatioButton("16:10补偿", S(246), S(74), 0.90);
+            pnlXyBar.Controls.Add(btnRatio16_10);
+
+            btnRatio133 = CreateRatioButton("反向1.33x", S(324), S(60), 1.333333);
+            pnlXyBar.Controls.Add(btnRatio133);
         }
 
         private DpiActionButton CreateRatioButton(string text, int x, int width, double ratio)
@@ -469,10 +484,10 @@ namespace RazerBatteryTray
 
             pnlStages.ResumeLayout();
 
-            if (stageValuesX.Count < 5)
+            if (stageValuesX.Count < MaxStageCount)
             {
                 btnAddStage.Enabled = true;
-                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/5 档)", stageValuesX.Count);
+                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/{1} 档)", stageValuesX.Count, MaxStageCount);
                 btnAddStage.NormalColor = Color.FromArgb(22, 29, 42);
                 btnAddStage.HoverColor = Color.FromArgb(30, 40, 58);
                 btnAddStage.PressedColor = Color.FromArgb(18, 24, 35);
@@ -482,7 +497,7 @@ namespace RazerBatteryTray
             else
             {
                 btnAddStage.Enabled = false;
-                btnAddStage.Text = "已达到板载存储上限 (5 档)";
+                btnAddStage.Text = string.Format("已达到板载存储上限 ({0} 档)", MaxStageCount);
                 btnAddStage.NormalColor = Color.FromArgb(18, 22, 30);
                 btnAddStage.HoverColor = Color.FromArgb(18, 22, 30);
                 btnAddStage.PressedColor = Color.FromArgb(18, 22, 30);
@@ -503,7 +518,7 @@ namespace RazerBatteryTray
 
         private void AddStage()
         {
-            if (stageValuesX.Count >= 5) return;
+            if (stageValuesX.Count >= MaxStageCount) return;
             SaveCurrentInputs();
             int lastX = stageValuesX.Count > 0 ? stageValuesX[stageValuesX.Count - 1] : 800;
             int nextX = Math.Min(maxDpi, lastX + 400);

@@ -29,6 +29,7 @@ namespace RazerBatteryTray
         private List<int> allAvailableRates = new List<int>();
         private List<int> chosenRates = new List<int>();
         private int currentActiveRate;
+        private int maxSupportedRate;
 
         private Panel pnlPresetBar;
         private Panel pnlRateList;
@@ -69,6 +70,9 @@ namespace RazerBatteryTray
             {
                 allAvailableRates = new List<int>(new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 });
             }
+
+            // 记录设备支持的回报率上限（如皂品 Z2 4K 版上限 4000Hz），预设按钮据此裁剪，杜绝 8K
+            maxSupportedRate = allAvailableRates[allAvailableRates.Count - 1];
 
             if (currentShortcutRates != null && currentShortcutRates.Length > 0)
             {
@@ -189,8 +193,22 @@ namespace RazerBatteryTray
             this.Controls.Add(pnlPresetBar);
 
             int btnW = (pnlPresetBar.Width - S(16)) / 3;
-            var btnPresetStandard = CreatePresetButton("常规 4 档 (125~1K)", S(4), btnW, new int[] { 125, 250, 500, 1000 });
-            var btnPresetHigh = CreatePresetButton("电竞 4 档 (1K~8K)", S(4) + btnW + S(4), btnW, new int[] { 1000, 2000, 4000, 8000 });
+
+            // 预设档位按设备回报率上限动态裁剪（如皂品 Z2 4K 版上限 4000Hz，杜绝 8K 出现）
+            List<int> presetStd = new List<int>(new int[] { 125, 250, 500, 1000 });
+            List<int> presetHigh = new List<int>(new int[] { 1000, 2000, 4000, 8000 });
+            List<int> presetAll = new List<int>(new int[] { 500, 1000, 2000, 4000, 8000 });
+            if (maxSupportedRate > 0)
+            {
+                presetStd.RemoveAll(delegate(int r) { return r > maxSupportedRate; });
+                presetHigh.RemoveAll(delegate(int r) { return r > maxSupportedRate; });
+                presetAll.RemoveAll(delegate(int r) { return r > maxSupportedRate; });
+            }
+            string stdText = FormatPresetText("常规 {0} 档", presetStd);
+            string highText = FormatPresetText("电竞 {0} 档", presetHigh);
+
+            var btnPresetStandard = CreatePresetButton(stdText, S(4), btnW, presetStd.ToArray());
+            var btnPresetHigh = CreatePresetButton(highText, S(4) + btnW + S(4), btnW, presetHigh.ToArray());
 
             int[] preset5Rates;
             string preset5Text;
@@ -201,8 +219,8 @@ namespace RazerBatteryTray
             }
             else
             {
-                preset5Rates = new int[] { 500, 1000, 2000, 4000, 8000 };
-                preset5Text = "全能 5 档 (500~8K)";
+                preset5Rates = presetAll.ToArray();
+                preset5Text = FormatPresetText("全能 {0} 档", presetAll);
             }
             var btnPresetAll = CreatePresetButton(preset5Text, S(4) + (btnW + S(4)) * 2, btnW, preset5Rates);
 
@@ -277,6 +295,17 @@ namespace RazerBatteryTray
             btnSave.Location = new Point(clientW - pad - (actionW + S(15)), S(480));
             btnSave.Click += (s, e) => SaveAndClose();
             this.Controls.Add(btnSave);
+        }
+
+        // 生成预设按钮文本：如 "电竞 4 档 (1K~4K)"（范围随设备上限动态变化）
+        private string FormatPresetText(string prefix, List<int> rates)
+        {
+            if (rates == null || rates.Count == 0) return string.Format(prefix, 0);
+            int lo = rates[0];
+            int hi = rates[rates.Count - 1];
+            string loText = (lo >= 1000) ? (lo / 1000) + "K" : lo.ToString();
+            string hiText = (hi >= 1000) ? (hi / 1000) + "K" : hi.ToString();
+            return string.Format(prefix + " ({0}~{1})", rates.Count, loText, hiText);
         }
 
         private Button CreatePresetButton(string text, int x, int width, int[] rates)
