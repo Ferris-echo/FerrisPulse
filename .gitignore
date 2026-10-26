@@ -43,6 +43,7 @@ docs/RELEASE_WORKFLOW_SOP.md
 *.png
 !app.png
 !resources/*.png
+!src/UI/Resources/mouse_body.png
 
 # 5. 文本与配置管控
 *.txt

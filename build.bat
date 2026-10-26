@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal
 
@@ -12,7 +12,7 @@ echo Compiling FerrisPulse (Open-Source Clean Raw Binary)...
 echo Compiler: %CSC%
 echo =======================================================
 
-"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:FerrisPulse.exe /recurse:src\*.cs
+"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /r:System.Drawing.dll /r:System.Windows.Forms.dll /resource:src\UI\Resources\mouse_body.png,mouse_body.png /out:FerrisPulse.exe /recurse:src\*.cs
 
 if %ERRORLEVEL% neq 0 (
     echo [FAILED] Compilation failed with error code: %ERRORLEVEL%

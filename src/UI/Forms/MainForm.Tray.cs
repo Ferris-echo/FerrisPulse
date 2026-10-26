@@ -350,10 +350,21 @@ namespace RazerBatteryTray
                 styleNumItem.Checked = false;
                 stylePureNumItem.Checked = true;
             });
+            styleMouseItem = new ToolStripMenuItem("鼠标轮廓电量", null, (s, e) => {
+                SetTrayStyle(3, true);
+                styleCapsuleItem.Checked = false;
+                styleNumItem.Checked = false;
+                stylePureNumItem.Checked = false;
+                styleMouseItem.Checked = true;
+            });
+            styleCapsuleItem.Click += (s, e) => { styleMouseItem.Checked = false; };
+            styleNumItem.Click += (s, e) => { styleMouseItem.Checked = false; };
+            stylePureNumItem.Click += (s, e) => { styleMouseItem.Checked = false; };
             styleCapsuleItem.Checked = (trayStyle == 0);
             styleNumItem.Checked = (trayStyle == 1);
             stylePureNumItem.Checked = (trayStyle == 2);
-            styleMenu.DropDownItems.AddRange(new ToolStripItem[] { styleCapsuleItem, styleNumItem, stylePureNumItem });
+            styleMouseItem.Checked = (trayStyle == 3);
+            styleMenu.DropDownItems.AddRange(new ToolStripItem[] { styleCapsuleItem, styleNumItem, stylePureNumItem, styleMouseItem });
             contextMenu.Items.Add(styleMenu);
 
             osdStyleMenu = new ToolStripMenuItem("DPI 浮窗样式");
@@ -811,6 +822,11 @@ namespace RazerBatteryTray
 
         private static Bitmap DrawTrayBitmap(int percent, bool isCharging, bool isConnected, int style, int iconSize, bool isSleeping = false, Color? brandColor = null)
         {
+            // 样式 3（鼠标轮廓电量）走独立矢量渲染器，按真实像素尺寸归一化绘制
+            if (style == 3)
+            {
+                return MouseSilhouetteTrayRenderer.Draw(percent, isCharging, isConnected, isSleeping, iconSize, brandColor);
+            }
             if (iconSize >= 24)
             {
                 return DrawTrayBitmap24(percent, isCharging, isConnected, style, isSleeping, brandColor);
