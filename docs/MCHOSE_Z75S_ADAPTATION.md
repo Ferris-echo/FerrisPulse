@@ -67,6 +67,12 @@ Z75S 键盘通过 2.4GHz 接收器连接时，读取硬件百分比（0–100%�
 
 百分比原样采用固件字段；早期 85→50 的变化未经官方 UI 独立校准，不能据此断言电池实际容量或线性精度。本适配不平滑、换算或捏造读数。
 
+## 编译后仍找不到键盘时
+
+工程目录编译成功，只会更新该目录的 EXE，不会自动替换 Downloads 等位置的现用副本。应先核对运行进程的 `ExecutablePath`、`CommandLine` 和 EXE 的 SHA256，再核对启动快捷方式。程序有全局单实例保护，旧版本未退出时，双击新 EXE 可能只唤醒旧进程。便携版无需系统卸载器；先退出旧进程，备份原文件及设置，再替换实际启动入口并重新运行。
+
+保留的自定义名称可能仍是“迈从键盘”，不一定显示型号 Z75S。点击主界面顶部设备名称区域，在设备切换列表选择键盘即可。本次更新现用副本后，已在实际设备列表及键盘主卡片确认 100% / 2.4G 无线。
+
 ## 缓存与性能
 
 - 两次有效事务之间至少间隔 5 秒；失败同样推进节流时间。
@@ -121,4 +127,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
 
 可将源码分支/patch 提交到 [GitHub PR](https://github.com/Ferris-echo/FerrisPulse/compare) 或 [Gitee PR](https://gitee.com/Ferris-echo/ferris-pulse/pulls)，也可创建 [GitHub Issue](https://github.com/Ferris-echo/FerrisPulse/issues/new)，附上本说明、patch、VID/PID、固件/连接方式和回归结果。无需上传 EXE 或用户注册表快照。
 
-邮件或文本共享同一 patch 也可；署名请采用贡献者自己希望公开的名称。本次仅交付本地代码和补丁，尚未向作者发送消息或创建 PR。
+邮件或文本共享同一 patch 也可；署名请采用贡献者自己希望公开的名称。本次适配已按用户后续授权提交为 [GitHub PR #52](https://github.com/Ferris-echo/FerrisPulse/pull/52)，等待维护者审阅；本地源码、补丁及运行验证记录仍保留。无需再为同一适配创建重复 Issue。

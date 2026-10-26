@@ -44,3 +44,5 @@ Files: ARCHITECTURE.md, docs/AGENT_HANDBOOK.md, docs/MCHOSE_Z75S_ADAPTATION.md.
 - [x] Perform a fresh review of the diff, check BOM/C# syntax, rebuild after reflection tests to verify no binary lock, and create a local patch.
 
 Final review found a transport-length issue, reproduced with a real local pipe and fixed with ReadReportExact. Native build and 65/65 test scripts PASS; post-fix hardware verified 100% / not charging. One minor first-sample sleeping tray wording issue is deferred in the contribution notes. The patch was checked against baseline 4917a10; the local branch is retained without push, merge or PR creation.
+
+后续交付：用户追加授权提交 PR，并允许替换旧版本。已创建 [PR #52](https://github.com/Ferris-echo/FerrisPulse/pull/52)，备份后更新实际运行副本，保留启动路径和配置；实际键盘主卡片显示“迈从键盘”、100%、2.4G 无线。上述不推送/不开 PR 的约束对应初次本地交付，后续授权已扩展此范围。
