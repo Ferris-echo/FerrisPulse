@@ -187,7 +187,7 @@ namespace RazerBatteryTray
                 {
                     Process.Start(item.Url);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AiToolsDialog.cs: 已忽略异常", diagEx); }
             };
             p.Controls.Add(btnLink);
 

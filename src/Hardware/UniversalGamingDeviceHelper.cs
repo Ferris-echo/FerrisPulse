@@ -442,7 +442,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/UniversalGamingDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return false;
         }
@@ -515,7 +515,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/UniversalGamingDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return false;
         }
@@ -585,7 +585,7 @@ namespace RazerBatteryTray
 
                 return (percent >= 0);
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/UniversalGamingDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return false;
         }
@@ -662,7 +662,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/UniversalGamingDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return false;
         }

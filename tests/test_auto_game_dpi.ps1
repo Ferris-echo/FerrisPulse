@@ -19,8 +19,8 @@ Write-Host " [测试 1/5] 校验核心字段与注册表持久化契约" -Foregr
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $mainFormCs = Get-Content "src/UI/Forms/MainForm.cs" -Raw -Encoding UTF8
-$mainHardwareCs = Get-Content "src/UI/Forms/MainForm.Hardware.cs" -Raw -Encoding UTF8
-$mainUiCs = Get-Content "src/UI/Forms/MainForm.UI.cs" -Raw -Encoding UTF8
+$mainHardwareCs = (Get-ChildItem "src/UI/Forms/MainForm.Hardware*.cs" | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }) -join "`n"
+$mainUiCs = (Get-ChildItem "src/UI/Forms/MainForm.UI*.cs" | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }) -join "`n"
 $mainTrayCs = Get-Content "src/UI/Forms/MainForm.Tray.cs" -Raw -Encoding UTF8
 
 if ($mainFormCs -notmatch 'private\s+bool\s+autoGameDpiEnabled') {
@@ -91,10 +91,10 @@ Write-Host "==========================================================" -Foregro
 
 $filesToCheck = @(
     "src/UI/Forms/MainForm.cs",
-    "src/UI/Forms/MainForm.Hardware.cs",
     "src/UI/Forms/MainForm.UI.cs",
     "src/UI/Forms/MainForm.Tray.cs"
 )
+$filesToCheck += (Get-ChildItem "src/UI/Forms/MainForm.Hardware*.cs" | ForEach-Object { $_.FullName })
 
 foreach ($f in $filesToCheck) {
     $bytes = [System.IO.File]::ReadAllBytes($f)

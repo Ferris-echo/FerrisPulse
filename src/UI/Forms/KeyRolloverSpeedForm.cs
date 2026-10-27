@@ -103,7 +103,7 @@ namespace RazerBatteryTray
             {
                 currentProcessId = (uint)Process.GetCurrentProcess().Id;
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
 
             int pad = (int)(16 * scale);
 
@@ -214,7 +214,7 @@ namespace RazerBatteryTray
                     ImmAssociateContext(this.Handle, IntPtr.Zero);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -271,7 +271,7 @@ namespace RazerBatteryTray
                         hookId = SetWindowsHookEx(WH_KEYBOARD_LL, hookProc, GetModuleHandle(curModule.ModuleName), 0);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
             }
         }
 
@@ -283,7 +283,7 @@ namespace RazerBatteryTray
                 {
                     UnhookWindowsHookEx(hookId);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
                 hookId = IntPtr.Zero;
             }
         }
@@ -342,7 +342,7 @@ namespace RazerBatteryTray
                             {
                                 this.BeginInvoke(new Action(() => this.Close()));
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
                             return new IntPtr(1); // Swallow ESC
                         }
 
@@ -352,7 +352,7 @@ namespace RazerBatteryTray
                             {
                                 this.BeginInvoke(new Action(() => ProcessKeyDown(k)));
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
                         }
                         else if (isUp)
                         {
@@ -360,7 +360,7 @@ namespace RazerBatteryTray
                             {
                                 this.BeginInvoke(new Action(() => ProcessKeyUp(k)));
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/KeyRolloverSpeedForm.cs: 已忽略异常", diagEx); }
                         }
 
                         if (isShieldEnabled)

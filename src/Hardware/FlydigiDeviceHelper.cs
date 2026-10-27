@@ -176,9 +176,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch
-            {
-            }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FlydigiDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 HidTransport.Close(handle);

@@ -132,6 +132,8 @@ public static class LogitechDeviceHelper
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CancelIo(IntPtr hFile);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ResetEvent(IntPtr hEvent);
 
     private const uint GENERIC_READ = 0x80000000;
     private const uint GENERIC_WRITE = 0x40000000;
@@ -217,7 +219,7 @@ public static class LogitechDeviceHelper
                 }
             }
         }
-        catch { }
+        catch (Exception diagEx) { Diagnostics.Log("Hardware/LogitechDeviceHelper.cs: 已忽略异常", diagEx); }
     }
 
     public static void SaveHardwareCache()
@@ -242,7 +244,7 @@ public static class LogitechDeviceHelper
                 }
             }
         }
-        catch { }
+        catch (Exception diagEx) { Diagnostics.Log("Hardware/LogitechDeviceHelper.cs: 已忽略异常", diagEx); }
     }
 
     public static int GetCachedBatteryForDevice(string deviceId)
@@ -274,6 +276,7 @@ public static class LogitechDeviceHelper
             OVERLAPPED dOl = new OVERLAPPED();
             dOl.hEvent = hEvent;
             uint readBytes;
+            ResetEvent(hEvent); // 手动重置事件必须每次 I/O 前清零
             bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
             if (!ok && Marshal.GetLastWin32Error() == 997)
             {
@@ -283,6 +286,9 @@ public static class LogitechDeviceHelper
                     continue;
                 }
                 CancelIo(handle);
+                // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                GetOverlappedResult(handle, ref dOl, out readBytes, true);
             }
             break;
         }
@@ -291,6 +297,7 @@ public static class LogitechDeviceHelper
         OVERLAPPED wOl = new OVERLAPPED();
         wOl.hEvent = hEvent;
         uint written;
+        ResetEvent(hEvent);
         bool wOk = WriteFile(handle, txBuffer, (uint)txBuffer.Length, out written, ref wOl);
         if (!wOk && Marshal.GetLastWin32Error() == 997)
         {
@@ -301,6 +308,9 @@ public static class LogitechDeviceHelper
             else
             {
                 CancelIo(handle);
+                // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                GetOverlappedResult(handle, ref wOl, out written, true);
                 return null;
             }
         }
@@ -316,6 +326,7 @@ public static class LogitechDeviceHelper
             OVERLAPPED rOl = new OVERLAPPED();
             rOl.hEvent = hEvent;
             uint rxRead = 0;
+            ResetEvent(hEvent);
             bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
             if (!rOk && Marshal.GetLastWin32Error() == 997)
             {
@@ -326,6 +337,9 @@ public static class LogitechDeviceHelper
                 else
                 {
                     CancelIo(handle);
+                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                    GetOverlappedResult(handle, ref rOl, out rxRead, true);
                     return null;
                 }
             }
@@ -718,7 +732,7 @@ public static class LogitechDeviceHelper
                 MouseBatteryInfo headset = QueryLogitechProXHeadset();
                 if (headset != null) results.Add(headset);
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/LogitechDeviceHelper.cs: 已忽略异常", diagEx); }
 
 
             Guid hidGuid;

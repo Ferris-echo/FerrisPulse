@@ -108,7 +108,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/DpiOsdForm.cs: 已忽略异常", diagEx); }
         }
 
         protected override void OnDpiScaleChanged(float oldScale, float newScale)
@@ -171,7 +171,7 @@ namespace RazerBatteryTray
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW | SWP_NOSENDCHANGING);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/DpiOsdForm.cs: 已忽略异常", diagEx); }
         }
 
         public void ShowDpi(int dpi, int stage, int count, string brand = "Razer")

@@ -169,7 +169,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/SteelSeriesDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -185,7 +185,7 @@ namespace RazerBatteryTray
                     if (CachedLastUpdated != DateTime.MinValue) key.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/SteelSeriesDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         // ====================================================================
@@ -324,7 +324,7 @@ namespace RazerBatteryTray
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/SteelSeriesDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return null;
         }

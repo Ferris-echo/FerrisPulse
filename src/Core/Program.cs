@@ -40,7 +40,7 @@ namespace RazerBatteryTray
             {
                 Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
             // 1.1 静默清理自更新残留的旧版本备份 (.old)
             try
@@ -51,30 +51,34 @@ namespace RazerBatteryTray
                     File.Delete(oldBackup);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
             // 2. 声明系统物理级 High-DPI 感知
             try
             {
                 NativeMethods.SetProcessDPIAware();
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
             // 3. 同步开始菜单与 AUMID 快捷方式
             try
             {
                 StartupManager.EnsureAppShortcutWithAumid();
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
             // 4. 全局未捕获异常安全兜底
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (s, e) => {
+                // 先落盘再弹窗：UI 线程异常弹窗后进程仍可能被终止，日志是唯一可追溯的证据
+                Diagnostics.Log("致命：UI 线程未捕获异常", e.Exception);
                 string msg = e.Exception != null ? (e.Exception.Message + "\n\n" + e.Exception.StackTrace) : "未知线程异常";
                 MessageBox.Show("程序发生异常: " + msg, "FerrisPulse · 灵脉 - 错误提示", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
             AppDomain.CurrentDomain.UnhandledException += (s, e) => {
                 Exception ex = e.ExceptionObject as Exception;
+                // 后台线程未捕获异常会直接终止进程（无弹窗机会），必须先落盘
+                Diagnostics.Log("致命：后台线程未捕获异常（进程即将终止）", ex);
                 string msg = ex != null ? (ex.Message + "\n\n" + ex.StackTrace) : "未知系统错误";
                 MessageBox.Show("未处理的致命异常: " + msg, "FerrisPulse · 灵脉 - 致命错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
@@ -130,7 +134,7 @@ namespace RazerBatteryTray
                 {
                     isAliveAndHealthy = !existingProc.HasExited && existingProc.Responding;
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
                 if (!isAliveAndHealthy)
                 {
@@ -139,7 +143,7 @@ namespace RazerBatteryTray
                         existingProc.Kill();
                         existingProc.WaitForExit(1500);
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                     isNewInstance = true;
                 }
             }
@@ -161,7 +165,7 @@ namespace RazerBatteryTray
                             // 授予已有实例前台窗口抢占权限 (Bypass Windows Focus Stealing Prevention)
                             NativeMethods.AllowSetForegroundWindow((uint)existingProc.Id);
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                     }
 
                     // 1. 发送全局内核唤醒事件 (100% 免疫 UIPI 与消息泵队列阻塞)
@@ -172,14 +176,14 @@ namespace RazerBatteryTray
                             wakeupEvt.Set();
                         }
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
                     // 2. 广播系统注册窗口消息双重保底
                     try
                     {
                         NativeMethods.PostMessage((IntPtr)0xffff, WM_SHOWME, IntPtr.Zero, IntPtr.Zero);
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
 
                     // 3. 看门狗定时等待检测（最长等待 1200ms）
                     // 彻底根除用户“打不开软件一直卡着”的问题：如果已有实例在 1.2 秒内未能成功显示主窗口，
@@ -202,7 +206,7 @@ namespace RazerBatteryTray
                                 break;
                             }
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                     }
 
                     if (!successfullyWoken)
@@ -215,7 +219,7 @@ namespace RazerBatteryTray
                                 existingProc.WaitForExit(1000);
                             }
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                         isNewInstance = true;
                     }
                     else
@@ -240,7 +244,7 @@ namespace RazerBatteryTray
             {
                 if (appMutex != null)
                 {
-                    try { appMutex.ReleaseMutex(); } catch { }
+                    try { appMutex.ReleaseMutex(); } catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                     appMutex.Close();
                     appMutex = null;
                 }

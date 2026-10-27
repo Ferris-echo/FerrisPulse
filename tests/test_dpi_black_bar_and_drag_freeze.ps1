@@ -47,7 +47,7 @@ if ($razerSrc -match "private static readonly object stateCacheLock" -and $razer
 }
 
 # 5. Verify MainForm.Hardware.cs sleep logic and dynamic wake detector triggering
-$hwSrc = Get-Content "src\UI\Forms\MainForm.Hardware.cs" -Raw
+$hwSrc = (Get-ChildItem "src\UI\Forms\MainForm.Hardware*.cs" | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
 if ($hwSrc -match "EnableMouseWakeDetector\(true\);" -and $hwSrc -match "EnableMouseWakeDetector\(false\);") {
     Write-Host "PASS: MainForm.Hardware.cs dynamically toggles mouse wake detector based on real sleep state." -ForegroundColor Green
 } else {

@@ -332,6 +332,9 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                        // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                        GetOverlappedResult(handle, ref overlapped, out written, true); // 等真正完成，避免栈上 OVERLAPPED 悬垂
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out written, false);
@@ -367,6 +370,9 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                        // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                        GetOverlappedResult(handle, ref overlapped, out read, true); // 等真正完成，避免栈上 OVERLAPPED 悬垂
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out read, false);

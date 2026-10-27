@@ -58,7 +58,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Services/GameDetector.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -94,14 +94,24 @@ namespace RazerBatteryTray
                             nameLower == "brave" || nameLower == "opera" ||
                             nameLower == "potplayer" || nameLower == "potplayermini64" ||
                             nameLower == "vlc" || nameLower == "mpc-hc64" ||
-                            nameLower == "bilibili" || nameLower == "devenv")
+                            nameLower == "bilibili" || nameLower == "devenv" ||
+                            // 补全常见「非游戏全屏程序」：视频播放器、办公放映、会议与直播工具。
+                            // 原黑名单只覆盖了部分播放器，全屏看视频/开会/放 PPT 时会被误判为游戏。
+                            nameLower == "mpv" || nameLower == "mpc-be64" || nameLower == "mpc-be" ||
+                            nameLower == "wmplayer" || nameLower == "video.ui" ||
+                            nameLower == "powerpnt" || nameLower == "winword" ||
+                            nameLower == "wpp" || nameLower == "et" ||
+                            nameLower == "zoom" || nameLower == "teams" || nameLower == "ms-teams" ||
+                            nameLower == "discord" || nameLower == "obs64" || nameLower == "obs32" ||
+                            nameLower == "webexmta" || nameLower == "wemeetapp" ||
+                            nameLower == "dingtalk" || nameLower == "wxwork")
                         {
                             return true;
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Services/GameDetector.cs: 已忽略异常", diagEx); }
             return false;
         }
     }

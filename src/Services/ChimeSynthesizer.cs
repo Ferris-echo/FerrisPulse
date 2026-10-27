@@ -62,7 +62,7 @@ namespace RazerBatteryTray
                 }
                 catch
                 {
-                    try { SystemSounds.Asterisk.Play(); } catch { }
+                    try { SystemSounds.Asterisk.Play(); } catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                 }
             }));
         }
@@ -97,7 +97,7 @@ namespace RazerBatteryTray
                 }
                 catch
                 {
-                    try { SystemSounds.Asterisk.Play(); } catch { }
+                    try { SystemSounds.Asterisk.Play(); } catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                 }
             }));
         }
@@ -131,12 +131,12 @@ namespace RazerBatteryTray
                         }
                         if (ambientPlayer != null)
                         {
-                            try { ambientPlayer.Stop(); ambientPlayer.Dispose(); } catch { }
+                            try { ambientPlayer.Stop(); ambientPlayer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                             ambientPlayer = null;
                         }
                         if (ambientStream != null)
                         {
-                            try { ambientStream.Dispose(); } catch { }
+                            try { ambientStream.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                             ambientStream = null;
                         }
                         if (ambientMelodyWavBytes != null && isAmbientPlaying)
@@ -147,7 +147,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
             });
         }
 
@@ -165,12 +165,12 @@ namespace RazerBatteryTray
                             ambientPlayer.Stop();
                             ambientPlayer.Dispose();
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                         ambientPlayer = null;
                     }
                     if (ambientStream != null)
                     {
-                        try { ambientStream.Dispose(); } catch { }
+                        try { ambientStream.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                         ambientStream = null;
                     }
                 }
@@ -264,7 +264,7 @@ namespace RazerBatteryTray
                 {
                     PrewarmScaleCache();
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
             });
         }
 
@@ -299,7 +299,7 @@ namespace RazerBatteryTray
                         Marshal.FreeHGlobal(v.pData);
                         Marshal.FreeHGlobal(v.pHdr);
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
                 }
             }
         }
@@ -386,7 +386,7 @@ namespace RazerBatteryTray
                         return;
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
 
                 // 容灾保底：SoundPlayer 内存流播放
                 try
@@ -403,7 +403,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Services/ChimeSynthesizer.cs: 已忽略异常", diagEx); }
             });
         }
 

@@ -188,8 +188,7 @@ if (-not $foundDualCtor) {
 Write-Host "PASS: GameProcessManagerForm 双模构造函数就绪" -ForegroundColor Green
 
 Write-Host "`n--- 4. 静态代码审计：验证恶性品牌门禁已彻底拔除 ---" -ForegroundColor Cyan
-$hwFile = "$ProjectDir\src\UI\Forms\MainForm.Hardware.cs"
-$hwText = [System.IO.File]::ReadAllText($hwFile, [System.Text.Encoding]::UTF8)
+$hwText = (Get-ChildItem "$ProjectDir\src\UI\Forms\MainForm.Hardware*.cs" | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8) }) -join "`n"
 
 # Check: StartGameMonitor must NOT contain hardcoded brand inequality
 if ($hwText -match 'curDev\.Brand\s*!=\s*"Razer"') {

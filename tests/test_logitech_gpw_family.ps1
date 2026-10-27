@@ -188,8 +188,7 @@ Write-Host "`n==========================================================" -Foreg
 Write-Host " [测试 6/6] UI 性能控制台与回报率联动绑定验证" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-$hwPath = "$ProjectDir\src\UI\Forms\MainForm.Hardware.cs"
-$hwContent = [System.IO.File]::ReadAllText($hwPath, [System.Text.Encoding]::UTF8)
+$hwContent = (Get-ChildItem "$ProjectDir\src\UI\Forms\MainForm.Hardware*.cs" | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8) }) -join "`n"
 
 if (-not $hwContent.Contains("SetLogitechDpi")) {
     Write-Host "FAILED: MainForm.Hardware.cs 缺少 SetLogitechDpi 调用" -ForegroundColor Red

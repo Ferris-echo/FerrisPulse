@@ -354,6 +354,10 @@ namespace RazerBatteryTray
 
         private volatile bool isMouseSleeping = false;
 
+        // 连续查询失败次数：设备挂起/休眠/拔出时累加，用于把轮询降频，
+        // 避免反复触碰已挂起的 USB 设备（历史实测会触发原生崩溃）
+        private int consecutiveQueryFailures = 0;
+
         private System.Windows.Forms.Timer bootPollTimer;
 
         private int bootPollCount = 0;
@@ -526,6 +530,8 @@ namespace RazerBatteryTray
         private Label lblGameDpiTitle;
 
         private ModernSegmentButton[] btnGameDpiStages;
+
+        private ModernButton btnGameDpiManage;
 
         private Label lblGameRateTitle;
 
@@ -855,7 +861,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
 
 
@@ -955,7 +961,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
         }
 
@@ -997,7 +1003,7 @@ namespace RazerBatteryTray
 
                             }
 
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
                         }
 
@@ -1013,7 +1019,7 @@ namespace RazerBatteryTray
 
                 }
 
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
             }
 
@@ -1053,7 +1059,7 @@ namespace RazerBatteryTray
                     NativeMethods.ChangeWindowMessageFilterEx(this.Handle, (uint)NativeMethods.WM_TASKBARCREATED, NativeMethods.MSGFLT_ALLOW, IntPtr.Zero);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
             ApplyModernWin11Theme();
             RegisterUsbNotification();
             if (isMouseSleeping)
@@ -1066,7 +1072,7 @@ namespace RazerBatteryTray
         {
             if (hDevNotify != IntPtr.Zero)
             {
-                try { UnregisterDeviceNotification(hDevNotify); } catch { }
+                try { UnregisterDeviceNotification(hDevNotify); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
                 hDevNotify = IntPtr.Zero;
             }
             base.OnHandleDestroyed(e);
@@ -1194,7 +1200,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
             SyncAllDevicesPhysicalState();
 
@@ -1362,7 +1368,7 @@ namespace RazerBatteryTray
                         this.RecreateHandle();
                         RestoreWindowPosition();
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
                     this.WindowState = FormWindowState.Normal;
                     this.Show();
@@ -1456,7 +1462,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
         }
 
@@ -1494,6 +1500,8 @@ namespace RazerBatteryTray
 
             {
 
+                Diagnostics.Log(string.Format("MainForm 关闭：reason={0}", e.CloseReason));
+
                 StopDpiMonitor();
 
                 base.OnFormClosing(e);
@@ -1514,9 +1522,9 @@ namespace RazerBatteryTray
 
             {
 
-                try { singleInstanceWakeupEvent.Set(); } catch { }
+                try { singleInstanceWakeupEvent.Set(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
-                try { singleInstanceWakeupEvent.Close(); } catch { }
+                try { singleInstanceWakeupEvent.Close(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
                 singleInstanceWakeupEvent = null;
 
@@ -1606,103 +1614,6 @@ namespace RazerBatteryTray
 
         }
 
-        // 自定义刷新间隔输入框（3 ~ 3600 秒）
-        private void PromptCustomInterval()
-
-        {
-
-            using (Form dlg = new Form())
-
-            {
-
-                dlg.Text = "自定义刷新间隔";
-
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-
-                dlg.StartPosition = FormStartPosition.CenterParent;
-
-                dlg.MinimizeBox = false;
-
-                dlg.MaximizeBox = false;
-
-                dlg.ClientSize = new Size(300, 138);
-
-                dlg.BackColor = Color.FromArgb(28, 30, 36);
-
-                dlg.ForeColor = Color.Gainsboro;
-
-                Label lbl = new Label();
-
-                lbl.Text = "刷新间隔（秒，3 ~ 3600）：";
-
-                lbl.ForeColor = Color.Gainsboro;
-
-                lbl.Location = new Point(16, 18);
-
-                lbl.AutoSize = true;
-
-                NumericUpDown num = new NumericUpDown();
-
-                num.Minimum = 3;
-
-                num.Maximum = 3600;
-
-                num.Value = Math.Max(3, Math.Min(3600, userSelectedInterval / 1000));
-
-                num.Location = new Point(16, 48);
-
-                num.Size = new Size(120, 24);
-
-                num.BackColor = Color.FromArgb(45, 48, 56);
-
-                num.ForeColor = Color.White;
-
-                num.BorderStyle = BorderStyle.FixedSingle;
-
-                Button ok = new Button();
-
-                ok.Text = "确定";
-
-                ok.DialogResult = DialogResult.OK;
-
-                ok.Location = new Point(120, 92);
-
-                ok.Size = new Size(72, 28);
-
-                Button cancel = new Button();
-
-                cancel.Text = "取消";
-
-                cancel.DialogResult = DialogResult.Cancel;
-
-                cancel.Location = new Point(200, 92);
-
-                cancel.Size = new Size(72, 28);
-
-                dlg.Controls.Add(lbl);
-
-                dlg.Controls.Add(num);
-
-                dlg.Controls.Add(ok);
-
-                dlg.Controls.Add(cancel);
-
-                dlg.AcceptButton = ok;
-
-                dlg.CancelButton = cancel;
-
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-
-                {
-
-                    SetInterval((int)num.Value * 1000, true);
-
-                }
-
-            }
-
-        }
-
         // 自适应刷新：窗口可见时用用户设定（默认 10 秒），最小化/隐藏时不低于 30 秒以省电
         private void ApplyAdaptiveInterval()
 
@@ -1710,9 +1621,34 @@ namespace RazerBatteryTray
 
             if (updateTimer == null) return;
 
+            // 线程安全守卫：本方法读取 WindowState/Visible（有线程亲和性），
+            // 后台线程误调用会抛 InvalidOperationException 并可能静默终止进程。
+            if (this.InvokeRequired)
+
+            {
+
+                try { this.BeginInvoke(new Action(ApplyAdaptiveInterval)); }
+
+                catch (Exception diagEx) { Diagnostics.Log("MainForm.cs: ApplyAdaptiveInterval 跨线程投递失败", diagEx); }
+
+                return;
+
+            }
+
             bool background = (this.WindowState == FormWindowState.Minimized) || !this.Visible;
 
+            // 后台（最小化/隐藏）时把电量轮询退避到至少 30s。
+            // ⚠️ 不可再延长：实测间隔 ≥60s 时 Windows 会挂起 USB 设备，下次查询会触发原生崩溃
+            // （进程静默消失，无 .NET 异常、无 CrashDump）。30s 是已验证稳定的下限。
             int target = background ? Math.Max(userSelectedInterval, 30000) : userSelectedInterval;
+
+            // 连续失败（设备休眠/挂起/被拔出）→ 降频到 2 分钟：
+            // ① 减少对已挂起 USB 设备的触碰（历史实测反复查询会触发原生崩溃）
+            // ② 给鼠标留出真正进入休眠的时间（30s 轮询会让 Z2 永不休眠）
+            if (consecutiveQueryFailures >= 3)
+            {
+                target = Math.Max(target, 120000);
+            }
 
             if (updateTimer.Interval != target) updateTimer.Interval = target;
 
@@ -2219,7 +2155,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
 
 
@@ -2432,7 +2368,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 已忽略异常", diagEx); }
 
         }
 

@@ -125,8 +125,7 @@ if (-not ($content -match 'BuildConfigReport')) {
     exit 1
 }
 # UI 层已接入 Zaopin/VGN DPI 分发
-$mhPath = "$ProjectDir\src\UI\Forms\MainForm.Hardware.cs"
-$mhContent = [System.IO.File]::ReadAllText($mhPath, [System.Text.Encoding]::UTF8)
+$mhContent = (Get-ChildItem "$ProjectDir\src\UI\Forms\MainForm.Hardware*.cs" | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8) }) -join "`n"
 if (-not ($mhContent -match 'SetVgnDpiStage')) {
     Write-Host "FAILED: MainForm 未接入 SetVgnDpiStage 分发" -ForegroundColor Red
     exit 1

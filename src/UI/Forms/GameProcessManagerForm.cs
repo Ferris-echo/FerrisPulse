@@ -442,7 +442,7 @@ namespace RazerBatteryTray
                     });
                     seen.Add(name);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/GameProcessManagerForm.cs: 已忽略异常", diagEx); }
                 finally
                 {
                     p.Dispose();

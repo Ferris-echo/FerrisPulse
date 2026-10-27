@@ -15,7 +15,7 @@ D:\FerrisPulse · 灵脉\
 ├── AGENT_RULES.md              [AI 行为准则与高分屏规范]
 └── src\
     ├── Properties\             [程序集版本信息与 PE 元数据]
-    │   └── AssemblyInfo.cs     [Windows PE 元数据、版本号 4.0.0.0、版权与产品信息]
+    │   └── AssemblyInfo.cs     [Windows PE 元数据、版本号 2.2.0.0、版权与产品信息]
     │
     ├── Core\                   [系统核心中枢]
     │   ├── Program.cs          [应用入口、全局 Mutex 防多开、目录重置、异常兜底]
@@ -60,7 +60,7 @@ D:\FerrisPulse · 灵脉\
         │   ├── ModernThemeHelper.cs      [抗黑角矢量圆角算法、纯矢量闪电/电池绘制、色彩常量]
         │   └── ModernDarkMenuRenderer.cs [Fluent 暗黑上下文菜单渲染]
         │
-        ├── Controls\           [22 个独立自绘制 GDI+ 原子控件]
+        ├── Controls\           [23 个独立自绘制 GDI+ 原子控件]
         │   ├── RoundedCard.cs            [抗锯齿圆角卡片底板]
         │   ├── ModernButton.cs           [带悬浮微光质感现代按钮]
         │   ├── ModernBadge.cs            [状态徽章]
@@ -92,13 +92,21 @@ D:\FerrisPulse · 灵脉\
             ├── MainForm.Events.cs        [WndProc 消息泵与 TaskbarCreated 重建机制]
             ├── ModernDeviceSwitcherFlyout.cs [悬浮式现代外设快速切换器]
             ├── DpiOsdForm.cs             [零焦点置顶无感 DPI 悬浮提示窗]
+            ├── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
+            ├── PollingRateManagementDialog.cs [回报率档位管理弹窗]
+            ├── RefreshIntervalDialog.cs  [自动刷新频率 6 档位设置弹窗]
             ├── KeyRolloverSpeedForm.cs   [全键无冲与触发测速仪]
             ├── MouseRateTestDialog.cs    [回报率平滑度离线测试工具]
             ├── GameProcessManagerForm.cs [电竞游戏守护进程管理弹窗]
             ├── DevicePriorityForm.cs     [外设优先级排序调整窗口]
             ├── AddDeviceWizardForm.cs    [手动添加新设备向导]
-            ├── PromptDialog.cs           [通用输入提示对话框]
-            └── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
+            ├── ImportAdapterDialog.cs    [FDAS 适配包导入热加载弹窗]
+            ├── AiToolsDialog.cs          [AI 适配工具官网直达推荐弹窗]
+            ├── UpdateNoticeForm.cs       [在线更新提示与下载进度窗]
+            ├── AboutForm.cs              [关于页与捐赠信息展示]
+            ├── DpiAwareForm.cs           [高 DPI 自适应基类窗体]
+            ├── EasterEggQuoteForm.cs     [彩蛋引言弹窗]
+            └── PromptDialog.cs           [通用输入提示对话框]
 ```
 
 ---

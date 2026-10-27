@@ -213,7 +213,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/ImportAdapterDialog.cs: 已忽略异常", diagEx); }
             };
         }
 
@@ -237,7 +237,7 @@ namespace RazerBatteryTray
                     ValidateJsonInput();
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/ImportAdapterDialog.cs: 已忽略异常", diagEx); }
         }
 
         private void ValidateJsonInput()

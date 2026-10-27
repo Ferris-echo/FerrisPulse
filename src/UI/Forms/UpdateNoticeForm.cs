@@ -70,7 +70,7 @@ namespace RazerBatteryTray
                                     _activeInstance.Activate();
                                     _activeInstance.BringToFront();
                                 }
-                                catch { }
+                                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
                             });
                         }
                         else
@@ -79,7 +79,7 @@ namespace RazerBatteryTray
                             _activeInstance.BringToFront();
                         }
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
                     return;
                 }
             }
@@ -446,7 +446,7 @@ namespace RazerBatteryTray
 
                 if (toastTimer != null)
                 {
-                    try { toastTimer.Stop(); toastTimer.Dispose(); } catch { }
+                    try { toastTimer.Stop(); toastTimer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
                     toastTimer = null;
                 }
                 toastTimer = new System.Windows.Forms.Timer();
@@ -541,7 +541,7 @@ namespace RazerBatteryTray
                                 lblProgressText.Text = "更新包校验失败，文件可能已损坏！";
                                 btnLater.Visible = true;
                                 btnUpgrade.Visible = true;
-                                try { File.Delete(tempExe); } catch { }
+                                try { File.Delete(tempExe); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
                                 return;
                             }
                         }
@@ -574,7 +574,7 @@ namespace RazerBatteryTray
                     NativeMethods.ReleaseCapture();
                     NativeMethods.SendMessage(this.Handle, NativeMethods.WM_NCLBUTTONDOWN, (IntPtr)NativeMethods.HT_CAPTION, IntPtr.Zero);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
             }
         }
 
@@ -602,7 +602,7 @@ namespace RazerBatteryTray
             {
                 if (toastTimer != null)
                 {
-                    try { toastTimer.Stop(); toastTimer.Dispose(); } catch { }
+                    try { toastTimer.Stop(); toastTimer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/UpdateNoticeForm.cs: 已忽略异常", diagEx); }
                     toastTimer = null;
                 }
             }

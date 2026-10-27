@@ -49,7 +49,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Helpers/DpiScaleHelper.cs: 已忽略异常", diagEx); }
 
             // 回退到 GDI+ 屏幕设备上下文探测
             try

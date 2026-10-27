@@ -230,7 +230,7 @@ namespace RazerBatteryTray
                         cachedWeChatQr = Image.FromStream(new MemoryStream(fileBytes));
                         return cachedWeChatQr;
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Resources/DonateQrAssets.cs: 已忽略异常", diagEx); }
                 }
 
                 try
@@ -238,7 +238,7 @@ namespace RazerBatteryTray
                     byte[] bytes = Convert.FromBase64String(WeChatQrBase64);
                     cachedWeChatQr = Image.FromStream(new MemoryStream(bytes));
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Resources/DonateQrAssets.cs: 已忽略异常", diagEx); }
 
                 return cachedWeChatQr;
             }
@@ -259,7 +259,7 @@ namespace RazerBatteryTray
                         cachedAlipayQr = Image.FromStream(new MemoryStream(fileBytes));
                         return cachedAlipayQr;
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Resources/DonateQrAssets.cs: 已忽略异常", diagEx); }
                 }
 
                 try
@@ -267,7 +267,7 @@ namespace RazerBatteryTray
                     byte[] bytes = Convert.FromBase64String(AlipayQrBase64);
                     cachedAlipayQr = Image.FromStream(new MemoryStream(bytes));
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Resources/DonateQrAssets.cs: 已忽略异常", diagEx); }
 
                 return cachedAlipayQr;
             }

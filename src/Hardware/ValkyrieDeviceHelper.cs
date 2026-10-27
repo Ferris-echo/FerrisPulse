@@ -226,7 +226,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -255,7 +255,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static byte[] SendValkyrieCommand(IntPtr handle, byte cmd, int waitMs)
@@ -298,7 +298,7 @@ namespace RazerBatteryTray
                     return res;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
 
             return null;
         }
@@ -357,7 +357,7 @@ namespace RazerBatteryTray
                     if (hz > 0) return hz;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
             return 0;
         }
 
@@ -445,7 +445,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 RazerDeviceHelper.CloseHandle(handle);
@@ -525,7 +525,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 RazerDeviceHelper.CloseHandle(handle);
@@ -574,7 +574,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 RazerDeviceHelper.CloseHandle(handle);
@@ -662,7 +662,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/ValkyrieDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 RazerDeviceHelper.CloseHandle(handle);

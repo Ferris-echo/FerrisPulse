@@ -176,7 +176,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -211,7 +211,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         private static Dictionary<int, string> rapooCatalog = null;
@@ -510,7 +510,7 @@ namespace RazerBatteryTray
                         rapooFileStream = null;
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
 
                 try
                 {
@@ -520,7 +520,7 @@ namespace RazerBatteryTray
                         rapooStreamHandle = null;
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
 
                 rapooPendingRead = null;
                 CloseRapooHandles();
@@ -632,12 +632,12 @@ namespace RazerBatteryTray
             {
                 if (cachedHOut != IntPtr.Zero)
                 {
-                    try { RazerDeviceHelper.CloseHandle(cachedHOut); } catch { }
+                    try { RazerDeviceHelper.CloseHandle(cachedHOut); } catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
                     cachedHOut = IntPtr.Zero;
                 }
                 if (cachedHFeat != IntPtr.Zero)
                 {
-                    try { RazerDeviceHelper.CloseHandle(cachedHFeat); } catch { }
+                    try { RazerDeviceHelper.CloseHandle(cachedHFeat); } catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
                     cachedHFeat = IntPtr.Zero;
                 }
             }
@@ -976,7 +976,7 @@ namespace RazerBatteryTray
                         prodStr = sb.ToString();
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
 
                 bool isReceiver = false;
                 if (!string.IsNullOrEmpty(prodStr))
@@ -1195,7 +1195,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -1221,7 +1221,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -1308,7 +1308,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/RapooDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 

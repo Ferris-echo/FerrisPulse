@@ -233,7 +233,7 @@ namespace RazerBatteryTray
                             UpdateTrayDeviceMenuItems();
                         }));
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
                 });
             };
             nuphySleepMenuItem.Visible = false;
@@ -252,7 +252,7 @@ namespace RazerBatteryTray
                             UpdateTrayDeviceMenuItems();
                         }));
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
                 });
             };
             nuphyWinLockMenuItem.Visible = false;
@@ -275,7 +275,7 @@ namespace RazerBatteryTray
                                 UpdateTrayDeviceMenuItems();
                             }));
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
                     });
                 };
                 sub.Tag = bVal;
@@ -297,7 +297,7 @@ namespace RazerBatteryTray
                             UpdateTrayDeviceMenuItems();
                         }));
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
                 });
             };
             nuphySidelightMenuItem.Visible = false;
@@ -429,7 +429,7 @@ namespace RazerBatteryTray
                 bool ok = StartupManager.CreateDesktopShortcut(true);
                 if (ok && trayIcon != null)
                 {
-                    try { trayIcon.ShowBalloonTip(3000, "桌面快捷方式已创建", "已成功在桌面为您生成 FerrisPulse · 灵脉 快捷方式！", ToolTipIcon.Info); } catch { }
+                    try { trayIcon.ShowBalloonTip(3000, "桌面快捷方式已创建", "已成功在桌面为您生成 FerrisPulse · 灵脉 快捷方式！", ToolTipIcon.Info); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
                 }
             });
             contextMenu.Items.Add(createDesktopLnkItem);
@@ -501,7 +501,7 @@ namespace RazerBatteryTray
                     UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.BrandColor);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Tray.cs: 已忽略异常", diagEx); }
         }
         private void UpdateTrayDeviceMenuItems()
         {
@@ -749,7 +749,16 @@ namespace RazerBatteryTray
                 {
                     using (Icon tempIcon = Icon.FromHandle(hIcon))
                     {
-                        trayIcon.Icon = (Icon)tempIcon.Clone();
+                        Icon newIcon = (Icon)tempIcon.Clone();
+                        Icon oldIcon = trayIcon.Icon;
+                        trayIcon.Icon = newIcon;
+                        // NotifyIcon.Icon 赋值不会释放旧对象：不显式 Dispose 的话，每次刷新都把一个
+                        // HICON 留给 GC 终结器，10 秒一次刷新 ≈ 360 个/小时，长时间运行会堆积 USER 句柄。
+                        // 注意：启动阶段 trayIcon.Icon 指向 this.Icon（窗体自己的图标），不能误释放。
+                        if (oldIcon != null && !ReferenceEquals(oldIcon, this.Icon))
+                        {
+                            oldIcon.Dispose();
+                        }
                     }
                 }
                 finally

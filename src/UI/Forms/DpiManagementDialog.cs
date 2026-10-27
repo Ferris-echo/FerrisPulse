@@ -153,7 +153,7 @@ namespace RazerBatteryTray
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(13, 16, 23);
             this.ForeColor = Color.White;
-            try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch { }
+            try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/DpiManagementDialog.cs: 已忽略异常", diagEx); }
 
             int clientW = S(420);
             int clientH = S(500);
@@ -278,7 +278,7 @@ namespace RazerBatteryTray
 
             this.Shown += (s, e) =>
             {
-                try { this.ActiveControl = btnSave; } catch { }
+                try { this.ActiveControl = btnSave; } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/DpiManagementDialog.cs: 已忽略异常", diagEx); }
             };
 
             UpdateXyUiState();

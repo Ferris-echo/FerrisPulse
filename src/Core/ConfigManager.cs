@@ -46,7 +46,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("ConfigManager 注册表读写失败，已回退默认值", diagEx); }
             return defaultValue;
         }
 
@@ -77,7 +77,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("ConfigManager 注册表读写失败，已回退默认值", diagEx); }
             return defaultValue;
         }
 
@@ -93,7 +93,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("ConfigManager 注册表读写失败，已回退默认值", diagEx); }
         }
 
         public static void SetBool(string name, bool value)
@@ -113,7 +113,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("ConfigManager 注册表读写失败，已回退默认值", diagEx); }
         }
 
         public static bool GetAutoCheckUpdate()

@@ -179,7 +179,7 @@ namespace RazerBatteryTray
             lstDevices.DrawItem += LstDevices_DrawItem;
             lstDevices.SelectedIndexChanged += (s, e) => OnDeviceSelected();
             lstDevices.HandleCreated += (s, e) => {
-                try { ModernThemeHelper.SetWindowTheme(lstDevices.Handle, "DarkMode_Explorer", null); } catch { }
+                try { ModernThemeHelper.SetWindowTheme(lstDevices.Handle, "DarkMode_Explorer", null); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
             };
             this.Controls.Add(lstDevices);
 
@@ -339,7 +339,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
             };
             pnlAiAdapter.Controls.Add(btnCopyPrompt);
 
@@ -618,7 +618,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2. Scan Rapoo Devices (2.4G / USB)
                 try
@@ -639,7 +639,7 @@ namespace RazerBatteryTray
                         tempConfigs.Add(cfg);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2.5 Scan VGN Devices (2.4G / USB)
                 try
@@ -660,7 +660,7 @@ namespace RazerBatteryTray
                         tempConfigs.Add(cfg);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2.55 Scan Logitech Devices (Lightspeed / Unifying / Nano / Wired)
                 try
@@ -690,7 +690,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
 
 
@@ -722,7 +722,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2.57 Scan Universal Gaming Devices (OpenMouse / All-in-One: Lamzu, Pulsar, ATK, Attack Shark, etc.)
                 try
@@ -752,7 +752,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2.58 Scan Apple & Beats Devices
                 try
@@ -782,7 +782,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 2.6 Scan Generic HID Mice & Peripherals (2.4G / USB)
                 try
@@ -802,7 +802,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // 3. Scan Bluetooth Devices (BLE & Classic)
                 try
@@ -816,7 +816,7 @@ namespace RazerBatteryTray
                         tempConfigs.Add(b);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
 
                 // Safely update UI atomically
                 try
@@ -859,7 +859,7 @@ namespace RazerBatteryTray
                         }
                     }));
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
             });
         }
 
@@ -994,7 +994,7 @@ namespace RazerBatteryTray
                     pid = Convert.ToInt32(pidStr, 16);
                     return true;
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
             }
 
             string[] parts = s.Split(':');
@@ -1008,7 +1008,7 @@ namespace RazerBatteryTray
                         pid = Convert.ToInt32(parts[i + 1], 16);
                         return true;
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AddDeviceWizardForm.cs: 已忽略异常", diagEx); }
                 }
             }
 

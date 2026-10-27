@@ -123,7 +123,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -154,7 +154,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static bool IsNuphyDevice(string identifier)
@@ -256,7 +256,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
                 return null;
             }
         }
@@ -409,7 +409,7 @@ namespace RazerBatteryTray
                     return true;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -441,7 +441,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return anyOk;
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -477,7 +477,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return anyOk;
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -508,7 +508,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return anyOk;
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -546,7 +546,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return anyOk;
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/NuphyDeviceHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 

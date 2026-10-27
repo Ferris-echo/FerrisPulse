@@ -370,7 +370,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/BluetoothDeviceHelper.cs: 已忽略异常", diagEx); }
 
 
 
@@ -666,7 +666,7 @@ namespace RazerBatteryTray
 
             }
 
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/BluetoothDeviceHelper.cs: 已忽略异常", diagEx); }
 
 
 

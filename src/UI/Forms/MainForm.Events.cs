@@ -99,7 +99,7 @@ namespace RazerBatteryTray
                 }
                 RegisterRawInputDevices(rid, 1, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)));
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
         }
 
         private void UnregisterMouseWakeDetector()
@@ -174,7 +174,10 @@ namespace RazerBatteryTray
             try
             {
                 var cur = lastInfo;
-                if (cur == null || !cur.IsConnected || !cur.IsSleeping) return;
+                // 只依赖 IsSleeping：各品牌对 IsConnected 的定义不一致（有的表示「在线有应答」，
+                // 有的表示「设备在位」）。原先写成 !IsConnected && IsSleeping，隐含假设两者互补，
+                // 一旦某个品牌改成 IsConnected=true 且 IsSleeping=true，唤醒检测会静默失效。
+                if (cur == null || !cur.IsSleeping) return;
 
                 int headerSize = Marshal.SizeOf(typeof(RAWINPUTHEADER));
                 RAWINPUTHEADER header;
@@ -216,9 +219,12 @@ namespace RazerBatteryTray
                         {
                             cur.IsSleeping = false;
                             isMouseSleeping = false;
+                            // 用户已动鼠标 → 设备就绪，解除熔断降频并恢复正常轮询
+                            consecutiveQueryFailures = 0;
+                            ApplyAdaptiveInterval();
                             EnableMouseWakeDetector(false);
                             UpdateTrayIcon(cur.BatteryPercent, cur.IsCharging, cur.IsConnected, false);
-                            try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch { }
+                            try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
 
                             if (!isPassiveWakePollingQueued)
                             {
@@ -231,14 +237,14 @@ namespace RazerBatteryTray
                                     {
                                         this.BeginInvoke(new Action(() => RefreshBatteryStatus(false)));
                                     }
-                                    catch { }
+                                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
                                 });
                             }
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
         }
 
         private void RegisterUsbNotification()
@@ -247,7 +253,7 @@ namespace RazerBatteryTray
             {
                 if (hDevNotify != IntPtr.Zero)
                 {
-                    try { UnregisterDeviceNotification(hDevNotify); } catch { }
+                    try { UnregisterDeviceNotification(hDevNotify); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
                     hDevNotify = IntPtr.Zero;
                 }
                 Guid hidGuid;
@@ -270,7 +276,7 @@ namespace RazerBatteryTray
                     Marshal.FreeHGlobal(buffer);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
         }
 
         private void OnDeviceHardwareChange()

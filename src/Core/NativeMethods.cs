@@ -256,7 +256,7 @@ namespace RazerBatteryTray
                     BringWindowToTop(hWnd);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/NativeMethods.cs: 已忽略异常", diagEx); }
         }
 
         // ==================== Shell User Notification State ====================

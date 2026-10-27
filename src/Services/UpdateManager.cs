@@ -33,7 +33,7 @@ namespace RazerBatteryTray
                 ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)12288 | SecurityProtocolType.Tls;
                 ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
         }
 
         public static string CurrentVersion
@@ -48,7 +48,7 @@ namespace RazerBatteryTray
                         return "v" + v.Major + "." + v.Minor + "." + v.Build;
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
                 return "v2.0.0";
             }
         }
@@ -77,7 +77,7 @@ namespace RazerBatteryTray
                 }
                 if (changed && OnPendingUpdateChanged != null)
                 {
-                    try { OnPendingUpdateChanged(); } catch { }
+                    try { OnPendingUpdateChanged(); } catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
                 }
             }
         }
@@ -416,12 +416,12 @@ namespace RazerBatteryTray
                         lastError = ex.Message;
                         if (fs != null)
                         {
-                            try { fs.Close(); } catch { }
+                            try { fs.Close(); } catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
                             fs = null;
                         }
                         if (File.Exists(targetPath))
                         {
-                            try { File.Delete(targetPath); } catch { }
+                            try { File.Delete(targetPath); } catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
                         }
                     }
                 }
@@ -460,22 +460,43 @@ namespace RazerBatteryTray
                 // 核心安全优化：优先采用 Windows 原生运行时重命名机制 (In-Process Native Rename)
                 // 在 Windows NTFS 下，运行中的 exe 支持直接重命名（MoveFile），随后将新 exe 移入原路径并拉起。
                 // 全程为纯 C# 托管操作，不启动任何隐藏 powershell/cmd 脚本，彻底杜绝 AMSI 与 Dropper 杀软误报！
+                // 关键：File.Move 是两步非原子操作。若第一步成功、第二步失败（跨卷/占用/权限/空间不足），
+                // 原 exe 已被改名而新 exe 未就位，程序路径将为空、再也启动不了。必须回滚。
+                bool swapped = false;
                 try
                 {
                     if (File.Exists(oldExe))
                     {
-                        try { File.Delete(oldExe); } catch { }
+                        try { File.Delete(oldExe); } catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
                     }
                     File.Move(exePath, oldExe);
                     File.Move(updateFilePath, exePath);
-
-                    Process.Start(exePath, "--updated");
-                    Application.Exit();
-                    return true;
+                    swapped = true;
                 }
                 catch
                 {
-                    // 若受非 NTFS 文件系统等特殊环境限制，进入兼容降级分支
+                    // 回滚：新 exe 未就位时把原 exe 改回原位，保证程序始终可启动
+                    try
+                    {
+                        if (!File.Exists(exePath) && File.Exists(oldExe)) File.Move(oldExe, exePath);
+                    }
+                    catch (Exception diagEx) { Diagnostics.Log("Services/UpdateManager.cs: 已忽略异常", diagEx); }
+                    // 若受非 NTFS 文件系统等特殊环境限制，继续走下方兼容降级分支
+                }
+
+                if (swapped)
+                {
+                    // 新 exe 已就位：只负责拉起。拉起失败也不再走脚本兜底，避免二次搬移把文件搬丢
+                    try
+                    {
+                        Process.Start(exePath, "--updated");
+                        Application.Exit();
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
                 }
 
                 int currentPid = Process.GetCurrentProcess().Id;

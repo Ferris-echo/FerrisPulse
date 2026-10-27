@@ -182,7 +182,7 @@ namespace RazerBatteryTray
                     NativeMethods.ReleaseCapture();
                     NativeMethods.SendMessage(this.Handle, NativeMethods.WM_NCLBUTTONDOWN, (IntPtr)NativeMethods.HT_CAPTION, IntPtr.Zero);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/EasterEggQuoteForm.cs: 已忽略异常", diagEx); }
             }
         }
 

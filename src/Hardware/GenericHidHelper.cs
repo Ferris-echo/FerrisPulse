@@ -71,7 +71,7 @@ namespace RazerBatteryTray
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/GenericHidHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -198,7 +198,7 @@ namespace RazerBatteryTray
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/GenericHidHelper.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -367,7 +367,7 @@ namespace RazerBatteryTray
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/GenericHidHelper.cs: 已忽略异常", diagEx); }
             return result;
         }
     }

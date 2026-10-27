@@ -144,7 +144,7 @@ namespace RazerBatteryTray
                     this.Region = new Region(path);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/ModernDeviceSwitcherFlyout.cs: 已忽略异常", diagEx); }
         }
 
         public void CalcSize(int targetWidth)

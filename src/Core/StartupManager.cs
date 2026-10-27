@@ -66,7 +66,7 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
 
                 // 2. 校验注册表 Run 键
                 using (var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, false))
@@ -108,7 +108,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -163,7 +163,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
             return Application.ExecutablePath;
         }
 
@@ -206,7 +206,7 @@ namespace RazerBatteryTray
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
 
                         // 双通道容灾守护：同步开始菜单 Startup 文件夹快捷方式
                         SyncStartupFolderShortcut(true);
@@ -228,12 +228,12 @@ namespace RazerBatteryTray
                                     approvedKey.DeleteValue(AppName, false);
                                     foreach (var legacy in LegacyAppNames)
                                     {
-                                        try { approvedKey.DeleteValue(legacy, false); } catch { }
+                                        try { approvedKey.DeleteValue(legacy, false); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                                     }
                                 }
                             }
                         }
-                        catch { }
+                        catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
 
                         // 彻底清理开始菜单 Startup 文件夹快捷方式与策略
                         SyncStartupFolderShortcut(false);
@@ -271,7 +271,7 @@ namespace RazerBatteryTray
                         string oldLnk = Path.Combine(startupFolder, legacy + ".lnk");
                         if (File.Exists(oldLnk)) File.Delete(oldLnk);
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 }
 
                 if (enabled)
@@ -325,13 +325,13 @@ namespace RazerBatteryTray
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 }
                 else
                 {
                     if (File.Exists(lnkPath))
                     {
-                        try { File.Delete(lnkPath); } catch { }
+                        try { File.Delete(lnkPath); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                     }
                     try
                     {
@@ -343,7 +343,7 @@ namespace RazerBatteryTray
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 }
                 return true;
             }
@@ -369,7 +369,7 @@ namespace RazerBatteryTray
             if (runKey == null) return;
             foreach (var legacyName in LegacyAppNames)
             {
-                try { runKey.DeleteValue(legacyName, false); } catch { }
+                try { runKey.DeleteValue(legacyName, false); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
             }
         }
 
@@ -394,7 +394,7 @@ namespace RazerBatteryTray
                 string oldLnkPath = Path.Combine(startMenu, "RazerBatteryTray.lnk");
                 if (File.Exists(oldLnkPath))
                 {
-                    try { File.Delete(oldLnkPath); } catch { }
+                    try { File.Delete(oldLnkPath); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 }
 
                 try
@@ -403,7 +403,7 @@ namespace RazerBatteryTray
                     string oldDesktopLnk = Path.Combine(desktop, "RazerBatteryTray.lnk");
                     if (File.Exists(oldDesktopLnk)) { File.Delete(oldDesktopLnk); }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
 
                 if (!File.Exists(lnkPath))
                 {
@@ -436,7 +436,7 @@ namespace RazerBatteryTray
 
                     // 不在用户桌面创建任何快捷方式，保持用户桌面纯净无侵扰（Toast 通知仅需开始菜单 AUMID 链接）
 
-                    try { NativeMethods.SHChangeNotify(0x7FFFFFFF, 0x1000, IntPtr.Zero, IntPtr.Zero); } catch { }
+                    try { NativeMethods.SHChangeNotify(0x7FFFFFFF, 0x1000, IntPtr.Zero, IntPtr.Zero); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 }
 
                 // 注册 HKCU 提示信息保证通知中心标题与图标呈现
@@ -460,9 +460,9 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
         }
 
         /// <summary>
@@ -547,7 +547,7 @@ namespace RazerBatteryTray
                 IPersistFile file = (IPersistFile)link;
                 file.Save(lnkPath, true);
 
-                try { NativeMethods.SHChangeNotify(0x7FFFFFFF, 0x1000, IntPtr.Zero, IntPtr.Zero); } catch { }
+                try { NativeMethods.SHChangeNotify(0x7FFFFFFF, 0x1000, IntPtr.Zero, IntPtr.Zero); } catch (Exception diagEx) { Diagnostics.Log("Core/StartupManager.cs: 已忽略异常", diagEx); }
                 return true;
             }
             catch

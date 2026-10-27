@@ -55,6 +55,8 @@ namespace RazerBatteryTray
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CancelIo(IntPtr hFile);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ResetEvent(IntPtr hEvent);
 
         private const uint GENERIC_READ = 0x80000000;
         private const uint GENERIC_WRITE = 0x40000000;
@@ -78,6 +80,35 @@ namespace RazerBatteryTray
             3050, 3420, 3480, 3540, 3600, 3660, 3720, 3760, 3800, 3840, 3880,
             3920, 3940, 3960, 3980, 4000, 4020, 4040, 4060, 4080, 4110
         };
+
+        // 电压→百分比滞回：原始电压存在 ±2~4mV 抖动，直接查表会让百分比在取整边界上来回跳
+        // （实测 3796/3800mV 严格交替 → 显示 38%/39% 每 10 秒闪一次）。
+        // 中位数滤波对「两值严格交替」无效（只会跟着多数值摆相位），必须用滞回：
+        // 只有电压相对「上次采纳值」移动超过 6mV 才允许改变百分比，否则保持上一次显示。
+        private static int lastAcceptedPct = -1;
+        private static int lastAcceptedMv = -1;
+
+        private static int PercentWithHysteresis(int mv)
+        {
+            int pct = VoltageToPercent(mv);
+            if (pct < 0) return pct;
+            if (lastAcceptedPct < 0)
+            {
+                lastAcceptedPct = pct;
+                lastAcceptedMv = mv;
+                return pct;
+            }
+            if (pct == lastAcceptedPct)
+            {
+                lastAcceptedMv = mv;
+                return pct;
+            }
+            // 变化幅度不足 6mV 视为噪声，维持原显示
+            if (Math.Abs(mv - lastAcceptedMv) < 6) return lastAcceptedPct;
+            lastAcceptedPct = pct;
+            lastAcceptedMv = mv;
+            return pct;
+        }
 
         public static int VoltageToPercent(int mv)
         {
@@ -159,7 +190,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -181,7 +212,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         private static byte CalcChecksum(byte[] buf16)
@@ -225,6 +256,7 @@ namespace RazerBatteryTray
                 OVERLAPPED dOl = new OVERLAPPED();
                 dOl.hEvent = hEvent;
                 uint readBytes;
+                ResetEvent(hEvent); // 手动重置事件必须每次 I/O 前清零，否则后续 Wait 会被上次的信号立即唤醒
                 bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
                 if (!ok && Marshal.GetLastWin32Error() == 997) // ERROR_IO_PENDING
                 {
@@ -235,6 +267,9 @@ namespace RazerBatteryTray
                         continue;
                     }
                     CancelIo(handle);
+                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                    GetOverlappedResult(handle, ref dOl, out readBytes, true); // 等内核真正完成，避免 OVERLAPPED 悬垂
                     emptyRounds++;
                     if (emptyRounds >= 2) break;
                     continue;
@@ -247,6 +282,7 @@ namespace RazerBatteryTray
             OVERLAPPED wOl = new OVERLAPPED();
             wOl.hEvent = hEvent;
             uint written;
+            ResetEvent(hEvent);
             bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
             if (!wOk && Marshal.GetLastWin32Error() == 997)
             {
@@ -257,6 +293,9 @@ namespace RazerBatteryTray
                 else
                 {
                     CancelIo(handle);
+                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                    GetOverlappedResult(handle, ref wOl, out written, true);
                     return null;
                 }
             }
@@ -266,6 +305,7 @@ namespace RazerBatteryTray
             OVERLAPPED rOl = new OVERLAPPED();
             rOl.hEvent = hEvent;
             uint rxRead = 0;
+            ResetEvent(hEvent);
             bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
             if (!rOk && Marshal.GetLastWin32Error() == 997)
             {
@@ -277,6 +317,9 @@ namespace RazerBatteryTray
                 else
                 {
                     CancelIo(handle);
+                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
+                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
+                    GetOverlappedResult(handle, ref rOl, out rxRead, true);
                     return null;
                 }
             }
@@ -442,7 +485,7 @@ namespace RazerBatteryTray
                         RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 已忽略异常", diagEx); }
             }
             return false;
         }
@@ -539,7 +582,7 @@ namespace RazerBatteryTray
                         RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 已忽略异常", diagEx); }
             }
             return results;
         }
@@ -681,7 +724,7 @@ namespace RazerBatteryTray
                         RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 已忽略异常", diagEx); }
             }
             return -1;
         }
@@ -1007,9 +1050,13 @@ namespace RazerBatteryTray
 
                     bool displayCharging = (foundBattery >= 0) ? foundCharging : CachedIsCharging;
 
-                    // 实测官方驱动显示的是固件电量计（库仑计）值，而非电压换算值：
-                    // 同一时刻固件 70%、官方 70%，而电压换算为 73%。故主显示统一采用固件电量计，
-                    // 电压仅作参考在悬停提示中展示。
+                    // 电量主显示口径（已按抓包复核修订，勿再改回旧结论）：
+                    //   · 放电（非充电）：主显示 = 电压法（官方 21 点表 + 12mV 压降补偿）。固件库仑计在
+                    //     中间区间会长时间停滞（实测 50% 卡住 100 分钟），无法反映真实掉电；
+                    //   · 充电 / 有线：主显示 = 固件库仑计。充电时电压被抬高，电压法会虚高；
+                    //   · 两种口径都写进悬停提示，便于对照排查。
+                    // 历史注记：早期曾按「官方 = 库仑计」实现（当时观测固件 70% / 官方 70% / 电压 73%），
+                    // 后续抓包推翻了该结论（官方查表前会先扣约 12mV），故改为电压法为主。
                     int displayVoltageMv = (foundVoltageMv > 0) ? foundVoltageMv : CachedBatteryVoltageMv;
 
                     // 品牌与能力动态派生：皂品 Z2 (cid=7 / pid 0xF526 / 0xF527，接收器多 PID 变体) 与 VGN 蜻蜓同属 CompX 方案
@@ -1059,8 +1106,9 @@ namespace RazerBatteryTray
                     // 官方驱动用的是电压法，故放电时主显示与官方对齐用电压法，库仑计仅作参考
                     // 官方驱动查表前会先扣掉约 12mV 的负载压降补偿（实测：3858mV 官方显示 46%，
                     // 而 3858mV 直接查表为 47%；3858-12=3846 查表正好 46%，3863 同理）
+                    // 百分比换算带滞回防抖，悬停提示仍展示原始电压（用户要看真实值）
                     int calibratedMv = displayVoltageMv > 0 ? Math.Max(0, displayVoltageMv - 12) : displayVoltageMv;
-                    int vPct = displayVoltageMv > 0 ? VoltageToPercent(calibratedMv) : -1;
+                    int vPct = displayVoltageMv > 0 ? PercentWithHysteresis(calibratedMv) : -1;
                     bool useVoltageAsMain = isZaopin && !displayCharging && vPct >= 0 && vPct <= 100;
                     int coulombPct = displayBattery;
 
@@ -1089,11 +1137,13 @@ namespace RazerBatteryTray
                         DeviceName = devName,
                         Category = DeviceCategory.Mouse,
                         Transport = transportText,
+                        // 语义约定：IsConnected = 本次在线探测（cmd3）有应答；IsSleeping = 未应答（两者互补）。
+                        // 需要判断「设备是否在位」请用 IsDonglePresent（2.4G 接收器在位时恒为 true）。
                         IsConnected = isMouseOnline,
                         IsSleeping = !isMouseOnline,
                         IsDonglePresent = true,
                         BatteryPercent = displayBattery,
-                        ExactBatteryPercent = displayBattery >= 0 ? displayBattery : 0,
+                        ExactBatteryPercent = displayBattery >= 0 ? displayBattery : -1,
                         IsCharging = displayCharging,
                         BatteryVoltageMv = displayVoltageMv,
                         CustomTooltip = batteryTooltip,

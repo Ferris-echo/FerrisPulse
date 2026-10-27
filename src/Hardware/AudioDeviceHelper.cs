@@ -26,7 +26,7 @@ namespace RazerBatteryTray
             }
             catch
             {
-                try { Process.Start("mmsys.cpl"); } catch { }
+                try { Process.Start("mmsys.cpl"); } catch (Exception diagEx) { Diagnostics.Log("Hardware/AudioDeviceHelper.cs: 已忽略异常", diagEx); }
             }
         }
 
@@ -38,7 +38,7 @@ namespace RazerBatteryTray
             }
             catch
             {
-                try { Process.Start("ms-settings:sound"); } catch { }
+                try { Process.Start("ms-settings:sound"); } catch (Exception diagEx) { Diagnostics.Log("Hardware/AudioDeviceHelper.cs: 已忽略异常", diagEx); }
             }
         }
     }

@@ -85,7 +85,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
             return false;
         }
 
@@ -94,6 +94,7 @@ namespace RazerBatteryTray
             if (string.IsNullOrEmpty(deviceId)) return;
             var variants = GetDeviceIdVariants(deviceId);
 
+            bool hidden = false;
             try
             {
                 using (var key = Registry.CurrentUser.CreateSubKey(HiddenDevicesRegPath))
@@ -104,10 +105,15 @@ namespace RazerBatteryTray
                         {
                             key.SetValue(variants[i], 1, RegistryValueKind.DWord);
                         }
+                        hidden = true;
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
+
+            // 只有「隐藏标记」确实写入成功，才继续删除用户配置与优先级排序。
+            // 否则会留下半完成状态：设备没被隐藏，但用户的自定义配置和排序已经被清空。
+            if (!hidden) return;
 
             for (int i = 0; i < variants.Count; i++)
             {
@@ -127,7 +133,7 @@ namespace RazerBatteryTray
                     if (chg) SavePriorityList(prio);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void UnhideDevice(string deviceId)
@@ -148,7 +154,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static string GetConfiguredPrimaryDeviceId()
@@ -163,7 +169,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
             return null;
         }
 
@@ -179,7 +185,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static bool IsAutoSwitchEnabled()
@@ -195,7 +201,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
             return true;
         }
 
@@ -211,7 +217,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static List<string> GetPriorityList()
@@ -239,7 +245,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
             return list;
         }
 
@@ -256,7 +262,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static List<CustomDeviceConfig> LoadCustomDevices()
@@ -312,12 +318,12 @@ namespace RazerBatteryTray
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
             return list;
         }
 
@@ -341,7 +347,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void DeleteCustomDevice(string deviceId)
@@ -353,11 +359,14 @@ namespace RazerBatteryTray
                 {
                     if (key != null)
                     {
-                        key.DeleteSubKeyTree(deviceId);
+                        // 必须用 throwOnMissingSubKey=false：DeleteCustomDevice 会对同一设备的
+                        // 十多个 ID 变体逐个调用，绝大多数变体并不存在，单参重载会逐个抛 ArgumentException
+                        // （实测每次删除设备产生 12+ 条异常日志）。
+                        key.DeleteSubKeyTree(deviceId, false);
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
 
             try
             {
@@ -367,7 +376,7 @@ namespace RazerBatteryTray
                     SavePriorityList(prio);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
 
             try
             {
@@ -377,7 +386,7 @@ namespace RazerBatteryTray
                     SetConfiguredPrimaryDeviceId("");
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void CleanupDuplicateLogitechDevices()
@@ -393,7 +402,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
 
@@ -415,7 +424,7 @@ namespace RazerBatteryTray
                     DeleteCustomDevice("HID:19F5:A011");
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void CleanupDuplicateRazerDevices()
@@ -438,7 +447,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void CleanupDuplicateValkyrieDevices()
@@ -454,7 +463,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void CleanupDuplicateRapooDevices()
@@ -470,7 +479,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void CleanupDuplicateSteelSeriesDevices()
@@ -487,7 +496,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
 
@@ -506,7 +515,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static void UpdateCustomDeviceBattery(string deviceId, int battery, DateTime lastSeen)
@@ -523,7 +532,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         private static void CleanupPhantomAppleDevices()
@@ -615,7 +624,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/DeviceManager.cs: 已忽略异常", diagEx); }
         }
 
         public static List<MouseBatteryInfo> QueryAllDevices()
@@ -649,7 +658,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2. Query Rapoo
             try
@@ -662,7 +671,7 @@ namespace RazerBatteryTray
                     list.Add(rapoo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.5 Query VGN
             try
@@ -675,7 +684,7 @@ namespace RazerBatteryTray
                     list.Add(vgn);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.6 Query NuPhy
             try
@@ -692,7 +701,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
 
 
@@ -716,7 +725,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.8 Query Valkyrie (Keyboards, Mice, 2.4G Dongles)
             try
@@ -738,7 +747,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.9 Query Universal Gaming Devices (OpenMouse & All-in-One: Lamzu, Vaxee, WLmouse, Pulsar, ATK/VXE, Attack Shark, etc.)
             try
@@ -774,7 +783,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.95 Query Flydigi (APEX 6 / APEX 6 Pro / Vader 5 Pro gamepads)
             try
@@ -810,7 +819,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.96 Query MCHOSE (G87 V2 tri-mode mechanical keyboard)
             try
@@ -846,7 +855,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.965 Query MCHOSE Mouse (A5 V2 Ultra tri-mode gaming mouse)
             try
@@ -882,7 +891,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.97 Query Sony (INZONE Buds WF-G700N wireless earbuds)
             try
@@ -918,7 +927,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.10 Query Apple & Beats Devices (AirPods, Beats Studio/Fit/Solo, Magic Mouse/Trackpad/Keyboard)
             try
@@ -954,7 +963,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.11 Query HyperX Devices (Cloud III Wireless, etc.)
             try
@@ -984,7 +993,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
                         // 2.12 Query SteelSeries Devices (Arctis Nova 5 / 5X Wireless Headset)
             try
@@ -1014,7 +1023,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 2.13 Query Razer wireless headsets (BlackShark V2 Pro 2.4, 64B PA/PI protocol)
             try
@@ -1050,7 +1059,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
 
             // 2.14 Query FDAS Runtime Dynamic Devices (Local adapters/*.fp-adapter.json)
@@ -1106,7 +1115,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 3. Query Custom Devices (Bluetooth / Generic HID)
             try
@@ -1542,7 +1551,7 @@ namespace RazerBatteryTray
                         devInfo.IsDonglePresent = true;
                         int effectiveBatt = batt >= 0 ? batt : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
                         devInfo.BatteryPercent = effectiveBatt;
-                        devInfo.ExactBatteryPercent = effectiveBatt >= 0 ? effectiveBatt : 0;
+                        devInfo.ExactBatteryPercent = effectiveBatt >= 0 ? effectiveBatt : -1;
                         devInfo.LastUpdated = DateTime.Now;
 
                         if (batt >= 0)
@@ -1612,7 +1621,7 @@ namespace RazerBatteryTray
                     list.Add(devInfo);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 3.5 Check custom nicknames configured for Razer or Rapoo devices
             try
@@ -1637,7 +1646,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 3.6 Guarantee no duplicate NuPhy devices in list
             var nuphyDevices = list.FindAll(x => x.Brand == "NuPhy" || NuphyDeviceHelper.IsNuphyDevice(x.DeviceId) || NuphyDeviceHelper.IsNuphyDevice(x.DeviceName));
@@ -1687,7 +1696,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
             // 3.66 Guarantee no duplicate Valkyrie devices in list
             var vkList = list.FindAll(x => x.Brand == "Valkyrie" || x.Brand == "瓦尔基里" || ValkyrieDeviceHelper.IsValkyrieDevice(x.DeviceId));

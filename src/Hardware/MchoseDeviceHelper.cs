@@ -191,7 +191,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         private static void SaveHardwareCache(int battery, bool charging, string deviceName)
@@ -211,7 +211,7 @@ namespace RazerBatteryTray
                     key.SetValue("LastUpdated", DateTime.Now.ToString("o"), RegistryValueKind.String);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseDeviceHelper.cs: 已忽略异常", diagEx); }
         }
 
         private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName)
@@ -283,9 +283,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch
-            {
-            }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseDeviceHelper.cs: 已忽略异常", diagEx); }
             finally
             {
                 HidTransport.Close(handle);

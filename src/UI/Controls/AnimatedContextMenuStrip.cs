@@ -37,7 +37,7 @@ namespace RazerBatteryTray
                 {
                     AnimateWindow(this.Handle, 120, AW_SLIDE | AW_VER_POSITIVE);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Controls/AnimatedContextMenuStrip.cs: 已忽略异常", diagEx); }
             }
             base.SetVisibleCore(value);
         }

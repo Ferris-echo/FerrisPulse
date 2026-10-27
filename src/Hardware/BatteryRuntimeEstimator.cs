@@ -62,7 +62,7 @@ namespace RazerBatteryTray
             {
                 if (!loaded) { loaded = true; LoadLocked(); }
 
-                // 充电判定做 3 次防抖（约 90 秒），避免瞬时误报清零
+                // 充电判定做 3 次防抖（3 × 刷新间隔：10 秒档约 30 秒，30 秒档约 90 秒），避免瞬时误报清零
                 if (charging)
                 {
                     chargingHits++;
@@ -132,8 +132,10 @@ namespace RazerBatteryTray
             {
                 if (!loaded) { loaded = true; LoadLocked(); }
                 if (sessionStart == DateTime.MinValue || samples.Count == 0) return false;
-                spanHours = (DateTime.Now - sessionStart).TotalHours;
-                dropPercent = sessionStartPercent - samples[samples.Count - 1].Percent;
+                // 以「样本窗口首点」为基准，而非会话起点：samples 会被 MaxWindow(10h) 裁剪，
+                // 若仍按 sessionStart 计算，超过 10 小时的会话会出现「阈值判定用旧数据、拟合用新数据」的口径不一致
+                spanHours = (DateTime.Now - samples[0].Time).TotalHours;
+                dropPercent = samples[0].Percent - samples[samples.Count - 1].Percent;
                 return spanHours > 0;
             }
         }
@@ -294,7 +296,7 @@ namespace RazerBatteryTray
                     else key.DeleteValue("VSamples", false);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/BatteryRuntimeEstimator.cs: 已忽略异常", diagEx); }
         }
 
         private static void LoadLocked()
@@ -361,7 +363,7 @@ namespace RazerBatteryTray
                     sessionStartPercent = startPct;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/BatteryRuntimeEstimator.cs: 已忽略异常", diagEx); }
         }
     }
 }

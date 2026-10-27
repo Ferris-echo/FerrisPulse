@@ -76,7 +76,7 @@ namespace RazerBatteryTray
                 if (ActionClicked != null) ActionClicked();
                 else
                 {
-                    try { Process.Start("ms-settings:sound"); } catch { }
+                    try { Process.Start("ms-settings:sound"); } catch (Exception diagEx) { Diagnostics.Log("UI/Controls/HeadsetStatusTile.cs: 已忽略异常", diagEx); }
                 }
             }
         }

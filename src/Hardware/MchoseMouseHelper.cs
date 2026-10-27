@@ -121,7 +121,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseMouseHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static void SaveHardwareCache()
@@ -142,7 +142,7 @@ namespace RazerBatteryTray
                     if (CachedLastUpdated != DateTime.MinValue) key.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseMouseHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static bool IsMchoseDevice(string value)
@@ -505,7 +505,7 @@ namespace RazerBatteryTray
                     list.Add(dev);
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/MchoseMouseHelper.cs: 已忽略异常", diagEx); }
             return list;
         }
 

@@ -406,9 +406,9 @@ namespace RazerBatteryTray
                     copyTimer.Start();
 
                     string qqShareUrl = "https://qun.qq.com/universal-share/share?ac=1&authKey=jSTwQOun56pd3gi6ts34tN%2F6TDFrBouMRWJE%2BSsHaKS7%2FrrSlKHLu%2FXYJXfDZpl%2B&busi_data=eyJncm91cENvZGUiOiI1ODAxODA0NTIiLCJ0b2tlbiI6Ind2Y1ZocnhsekFnVi8xN3AzOXl1dTY5VlA2NWtCSFd6NFphcXR2dHhCTW10R3NwYWpyZmhGNXdNS3ZhS2owZzAiLCJ1aW4iOiIyOTQ5MjI1ODQwIn0%3D&data=8-Avoq-5DTwgCiC_xlKHxhhhnZp7d66IdyHPeha1XGGNxS3pp9s1uPoyaE-RtU_ZhIb74Px33-A1ZRe3oIw8vQ&svctype=4&tempid=h5_group_info";
-                    try { Process.Start(qqShareUrl); } catch { }
+                    try { Process.Start(qqShareUrl); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
             };
             cardDonate.Controls.Add(lnkQQ);
 
@@ -422,7 +422,7 @@ namespace RazerBatteryTray
             lnkGithub.AutoSize = true;
             lnkGithub.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
-                try { Process.Start("https://github.com/Ferris-echo/FerrisPulse"); } catch { }
+                try { Process.Start("https://github.com/Ferris-echo/FerrisPulse"); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
             };
             cardDonate.Controls.Add(lnkGithub);
 
@@ -687,7 +687,7 @@ namespace RazerBatteryTray
                 typeof(Control).GetProperty("DoubleBuffered", BindingFlags.NonPublic | BindingFlags.Instance)
                     .SetValue(c, true, null);
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
         }
 
         private static void CenterControlHorizontally(Control ctrl, int containerWidth)
@@ -1250,7 +1250,7 @@ namespace RazerBatteryTray
                     }
                     f.Dispose();
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
             }
             return new Font("Microsoft YaHei UI", size, style);
         }
@@ -1575,7 +1575,7 @@ namespace RazerBatteryTray
                     pnlBack.DrawToBitmap(snapBack, new Rectangle(0, 0, w, h));
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
 
             Color[] moteColors = new Color[]
             {
@@ -2023,7 +2023,7 @@ namespace RazerBatteryTray
                     NativeMethods.ReleaseCapture();
                     NativeMethods.SendMessage(this.Handle, NativeMethods.WM_NCLBUTTONDOWN, (IntPtr)NativeMethods.HT_CAPTION, IntPtr.Zero);
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
             }
         }
 
@@ -2110,27 +2110,27 @@ namespace RazerBatteryTray
                 UpdateManager.OnPendingUpdateChanged -= OnPendingUpdateChangedHandler;
                 if (animationTimer != null)
                 {
-                    try { animationTimer.Stop(); animationTimer.Dispose(); } catch { }
+                    try { animationTimer.Stop(); animationTimer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                     animationTimer = null;
                 }
                 if (noteResetTimer != null)
                 {
-                    try { noteResetTimer.Stop(); noteResetTimer.Dispose(); } catch { }
+                    try { noteResetTimer.Stop(); noteResetTimer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                     noteResetTimer = null;
                 }
                 if (shatterTimer != null)
                 {
-                    try { shatterTimer.Stop(); shatterTimer.Dispose(); } catch { }
+                    try { shatterTimer.Stop(); shatterTimer.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                     shatterTimer = null;
                 }
                 if (snapFront != null)
                 {
-                    try { snapFront.Dispose(); } catch { }
+                    try { snapFront.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                     snapFront = null;
                 }
                 if (snapBack != null)
                 {
-                    try { snapBack.Dispose(); } catch { }
+                    try { snapBack.Dispose(); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/AboutForm.cs: 已忽略异常", diagEx); }
                     snapBack = null;
                 }
             }

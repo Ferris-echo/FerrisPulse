@@ -59,7 +59,7 @@ namespace RazerBatteryTray
                             {
                                 if (XInput910_SetState(i, ref vibOn) == 0) { matchedIndex = i; break; }
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("Hardware/XInputHelper.cs: 已忽略异常", diagEx); }
                         }
                     }
 
@@ -69,11 +69,11 @@ namespace RazerBatteryTray
                         try { XInput14_SetState(matchedIndex, ref vibOff); }
                         catch
                         {
-                            try { XInput910_SetState(matchedIndex, ref vibOff); } catch { }
+                            try { XInput910_SetState(matchedIndex, ref vibOff); } catch (Exception diagEx) { Diagnostics.Log("Hardware/XInputHelper.cs: 已忽略异常", diagEx); }
                         }
                     }
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/XInputHelper.cs: 已忽略异常", diagEx); }
             }));
             return true;
         }

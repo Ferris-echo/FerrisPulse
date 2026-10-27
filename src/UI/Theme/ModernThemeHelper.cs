@@ -58,7 +58,7 @@ namespace RazerBatteryTray
                 int borderCol = 0x003A2E2A;
                 DwmSetWindowAttribute(hWnd, DWMWA_BORDER_COLOR, ref borderCol, sizeof(int));
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Theme/ModernThemeHelper.cs: 已忽略异常", diagEx); }
         }
 
         public static GraphicsPath GetRoundedRectangle(Rectangle bounds, int radius)

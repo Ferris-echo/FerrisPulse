@@ -225,7 +225,7 @@ namespace RazerBatteryTray
                     return def;
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
         }
 
@@ -301,10 +301,10 @@ namespace RazerBatteryTray
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
                         }
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
                 }
 
                 loadedAdapters = list;
@@ -498,7 +498,7 @@ namespace RazerBatteryTray
 
                         result.Add(dev);
                     }
-                    catch { }
+                    catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
                 }
 
                 return result;
@@ -883,7 +883,7 @@ namespace RazerBatteryTray
                     if (list.Count > 0) return list.ToArray();
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
         }
 
@@ -907,7 +907,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return map;
         }
 
@@ -927,7 +927,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return map;
         }
 
@@ -948,7 +948,7 @@ namespace RazerBatteryTray
                     if (list.Count > 0) return list.ToArray();
                 }
             }
-            catch { }
+            catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
         }
 
@@ -982,7 +982,7 @@ namespace RazerBatteryTray
                 {
                     bytes.Add(Convert.ToByte(tokens[i], 16));
                 }
-                catch { }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             }
             return bytes.ToArray();
         }

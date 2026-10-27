@@ -526,7 +526,7 @@ namespace RazerBatteryTray
                     key.SetValue(deviceId, string.Format("{0}|{1}|{2}", battery, charging, DateTime.Now.Ticks.ToString()));
                 }
             }
-            catch { }
+            catch { }  // 该文件被 test_razer_headset_blackshark 单独编译，不能引用 Diagnostics
         }
 
         private static bool LoadCache(string deviceId, out int battery, out int charging)
