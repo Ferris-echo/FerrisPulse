@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -1186,6 +1186,37 @@ namespace RazerBatteryTray
                                     UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.13c Query ASUS Devices (PELTA, Scope II RX, Azoth Omni Keyboards)
+            try
+            {
+                var asusDevices = AsusDeviceHelper.QueryAllAsusDevices();
+                if (asusDevices != null && asusDevices.Count > 0)
+                {
+                    foreach (var dev in asusDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            if (!list.Exists(x => string.Equals(x.HardwareFingerprint, dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                list.Add(dev);
+                        }
+                    }
+                }
+
+                var asusKbs = AsusDeviceHelper.QueryAllKeyboards();
+                if (asusKbs != null && asusKbs.Count > 0)
+                {
+                    foreach (var dev in asusKbs)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            if (!list.Exists(x => string.Equals(x.DeviceId, dev.DeviceId, StringComparison.OrdinalIgnoreCase)))
+                                list.Add(dev);
                         }
                     }
                 }

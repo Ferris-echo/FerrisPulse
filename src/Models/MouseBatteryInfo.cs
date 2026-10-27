@@ -48,6 +48,7 @@ namespace RazerBatteryTray
         public int BatteryPercent { get; set; }
         public double ExactBatteryPercent { get; set; }
         public bool IsCharging { get; set; }
+        public bool IsChargingUnknown { get; set; }
         public DateTime LastUpdated { get; set; }
 
         public int Dpi { get; set; }

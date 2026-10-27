@@ -830,6 +830,12 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // ASUS PELTA, wired Scope II RX, and ROG OMNI Receiver have dedicated classification. Never send mouse probes.
+            if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
+            {
+                string asusPath = path.ToLowerInvariant();
+                if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1ab5") || asusPath.Contains("pid_1ace")) return false;
+            }
             // 258A:01BB 的 Z75/Z75S 为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
             if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
                 path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
