@@ -107,6 +107,11 @@ namespace RazerBatteryTray
                     bool voltageAdded = false;
                     if (voltSamples.Count == 0 || Math.Abs(voltageMv - voltSamples[voltSamples.Count - 1].Millivolts) >= 4)
                     {
+                        // 电压回升 >10mV：发生了充电/插拔，旧放电趋势作废，重新积累
+                        if (voltSamples.Count > 0 && voltageMv > voltSamples[voltSamples.Count - 1].Millivolts + 10)
+                        {
+                            voltSamples.Clear();
+                        }
                         voltSamples.Add(new VoltSample { Time = now, Millivolts = voltageMv });
                         while (voltSamples.Count > MaxSamples) voltSamples.RemoveAt(0);
                         voltageAdded = true;
@@ -203,12 +208,18 @@ namespace RazerBatteryTray
                 int n = voltSamples.Count;
                 if (n < 2) return false;
 
-                DateTime t0 = voltSamples[0].Time;
+                // 只取尾部「连续放电段」：相邻样本间隔 ≤10 分钟，跨睡眠/中断的旧样本不参与
+                int start = n - 1;
+                while (start > 0 && (voltSamples[start].Time - voltSamples[start - 1].Time).TotalMinutes <= 10)
+                {
+                    start--;
+                }
+                DateTime t0 = voltSamples[start].Time;
                 DateTime t1 = voltSamples[n - 1].Time;
                 double spanHours = (t1 - t0).TotalHours;
                 if (spanHours < 0.5) return false;
 
-                int dropMv = voltSamples[0].Millivolts - voltSamples[n - 1].Millivolts;
+                int dropMv = voltSamples[start].Millivolts - voltSamples[n - 1].Millivolts;
                 if (dropMv < 15) return false;
 
                 double mvPerHour = dropMv / spanHours;
@@ -236,8 +247,13 @@ namespace RazerBatteryTray
             {
                 if (!loaded) { loaded = true; LoadLocked(); }
                 if (voltSamples.Count < 2) return false;
-                spanHours = (voltSamples[voltSamples.Count - 1].Time - voltSamples[0].Time).TotalHours;
-                dropMv = voltSamples[0].Millivolts - voltSamples[voltSamples.Count - 1].Millivolts;
+                int st = voltSamples.Count - 1;
+                while (st > 0 && (voltSamples[st].Time - voltSamples[st - 1].Time).TotalMinutes <= 10)
+                {
+                    st--;
+                }
+                spanHours = (voltSamples[voltSamples.Count - 1].Time - voltSamples[st].Time).TotalHours;
+                dropMv = voltSamples[st].Millivolts - voltSamples[voltSamples.Count - 1].Millivolts;
                 return spanHours > 0;
             }
         }
