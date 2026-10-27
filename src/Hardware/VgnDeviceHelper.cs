@@ -148,6 +148,39 @@ namespace RazerBatteryTray
             return 8.0;
         }
 
+        // 省电模式：启动后不回立即查询设备（避免把鼠标从 LP 低功耗推到 HP 高性能），
+        // 首屏显示上次缓存值，延迟一段时间才首次真正读取。
+        private const string EcoModeValueName = "EcoMode";
+
+        public static bool EcoModeEnabled
+        {
+            get
+            {
+                try
+                {
+                    using (var key = Registry.CurrentUser.OpenSubKey(CacheRegistryKey, false))
+                    {
+                        if (key == null) return false;
+                        var v = key.GetValue(EcoModeValueName);
+                        return v != null && Convert.ToInt32(v) == 1;
+                    }
+                }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 读取省电模式失败", diagEx); }
+                return false;
+            }
+            set
+            {
+                try
+                {
+                    using (var key = Registry.CurrentUser.CreateSubKey(CacheRegistryKey))
+                    {
+                        if (key != null) key.SetValue(EcoModeValueName, value ? 1 : 0, RegistryValueKind.DWord);
+                    }
+                }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 写入省电模式失败", diagEx); }
+            }
+        }
+
         public static void LoadHardwareCache()
         {
             try
@@ -620,6 +653,111 @@ namespace RazerBatteryTray
                 case 2000: return 16;
                 case 4000: return 32;
                 default: return 0;
+            }
+        }
+
+        // 休眠时间写入（抓包实测：地址 0xAD，code = 秒数 / 10，校验 0x55 - code）
+        // 官方档位：10秒(1)、30秒(3)、1分钟(6)、5分钟(30)、10分钟(60)、15分钟(90)、
+        //           20分钟(120)、25分钟(150)、30分钟(180，上限 0xB4)
+        public static bool SetVgnSleepTime(int seconds)
+        {
+            if (seconds < 10 || seconds > 1800) return false;
+            int code = seconds / 10;
+            if (code < 1 || code > 180) return false;
+            return ExecuteVgnWriteBytes(0xAD, new byte[] { (byte)code, (byte)((0x55 - code) & 0xFF) });
+        }
+
+        // 读取休眠时间（返回秒数；失败返回 -1）
+        public static int GetVgnSleepTime()
+        {
+            lock (hidLock)
+            {
+                try
+                {
+                    Guid hidGuid;
+                    RazerDeviceHelper.HidD_GetHidGuid(out hidGuid);
+                    IntPtr devInfo = RazerDeviceHelper.SetupDiGetClassDevs(ref hidGuid, null, IntPtr.Zero, 0x12);
+                    if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return -1;
+
+                    RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA ifData = new RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA();
+                    uint memberIdx = 0;
+                    try
+                    {
+                        ifData.cbSize = Marshal.SizeOf(ifData);
+                        while (RazerDeviceHelper.SetupDiEnumDeviceInterfaces(devInfo, IntPtr.Zero, ref hidGuid, memberIdx++, ref ifData))
+                        {
+                            uint reqSize;
+                            RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                            if (reqSize == 0) continue;
+
+                            IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                            {
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                if (devicePath != null && devicePath.ToLower().Contains("vid_3554"))
+                                {
+                                    IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                    {
+                                        try
+                                        {
+                                            IntPtr preparsed;
+                                            if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
+                                            {
+                                                RazerDeviceHelper.HIDP_CAPS caps;
+                                                RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                                                RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                {
+                                                    IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
+                                                    if (hEvent != IntPtr.Zero)
+                                                    {
+                                                        try
+                                                        {
+                                                            Random rnd = new Random();
+                                                            byte[] randBytes = new byte[8] { (byte)rnd.Next(256), (byte)rnd.Next(256), (byte)rnd.Next(256), (byte)rnd.Next(256), 0, 0, 0, 0 };
+                                                            SendAndReceive(handle, hEvent, BuildReport17(1, randBytes), caps.InputReportByteLength, 300);
+                                                            SendAndReceive(handle, hEvent, BuildReport17(2, new byte[1] { 1 }), caps.InputReportByteLength, 200);
+                                                            SendAndReceive(handle, hEvent, BuildReport17(3, null), caps.InputReportByteLength, 300);
+
+                                                            for (int retry = 0; retry < 3; retry++)
+                                                            {
+                                                                byte[] tx = BuildConfigReport(0x08, 0xAD, new byte[2]);
+                                                                byte[] rx = SendAndReceive(handle, hEvent, tx, caps.InputReportByteLength, 300);
+                                                                if (rx != null && rx.Length > 7 && rx[1] == 0x08 && rx[5] == 2 && ((rx[6] + rx[7]) & 0xFF) == 0x55)
+                                                                {
+                                                                    return rx[6] * 10;
+                                                                }
+                                                            }
+                                                        }
+                                                        finally
+                                                        {
+                                                            RazerDeviceHelper.CloseHandle(hEvent);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            RazerDeviceHelper.CloseHandle(handle);
+                                        }
+                                    }
+                                }
+                                Marshal.FreeHGlobal(detailBuffer);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+                    }
+                }
+                catch (Exception diagEx) { Diagnostics.Log("Hardware/VgnDeviceHelper.cs: 读取休眠时间失败", diagEx); }
+                return -1;
             }
         }
 

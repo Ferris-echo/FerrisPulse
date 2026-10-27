@@ -36,21 +36,38 @@ namespace RazerBatteryTray
             RapooDeviceHelper.CloseRapooStream();
         }
 
+        // 仅在状态变化时落盘，避免每 50ms 刷日志
+        private string lastDpiMonState = null;
+
+        private void LogDpiMonState(string state)
+        {
+            if (state == lastDpiMonState) return;
+            lastDpiMonState = state;
+            Diagnostics.Log("DpiMonitor: " + state);
+        }
+
         private void DpiMonitorWorker()
         {
             while (isDpiMonitorRunning)
             {
                 try
                 {
-                    // 1. 空闲退避：窗口隐藏且未开启 DPI OSD 时，界面既看不到 DPI 变化、也不需要弹 OSD，
-                    //    把轮询从 800ms 放慢到 30s（实测 USB 轮询会阻止无线鼠标进入休眠，5s 一次就能让它
-                    //    整晚不睡；30s 能减少约 37 倍总线流量与唤醒次数）。窗口恢复可见后下一轮立即回到 50ms。
-                    if (!dpiOsdEnabled && !this.Visible)
+                    // 1. 空闲暂停：窗口隐藏时停止设备查询，**仅在检测到全屏游戏时保持监听**。
+                    //    原因：OSD 开启时原逻辑完全不退避，以 50ms 周期轮询各类设备（VGN/Logitech/
+                    //    Rapoo 全走一遍），持续占用 USB 总线 → 无线鼠标永远无法进入休眠（实测 LED 常亮）。
+                    //    策略：游戏中（isGamingActive）保留监听以便弹 DPI OSD；非游戏且窗口隐藏时
+                    //    完全不碰设备，让鼠标按自身 idle 计时休眠。
+                    // 用 isBackgroundMode（含「最小化」）而非只看 Visible：
+                    // 点 × 最小化到托盘时 Visible 仍为 true，旧条件会漏判 → DPI 监听继续以 50ms
+                    // 轮询设备，导致鼠标无法休眠（实测：主轮询已静默 284s 但 LED 仍常亮）。
+                    if (isBackgroundMode && !isGamingActive)
                     {
-                        // ⚠️ 保持 30s：间隔再长会让 USB 设备被挂起，恢复访问时触发原生崩溃。
-                        Thread.Sleep(30000);
+                        LogDpiMonState("已暂停 bg=1 gaming=0");
+                        // 3s 一轮只做状态检查，不触碰任何设备
+                        Thread.Sleep(3000);
                         continue;
                     }
+                    LogDpiMonState(string.Format("运行中 bg={0} gaming={1}", isBackgroundMode ? 1 : 0, isGamingActive ? 1 : 0));
 
                     // 2. 收集当前需要监听 DPI 的雷蛇鼠标设备（仅针对鼠标类别，杜绝键盘等其他外设误入）
                     List<string> rzTargets = new List<string>();

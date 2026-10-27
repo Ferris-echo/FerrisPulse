@@ -341,6 +341,38 @@ namespace RazerBatteryTray
             intervalMenu.DropDownItems.AddRange(new ToolStripItem[] { int10sMenuItem, int30sMenuItem, int1mMenuItem, int5mMenuItem, intCustomMenuItem });
             contextMenu.Items.Add(intervalMenu);
 
+            // 鼠标休眠时间（皂品 Z2 / VGN：写入板载地址 0xAD，单位 10 秒）
+            var sleepMenu = new ToolStripMenuItem("鼠标休眠时间");
+            ConfigureSubMenuDropDown(sleepMenu.DropDown);
+            int[] sleepSeconds = new int[] { 10, 30, 60, 300, 600, 1500, 1800 };
+            string[] sleepLabels = new string[] { "10 秒", "30 秒", "1 分钟", "5 分钟", "10 分钟", "25 分钟", "30 分钟" };
+            for (int si = 0; si < sleepSeconds.Length; si++)
+            {
+                int sec = sleepSeconds[si];
+                string lbl = sleepLabels[si];
+                var item = new ToolStripMenuItem(lbl, null, (s2, e2) =>
+                {
+                    bool ok = VgnDeviceHelper.SetVgnSleepTime(sec);
+                    if (ok) SafeShowBalloonTip(1200, "鼠标休眠时间", "已设为 " + lbl + "（写入板载）", ToolTipIcon.Info);
+                    else SafeShowBalloonTip(1500, "鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
+                });
+                sleepMenu.DropDownItems.Add(item);
+            }
+            contextMenu.Items.Add(sleepMenu);
+
+            // 省电模式（启动不立即查询设备）
+            var ecoItem = new ToolStripMenuItem("省电模式（启动不唤醒鼠标）");
+            ecoItem.CheckOnClick = true;
+            ecoItem.Checked = VgnDeviceHelper.EcoModeEnabled;
+            ecoItem.Click += (s3, e3) =>
+            {
+                VgnDeviceHelper.EcoModeEnabled = ecoItem.Checked;
+                SafeShowBalloonTip(1600, "省电模式",
+                    ecoItem.Checked ? "已开启：启动时直接显示缓存电量，5 分钟后自动刷新" : "已关闭：启动时立即读取设备电量",
+                    ToolTipIcon.Info);
+            };
+            contextMenu.Items.Add(ecoItem);
+
             var styleMenu = new ToolStripMenuItem("托盘图标样式");
             ConfigureSubMenuDropDown(styleMenu.DropDown);
             styleCapsuleItem = new ToolStripMenuItem("现代胶囊电池", null, (s, e) => {

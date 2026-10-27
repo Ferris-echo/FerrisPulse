@@ -29,6 +29,8 @@ namespace RazerBatteryTray
         {
             this.statusText = text ?? "";
             this.Text = this.statusText;
+            // 有真实状态即应展示（初始状态可能被显式隐藏，避免展示占位文案）
+            if (!this.Visible) this.Visible = true;
             this.statusColor = color;
             try
             {

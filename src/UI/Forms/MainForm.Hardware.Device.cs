@@ -143,11 +143,18 @@ namespace RazerBatteryTray
 
         private void StartBootPolling()
         {
+            // 省电模式：启动阶段完全不查询设备（缓存值由 ShowEcoCachedState 显示）。
+            // 任何一次查询都会把鼠标从低功耗推到高性能并打断其休眠计时，
+            // 因此这里直接不启动轮询，由用户「立即刷新」或打开窗口时主动触发。
+            if (VgnDeviceHelper.EcoModeEnabled) return;
+
             bootPollCount = 0;
             if (bootPollTimer == null)
             {
                 bootPollTimer = new System.Windows.Forms.Timer();
-                bootPollTimer.Interval = 1200;
+                // 省电模式：启动时不立刻查询（查询会把鼠标从 LP 推到 HP，导致其无法休眠），
+                // 首屏沿用上次缓存值，5 分钟后再取一次。
+                bootPollTimer.Interval = VgnDeviceHelper.EcoModeEnabled ? 300000 : 1200;
                 bootPollTimer.Tick += (s, e) =>
                 {
                     bootPollCount++;
@@ -162,7 +169,8 @@ namespace RazerBatteryTray
                             catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Hardware.Device.cs: 已忽略异常", diagEx); }
                         });
                     }
-                    if (bootPollCount >= 8 || (lastInfo != null && lastInfo.IsConnected && !lastInfo.IsSleeping && lastInfo.BatteryPercent > 0))
+                    int maxBootPolls = VgnDeviceHelper.EcoModeEnabled ? 1 : 8;
+                    if (bootPollCount >= maxBootPolls || (lastInfo != null && lastInfo.IsConnected && !lastInfo.IsSleeping && lastInfo.BatteryPercent > 0))
                     {
                         bootPollTimer.Stop();
                     }
@@ -173,8 +181,26 @@ namespace RazerBatteryTray
 
 
 
+        // 省电模式：启动后这段时间内忽略所有「自动」查询（用户主动刷新不受限），
+        // 目的是不让程序在开机就把鼠标从 LP 低功耗推到 HP 高性能。
+        private static readonly DateTime appStartUtc = DateTime.UtcNow;
+        private static readonly TimeSpan ecoBootQuietWindow = TimeSpan.FromMinutes(5);
+
         private void RefreshBatteryStatus(bool showTipIfManual)
         {
+            // 单一守口：所有自动查询路径（启动轮询/可见性刷新/物理态同步/定时器）都汇到这里，
+            // 省电模式启动窗口内直接返回，避免逐处打补丁时漏掉某条路径。
+            // 省电模式启动静默窗口内，**所有自动刷新一律拦截**（含唤醒刷新）。
+            // 早期版本给唤醒刷新开了例外，结果启动时「点图标」的鼠标输入就被当成唤醒，
+            // 立刻触发一次查询把鼠标推到 HP（实测灯随即亮起）。只有用户主动操作
+            //（立即刷新 / 切设备等 showTipIfManual=true）才放行。
+            if (!showTipIfManual && VgnDeviceHelper.EcoModeEnabled
+                && (DateTime.UtcNow - appStartUtc) < ecoBootQuietWindow)
+            {
+                return;
+            }
+            if (wakeRefreshPending) wakeRefreshPending = false;
+
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
@@ -550,6 +576,23 @@ namespace RazerBatteryTray
             });
         }
 
+        // 判断用户是否已闲置指定秒数（读系统最后输入时间，零 USB 开销）
+        private bool IsUserIdle(int seconds)
+        {
+            try
+            {
+                LASTINPUTINFO info = new LASTINPUTINFO();
+                info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(LASTINPUTINFO));
+                if (!GetLastInputInfo(ref info)) return false;
+                uint idleMs = unchecked((uint)Environment.TickCount - info.dwTime);
+                // TickCount 会在 49.7 天回绕，用差值比较即可
+                if (idleMs > 0x7FFFFFFF) return false;
+                return idleMs >= (uint)(seconds * 1000);
+            }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Hardware.Device.cs: 闲置判断失败", diagEx); }
+            return false;
+        }
+
         private void UpdateUI(MouseBatteryInfo info, bool showTipIfManual)
         {
             if (info == null)
@@ -738,10 +781,15 @@ namespace RazerBatteryTray
                 info.BatteryPercent = cached > 0 ? cached : -1;
             }
 
-            if (info.IsSleeping)
+            // 待机展示条件：设备真休眠，或用户已闲置一段时间。
+            // 后者是因为实测设备被查询唤醒后不会自行回到低功耗，IsSleeping 长期为 false，
+            // 导致「闲置待机」这个状态永远看不到；用系统输入时间兜底更贴近用户直觉。
+            bool userIdle = IsUserIdle(120);
+            if (info.IsSleeping || userIdle)
             {
-                isMouseSleeping = true;
-                if (info.Category == DeviceCategory.Mouse)
+                // 只有设备真的休眠时才启用 RawInput 唤醒检测（闲置不代表设备睡了）
+                isMouseSleeping = info.IsSleeping;
+                if (info.IsSleeping && info.Category == DeviceCategory.Mouse)
                 {
                     EnableMouseWakeDetector(true);
                 }
@@ -811,7 +859,9 @@ namespace RazerBatteryTray
             }
             else
             {
-                mouseConnPill = (info.Transport != null && info.Transport.Length > 0) ? info.Transport : "2.4G 无线";
+                // 不再回落到 Transport 原文：该字段形态不统一（可能是 "2.4G"、"2.4G-WiFi" 等），
+                // 会显示成非规范文案。统一用「2.4G 无线」。
+                mouseConnPill = "2.4G 无线";
             }
 
             lblDeviceName.Text = info.DisplayName;
@@ -848,7 +898,7 @@ namespace RazerBatteryTray
             }
 
             string normalTimeStr = info.LastUpdated.ToString("HH:mm:ss");
-            string chgDetail = info.IsCharging ? " · 正在充电" : " · 自动侦测硬件插拔";
+            string chgDetail = info.IsCharging ? " · 正在充电" : " · 自动侦测插拔";
             // 常驻显示电池电压（放电时主显示为电压法，充电/有线时回落固件库仑计）
             string voltDetail = (info.BatteryVoltageMv > 0) ? string.Format(" · {0}.{1:D3}V", info.BatteryVoltageMv / 1000, info.BatteryVoltageMv % 1000) : "";
 
@@ -862,7 +912,7 @@ namespace RazerBatteryTray
             {
                 if (BatteryRuntimeEstimator.TryEstimate(out remainHours, out pctPerHour))
                 {
-                    runtimeDetail = string.Format(" · 预计 {0:0.#}h", remainHours);
+                    runtimeDetail = string.Format(" · 预计 {0:0.#}h（空闲）", remainHours);
                     runtimeTip = string.Format("\r\n放电速率: {0:0.0}%/小时 · 预计剩余 {1:0.#} 小时", pctPerHour, remainHours);
                 }
                 else if (BatteryRuntimeEstimator.TryEstimateRough(out remainHours, out pctPerHour))

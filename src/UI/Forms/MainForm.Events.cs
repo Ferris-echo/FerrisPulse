@@ -173,6 +173,11 @@ namespace RazerBatteryTray
         {
             try
             {
+                // 轮询已暂停（窗口隐藏/最小化）：不查询设备（省电）。
+                // 注意：隐藏期不注册 RawInput（RIDEV_INPUTSINK 会阻止 USB 挂起），
+                // 唤醒刷新由 wakeCheckTimer + GetLastInputInfo 负责，见 ApplyAdaptiveInterval。
+                if (updateTimer != null && !updateTimer.Enabled) return;
+
                 var cur = lastInfo;
                 // 只依赖 IsSleeping：各品牌对 IsConnected 的定义不一致（有的表示「在线有应答」，
                 // 有的表示「设备在位」）。原先写成 !IsConnected && IsSleeping，隐含假设两者互补，

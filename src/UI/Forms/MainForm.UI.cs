@@ -184,7 +184,9 @@ namespace RazerBatteryTray
             pillStatus.Location = new Point((int)(150 * dpiScale), (int)(56 * dpiScale));
             pillStatus.Size = new Size((int)(80 * dpiScale), (int)(32 * dpiScale));
             pillStatus.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold, GraphicsUnit.Point);
-            pillStatus.SetStatus("● 正常运行", Color.FromArgb(0, 230, 118));
+            // 首次刷新前不展示任何状态：此前这里写死「● 正常运行」，
+            // 会在拿到真实数据前误导用户，且必然被 UpdateUI 覆盖（死代码）。
+            pillStatus.Visible = false;
             cardBattery.Controls.Add(pillStatus);
 
             barBattery = new ModernProgressBar();
@@ -196,7 +198,7 @@ namespace RazerBatteryTray
             cardBattery.Controls.Add(barBattery);
 
             lblUpdateTime = new Label();
-            lblUpdateTime.Text = "最后同步: --:--:-- · 自动侦测硬件插拔";
+            lblUpdateTime.Text = "最后同步: --:--:-- · 自动侦测插拔";
             lblUpdateTime.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
             lblUpdateTime.ForeColor = Color.FromArgb(135, 142, 156);
             lblUpdateTime.BackColor = Color.Transparent;

@@ -354,6 +354,20 @@ namespace RazerBatteryTray
 
         private volatile bool isMouseSleeping = false;
 
+        // 窗口是否处于后台（最小化或隐藏）。由 UI 线程在 ApplyAdaptiveInterval 中更新，
+        // 供 DpiMonitorWorker 等后台线程读取——后台线程不能直接读 WindowState/Visible
+        // （最小化时 Visible 仍为 true，只判 Visible 会漏掉「最小化到托盘」这种最常见场景）。
+        private volatile bool isBackgroundMode = false;
+
+        // 是否已经历过首次显示（用于省电模式下跳过启动时的首次查询）
+        private bool hasShownOnce = false;
+
+        // 唤醒刷新标记（仅在窗口可见时由 GetLastInputInfo 触发，10 秒检测、60 秒节流）。
+        // 注意：它**不能**绕过省电守卫——启动时点击图标的输入会被误判为「唤醒」，
+        // 因此静默窗口内所有自动刷新一律被拦下，只有用户主动操作才放行。
+        private volatile bool wakeRefreshPending = false;
+        private DateTime lastWakeRefreshUtc = DateTime.MinValue;
+
         private System.Windows.Forms.Timer bootPollTimer;
 
         private int bootPollCount = 0;
@@ -1217,7 +1231,22 @@ namespace RazerBatteryTray
 
             {
 
-                SyncAllDevicesPhysicalState();
+                // 窗口重新可见：隐藏期间完全不查询（省电策略），此刻需立即补一次，
+                // 否则要等下一个 tick（最长一个刷新间隔）才更新，用户会看到旧电量。
+                // 例外：省电模式下**首次显示**不查询——那正是「启动即把鼠标从 LP 推到 HP」的元凶。
+                bool skipFirstQuery = VgnDeviceHelper.EcoModeEnabled && !hasShownOnce;
+                hasShownOnce = true;
+                if (!skipFirstQuery)
+                {
+                    RefreshBatteryStatus(false);
+                    // SyncAllDevicesPhysicalState 内部也会 RefreshBatteryStatus，必须一起跳过
+                    SyncAllDevicesPhysicalState();
+                }
+                else
+                {
+                    // 省电模式启动不查询：用上次缓存值填充界面，避免显示「未连接设备」误导用户
+                    ShowEcoCachedState();
+                }
 
                 UpdatePollingRateDisplayStates();
 
@@ -1632,14 +1661,114 @@ namespace RazerBatteryTray
             }
 
             bool background = (this.WindowState == FormWindowState.Minimized) || !this.Visible;
+            isBackgroundMode = background;
 
-            // 后台（最小化/隐藏）时把电量轮询退避到至少 30s。
-            // ⚠️ 不可再延长：实测间隔 ≥60s 时 Windows 会挂起 USB 设备，下次查询会触发原生崩溃
-            // （进程静默消失，无 .NET 异常、无 CrashDump）。30s 是已验证稳定的下限。
-            int target = background ? Math.Max(userSelectedInterval, 30000) : userSelectedInterval;
+            // 与官方驱动一致的休眠策略（实测结论，勿轻易改动）：
+            //   窗口可见 → 按用户设定间隔轮询
+            //   窗口隐藏/最小化 → **停止轮询，且不注册 RawInput**，让鼠标真正进入休眠。
+            // 为什么连 RawInput 也要取消：RIDEV_INPUTSINK 注册后 Windows 会持续从鼠标
+            //   数据口读取输入报告，设备因此永远不挂起（实测：零查询 44 秒后接收器灯仍亮；
+            //   反之仅官方驱动在跑时灯灭）。代价：隐藏期间托盘电量不刷新（官方同样如此）。
+            if (background)
+            {
+                if (updateTimer.Enabled) updateTimer.Stop();
+                EnableMouseWakeDetector(false);
+                // 方案 A：隐藏期**不做唤醒刷新**——任何查询都会把鼠标从 LP 推到 HP 且不会
+                // 自动恢复，与省电目标冲突。隐藏期保持零 I/O，仅在窗口可见时刷新。
+                StopWakeCheckTimer();
+            }
+            else
+            {
+                if (updateTimer.Interval != userSelectedInterval) updateTimer.Interval = userSelectedInterval;
+                if (!updateTimer.Enabled) updateTimer.Start();
+                EnableMouseWakeDetector(false);
+                StartWakeCheckTimer();   // 前台也常驻：移动鼠标即刻刷新（纯 API，零 USB 开销）
+            }
 
-            if (updateTimer.Interval != target) updateTimer.Interval = target;
+        }
 
+        // 省电模式启动时：不查设备，直接用上次缓存值填充界面
+        private void ShowEcoCachedState()
+        {
+            try
+            {
+                VgnDeviceHelper.LoadHardwareCache();
+                int cached = VgnDeviceHelper.CachedBatteryPercent;
+                bool hasCache = cached > 0 && cached <= 100;
+
+                if (lblDeviceName != null) lblDeviceName.Text = "皂品 Z2";
+                if (lblBatteryBig != null)
+                {
+                    lblBatteryBig.Text = hasCache ? (cached.ToString() + "%") : "--%";
+                    lblBatteryBig.ForeColor = Color.FromArgb(150, 160, 175);
+                }
+                if (pillStatus != null)
+                {
+                    pillStatus.SetStatus(hasCache ? "缓存数据" : "待刷新", Color.FromArgb(255, 183, 77));
+                    if (lblBatteryBig != null)
+                    {
+                        pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
+                    }
+                }
+                if (barBattery != null) barBattery.StopFlow(hasCache ? cached : 0, Color.FromArgb(255, 183, 77));
+                if (lblUpdateTime != null)
+                {
+                    lblUpdateTime.Text = "省电模式：启动未读取设备 · 点「立即刷新」获取最新（移动鼠标也会自动刷新）";
+                }
+            }
+            catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 填充缓存态失败", diagEx); }
+        }
+
+        // ===== 唤醒刷新：GetLastInputInfo 检测系统输入，**完全不碰 HID 设备** =====
+        // 隐藏期每 10 秒读一次「系统最后一次输入时间」，发现有新输入（用户动了鼠标/键盘）
+        // 就触发一次电量刷新（60 秒节流）。相比 RawInput 的 RIDEV_INPUTSINK，
+        // 这不产生任何 USB 读取，不会阻止设备挂起。
+        private System.Windows.Forms.Timer wakeCheckTimer = null;
+        private uint lastInputTick = 0;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct LASTINPUTINFO
+        {
+            public uint cbSize;
+            public uint dwTime;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+        private void StartWakeCheckTimer()
+        {
+            if (wakeCheckTimer == null)
+            {
+                wakeCheckTimer = new System.Windows.Forms.Timer();
+                wakeCheckTimer.Interval = 3000;
+                wakeCheckTimer.Tick += (s2, e2) =>
+                {
+                    try
+                    {
+                        LASTINPUTINFO info = new LASTINPUTINFO();
+                        info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(LASTINPUTINFO));
+                        if (!GetLastInputInfo(ref info)) return;
+
+                        if (info.dwTime == lastInputTick) return;   // 无新输入
+                        lastInputTick = info.dwTime;
+
+                        DateTime now = DateTime.UtcNow;
+                        if ((now - lastWakeRefreshUtc).TotalSeconds < 60) return;
+                        lastWakeRefreshUtc = now;
+
+                        wakeRefreshPending = true;   // 唤醒触发的刷新（启动静默窗口内仍会被守卫拦下）
+                        RefreshBatteryStatus(false);
+                    }
+                    catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 唤醒检测失败", diagEx); }
+                };
+            }
+            if (!wakeCheckTimer.Enabled) wakeCheckTimer.Start();
+        }
+
+        private void StopWakeCheckTimer()
+        {
+            if (wakeCheckTimer != null && wakeCheckTimer.Enabled) wakeCheckTimer.Stop();
         }
 
         private void SetInterval(int ms, bool showNotification = false)

@@ -814,7 +814,9 @@ namespace RazerBatteryTray
                 {
                     sum = (byte)(sum + buf[i]);
                 }
-                buf[buf.Length - 1] = (byte)((0x55 - sum) & 0xFF);
+                // CompX 真实校验：尾字节 = 0x55 - sum - 8（与 VgnDeviceHelper.CalcChecksum 一致）。
+                // 此前漏减 8，导致 FDAS 动态通道下发的 CompX 报文校验位偏 8，设备不认。
+                buf[buf.Length - 1] = (byte)((0x55 - sum - 8) & 0xFF);
             }
             else if (!string.IsNullOrEmpty(checksumType) && checksumType.Equals("SumMod256", StringComparison.OrdinalIgnoreCase))
             {
