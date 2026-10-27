@@ -540,7 +540,10 @@ namespace RazerBatteryTray
             {
                 if (statusMenuItem != null)
                 {
-                    statusMenuItem.Visible = false;
+                    string summary = DeviceManager.BuildTrayBatterySummary(onlineDevices);
+                    statusMenuItem.Visible = true;
+                    statusMenuItem.Text = string.IsNullOrEmpty(summary) ? "在线设备" : summary;
+                    statusMenuItem.ForeColor = Color.FromArgb(200, 212, 230);
                 }
 
                 int insertIdx = contextMenu.Items.IndexOf(deviceMenuSep);
@@ -760,6 +763,20 @@ namespace RazerBatteryTray
             {
                 return 16;
             }
+        }
+
+        private void UpdateTrayCombinedSummary(string fallback)
+        {
+            if (trayIcon == null) return;
+            string summary = DeviceManager.BuildTrayBatterySummary(activeDevices);
+            if (string.IsNullOrEmpty(summary)) summary = fallback;
+            if (string.IsNullOrEmpty(summary)) summary = "FerrisPulse · 灵脉";
+            if (summary.Length > 63) summary = summary.Substring(0, 63);
+            try
+            {
+                trayIcon.Text = summary;
+            }
+            catch { }
         }
 
         private void UpdateTrayIcon(int percent, bool isCharging, bool isConnected, bool isSleeping = false, Color? brandColor = null)

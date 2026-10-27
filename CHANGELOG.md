@@ -20,6 +20,13 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **VGN 蜻蜓 3 Pro 超轻量游戏鼠标 (`391D:1A03`)**（感谢 [@REDTEA3](https://github.com/REDTEA3) 适配贡献 #43）：
+  - 扩充 `VgnDeviceHelper`：深度接入 Yjx（易捷翔）私有协议通道（`UsagePage 0xFF01 / Usage 0x0010`，65 字节中断 OUT），支持 `0x30` 电量查询、`0x0E`/`0x0F` 档位与 8K（8000Hz）回报率读写；
+  - 挂载至 `VgnMouseDriver` 与 `HardwareCommandBus`，实现全屏游戏自动优化与板载性能同步。
+- **VGN Neon75 三模客制化机械键盘 (`3151:5038` 2.4G / `3151:502F` 有线)**（感谢 [@Bestkilling](https://github.com/Bestkilling) 实机深度适配与架构贡献 #42）：
+  - 新增 `VgnKeyboardHelper`，通过 65 字节中断端点发送 `0xF7` 状态帧与 Bit7 校验和，精准解析 `payload[9]` 真实硬件充电位，消除“键盘 100% 满电误判为正在充电”的问题；
+  - 精准隔离同厂公版 VID（`0x3151`），将 Neon75 从 Valkyrie 泛 3151 识别池中彻底剥离；
+  - 新增 `VgnKeyboardForm` 窗体与 `0x87`/`0x07` 键盘灯效调控，并在状态栏与托盘上线双设备摘要（`DeviceManager.BuildTrayBatterySummary`，如“鼠标 51% | 键盘 100%”）。
 - **皂品 (Zaopin) Z2 三模无线游戏鼠标 (`3554:F526` / `3554:F527`)**（感谢 [@WrongMemory](https://github.com/WrongMemory) 逆向贡献与实机适配 #41）：
   - **CompX 协议识别与双 PID 覆盖**：基于 `cid == 7 && mid == 2` 与 PID `0xF526`（Nano 1K 接收器）/ `0xF527`（4K 底座接收器）精准识别，动态派生 Zaopin 品牌与官方品牌色（`#FF9100`）。
   - **锂电池电压精细换算与官方口径对齐**：复刻官方驱动 21 阈值锂电放电表并做线性插值，引入 12mV 负载压降补偿校准，解决固件电量计中间区间滞后问题；支持电压与百分比联动展示。

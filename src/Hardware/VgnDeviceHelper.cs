@@ -314,6 +314,363 @@ namespace RazerBatteryTray
             return null;
         }
 
+        // ====================================================================
+        // Yjx 通道 (391D:1A03, VGN Dragonfly 3 Pro 等)
+        // 端点: UsagePage 0xFF01 / Usage 0x0010 / 65 字节, Report ID 0x00
+        // 帧:   [0]=0x00 [1]=0x55 [2]=cmd [3..8]=args [9..54]=46 字节 profileBuf
+        // 回复: [0]=0x00 [1]=0xAA [2]=cmd [9..]=payload
+        // 铁律: 必须 WriteFile(中断 OUT)；HidD_SetOutputReport(控制传输) 会静默丢包。
+        // ====================================================================
+        private const byte YjxCmdMouseOnline = 0xED;
+        private const byte YjxCmdGetBattery = 0x30;
+        private const byte YjxCmdGetPerformance = 0x0E;
+        private const byte YjxCmdSetPerformance = 0x0F;
+        private const int YjxReportLen = 65;
+        private const int YjxProfileOffset = 9;
+        private const int YjxProfileLen = 46;
+
+        private class YjxSnapshot
+        {
+            public bool Online;
+            public int Battery = -1;
+            public bool Charging;
+            public int RateCode = 4;
+            public int StageCount = 5;
+            public int CurrentStage = 1;
+            public int HardwareStage;
+            public int[] Stages;
+            public byte[] Profile;
+        }
+
+        private static byte[] BuildYjxCmd(byte cmd)
+        {
+            byte[] buf = new byte[YjxReportLen];
+            buf[0] = 0x00;
+            buf[1] = 0x55;
+            buf[2] = cmd;
+            return buf;
+        }
+
+        private static byte[] BuildYjxSetProfile(byte[] profile)
+        {
+            byte[] buf = new byte[YjxReportLen];
+            buf[0] = 0x00;
+            buf[1] = 0x55;
+            buf[2] = YjxCmdSetPerformance;
+            buf[5] = 0x2E; // 46
+            buf[6] = 0x01;
+            buf[7] = 0x01;
+            if (profile != null)
+            {
+                int n = profile.Length < YjxProfileLen ? profile.Length : YjxProfileLen;
+                for (int i = 0; i < n; i++) buf[YjxProfileOffset + i] = profile[i];
+            }
+            return buf;
+        }
+
+        private static void YjxDrain(IntPtr handle, IntPtr hEvent, int inLen)
+        {
+            if (inLen <= 0) inLen = YjxReportLen;
+            byte[] drain = new byte[inLen];
+            while (true)
+            {
+                OVERLAPPED dOl = new OVERLAPPED();
+                dOl.hEvent = hEvent;
+                uint readBytes;
+                bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
+                if (!ok && Marshal.GetLastWin32Error() == 997)
+                {
+                    if (WaitForSingleObject(hEvent, 10) == WAIT_OBJECT_0)
+                    {
+                        GetOverlappedResult(handle, ref dOl, out readBytes, false);
+                        continue;
+                    }
+                    CancelIo(handle);
+                }
+                break;
+            }
+        }
+
+        private static bool YjxWriteRaw(IntPtr handle, IntPtr hEvent, byte[] tx)
+        {
+            OVERLAPPED wOl = new OVERLAPPED();
+            wOl.hEvent = hEvent;
+            uint written;
+            bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
+            if (!wOk && Marshal.GetLastWin32Error() == 997)
+            {
+                if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
+                {
+                    GetOverlappedResult(handle, ref wOl, out written, false);
+                    return true;
+                }
+                CancelIo(handle);
+                return false;
+            }
+            return wOk;
+        }
+
+        private static byte[] YjxReadRaw(IntPtr handle, IntPtr hEvent, int inLen, int timeoutMs)
+        {
+            if (inLen <= 0) inLen = YjxReportLen;
+            byte[] rx = new byte[inLen];
+            OVERLAPPED rOl = new OVERLAPPED();
+            rOl.hEvent = hEvent;
+            uint rxRead = 0;
+            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
+            if (!rOk && Marshal.GetLastWin32Error() == 997)
+            {
+                if (WaitForSingleObject(hEvent, (uint)timeoutMs) == WAIT_OBJECT_0)
+                {
+                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
+                    return rx;
+                }
+                CancelIo(handle);
+                return null;
+            }
+            if (rOk) return rx;
+            return null;
+        }
+
+        private static byte[] YjxSendExpect(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs, byte expectCmd)
+        {
+            YjxDrain(handle, hEvent, inLen);
+            if (!YjxWriteRaw(handle, hEvent, tx)) return null;
+            Stopwatch sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                int remain = timeoutMs - (int)sw.ElapsedMilliseconds;
+                if (remain < 30) remain = 30;
+                byte[] rx = YjxReadRaw(handle, hEvent, inLen, remain);
+                if (rx == null) return null;
+                if (rx[1] != 0xAA) continue;
+                if (rx[2] == expectCmd) return rx;
+            }
+            return null;
+        }
+
+        private static int YjxRateCodeToHz(int code)
+        {
+            switch (code)
+            {
+                case 1: return 125;
+                case 2: return 250;
+                case 3: return 500;
+                case 5: return 2000;
+                case 6: return 4000;
+                case 7: return 8000;
+                default: return 1000;
+            }
+        }
+
+        private static int YjxHzToRateCode(int hz)
+        {
+            if (hz >= 8000) return 7;
+            switch (hz)
+            {
+                case 125: return 1;
+                case 250: return 2;
+                case 500: return 3;
+                case 1000: return 4;
+                case 2000: return 5;
+                case 4000: return 6;
+                default: return 0;
+            }
+        }
+
+        private static YjxSnapshot QueryYjx(IntPtr handle, IntPtr hEvent, int inLen)
+        {
+            YjxSnapshot snap = new YjxSnapshot();
+            byte[] online = YjxSendExpect(handle, hEvent, BuildYjxCmd(YjxCmdMouseOnline), inLen, 400, YjxCmdMouseOnline);
+            if (online != null && online.Length > 9)
+            {
+                snap.Online = (online[9] != 0 && online[9] != 1);
+            }
+            Thread.Sleep(30);
+
+            byte[] bat = YjxSendExpect(handle, hEvent, BuildYjxCmd(YjxCmdGetBattery), inLen, 800, YjxCmdGetBattery);
+            if (bat != null && bat.Length > 10)
+            {
+                int lvl = bat[9];
+                if (lvl >= 0 && lvl <= 100)
+                {
+                    snap.Battery = lvl;
+                    snap.Charging = (bat[10] == 1);
+                    snap.Online = true;
+                }
+            }
+
+            byte[] perf = YjxSendExpect(handle, hEvent, BuildYjxCmd(YjxCmdGetPerformance), inLen, 800, YjxCmdGetPerformance);
+            if (perf != null && perf.Length >= YjxProfileOffset + YjxProfileLen)
+            {
+                snap.Online = true;
+                snap.RateCode = perf[11];
+                int cnt = perf[12];
+                int cur = perf[13] - 1;
+                if (cnt < 1 || cnt > 8) cnt = 5;
+                if (cnt > 5) cnt = 5;
+                if (cur < 0 || cur >= cnt) cur = 0;
+                int[] stages = new int[cnt];
+                for (int i = 0; i < cnt; i++)
+                {
+                    int o = 14 + i * 2;
+                    int v = perf[o] | (perf[o + 1] << 8);
+                    if (v < 50 || v > 36000) v = 0;
+                    stages[i] = v;
+                }
+                snap.StageCount = cnt;
+                snap.HardwareStage = perf[13];
+                snap.CurrentStage = cur + 1;
+                snap.Stages = stages;
+                byte[] prof = new byte[YjxProfileLen];
+                for (int i = 0; i < YjxProfileLen; i++) prof[i] = perf[YjxProfileOffset + i];
+                snap.Profile = prof;
+            }
+            return snap;
+        }
+
+        private static bool FindYjxEndpoint(out IntPtr handle, out int inLen)
+        {
+            handle = IntPtr.Zero;
+            inLen = YjxReportLen;
+            Guid hidGuid;
+            RazerDeviceHelper.HidD_GetHidGuid(out hidGuid);
+            IntPtr devInfo = RazerDeviceHelper.SetupDiGetClassDevs(ref hidGuid, null, IntPtr.Zero, 0x12);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return false;
+            try
+            {
+                RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA ifData = new RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA();
+                ifData.cbSize = Marshal.SizeOf(ifData);
+                uint idx = 0;
+                while (RazerDeviceHelper.SetupDiEnumDeviceInterfaces(devInfo, IntPtr.Zero, ref hidGuid, idx++, ref ifData))
+                {
+                    uint reqSize;
+                    RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                    if (reqSize == 0) continue;
+                    IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
+                    Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
+                    try
+                    {
+                        if (!RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero)) continue;
+                        string path = Marshal.PtrToStringAuto(new IntPtr(detailBuffer.ToInt64() + 4));
+                        if (path == null || path.ToLower().IndexOf("vid_391d") < 0) continue;
+                        IntPtr h = RazerDeviceHelper.CreateFile(
+                            path,
+                            GENERIC_READ | GENERIC_WRITE,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            IntPtr.Zero,
+                            OPEN_EXISTING,
+                            FILE_FLAG_OVERLAPPED,
+                            IntPtr.Zero);
+                        if (h == IntPtr.Zero || h.ToInt64() == -1) continue;
+                        IntPtr preparsed;
+                        if (!RazerDeviceHelper.HidD_GetPreparsedData(h, out preparsed))
+                        {
+                            RazerDeviceHelper.CloseHandle(h);
+                            continue;
+                        }
+                        RazerDeviceHelper.HIDP_CAPS caps;
+                        RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                        RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+                        if (caps.UsagePage == 0xFF01 && caps.Usage == 0x0010
+                            && caps.InputReportByteLength >= YjxReportLen
+                            && caps.OutputReportByteLength >= YjxReportLen)
+                        {
+                            handle = h;
+                            inLen = caps.InputReportByteLength;
+                            return true;
+                        }
+                        RazerDeviceHelper.CloseHandle(h);
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(detailBuffer);
+                    }
+                }
+            }
+            finally
+            {
+                RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+            return false;
+        }
+
+        public static bool SetYjxProfile(int rateHz, int stage, int dpiValue)
+        {
+            lock (hidLock)
+            {
+                IntPtr handle;
+                int inLen;
+                if (!FindYjxEndpoint(out handle, out inLen)) return false;
+                IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
+                bool ok = false;
+                try
+                {
+                    if (hEvent == IntPtr.Zero) return false;
+                    YjxSnapshot before = QueryYjx(handle, hEvent, inLen);
+                    byte[] profile = before.Profile;
+                    if (profile == null) profile = new byte[YjxProfileLen];
+
+                    if (rateHz > 0)
+                    {
+                        int code = YjxHzToRateCode(rateHz);
+                        if (code > 0) profile[2] = (byte)code;
+                    }
+                    if (stage > 0 && stage < 64)
+                    {
+                        profile[4] = (byte)stage;
+                        if (dpiValue >= 50 && dpiValue <= 36000)
+                        {
+                            int off = 5 + (stage - 1) * 2;
+                            if (off + 1 < YjxProfileLen)
+                            {
+                                profile[off] = (byte)(dpiValue & 0xFF);
+                                profile[off + 1] = (byte)((dpiValue >> 8) & 0xFF);
+                            }
+                        }
+                    }
+
+                    YjxSendExpect(handle, hEvent, BuildYjxSetProfile(profile), inLen, 500, YjxCmdSetPerformance);
+                    Thread.Sleep(80);
+
+                    YjxSnapshot after = QueryYjx(handle, hEvent, inLen);
+                    if (after.Profile == null)
+                    {
+                        ok = false;
+                    }
+                    else
+                    {
+                        ok = true;
+                        if (stage > 0 && after.CurrentStage != stage) ok = false;
+                        if (rateHz > 0 && YjxRateCodeToHz(after.RateCode) != rateHz) ok = false;
+                    }
+                }
+                finally
+                {
+                    if (hEvent != IntPtr.Zero) RazerDeviceHelper.CloseHandle(hEvent);
+                    RazerDeviceHelper.CloseHandle(handle);
+                }
+                return ok;
+            }
+        }
+
+        public static bool SetYjxDpiStage(int stage)
+        {
+            return SetYjxProfile(0, stage, 0);
+        }
+
+        public static bool SetYjxPollingRate(int hz)
+        {
+            return SetYjxProfile(hz, 0, 0);
+        }
+
+        public static bool IsYjxDevice(string deviceId)
+        {
+            if (deviceId == null) return false;
+            return deviceId.StartsWith("VGN:391D:", StringComparison.OrdinalIgnoreCase)
+                || deviceId.StartsWith("HID:391D:", StringComparison.OrdinalIgnoreCase);
+        }
+
         public static string GetModelName(int pid, string productString, int cid, int mid)
         {
             if (cid == 7 && mid == 2) return "Zaopin Z2";
@@ -335,6 +692,7 @@ namespace RazerBatteryTray
                 case 0xFB25: return "VGN Dragonfly F1 Pro";
                 case 0xFB26: return "VGN Dragonfly F1 Pro Max";
                 case 0xFB27: return "VGN Dragonfly F1 MOBA";
+                case 0x1A03: return "VGN Dragonfly 3 Pro";
                 default: return "VGN 无线游戏鼠标";
             }
         }
@@ -347,7 +705,7 @@ namespace RazerBatteryTray
                 // SE / Standard 1K models
                 return new int[] { 125, 250, 500, 1000 };
             }
-            if (pid == 0xFB3E || name.Contains("f2") || name.Contains("8k") || name.Contains("8000") || name.Contains("atk"))
+            if (pid == 0xFB3E || pid == 0x1A03 || name.Contains("f2") || name.Contains("8k") || name.Contains("dragonfly 3") || name.Contains("8000") || name.Contains("atk"))
             {
                 // 8K models
                 return new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 };

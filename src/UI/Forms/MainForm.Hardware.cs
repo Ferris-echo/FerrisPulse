@@ -1714,6 +1714,15 @@ namespace RazerBatteryTray
         {
             if (lastInfo == null || !lastInfo.IsConnected) return;
 
+            bool isKeyboardWired = lastInfo.Category == DeviceCategory.Keyboard && lastInfo.Transport != null &&
+                                   (lastInfo.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    lastInfo.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                   lastInfo.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                   lastInfo.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0;
+            bool isNuphyFullFloat = lastInfo.Brand == "NuPhy" && lastInfo.Category == DeviceCategory.Keyboard &&
+                                    lastInfo.BatteryPercent >= 100 && !lastInfo.IsCharging;
+            bool chargingLike = lastInfo.IsCharging || isKeyboardWired || isNuphyFullFloat;
+
             string brandTag = lastInfo.Brand == "Rapoo" ? "雷柏" : (lastInfo.Brand == "VGN" ? "VGN" : (lastInfo.Brand == "Razer" ? "雷蛇" : (lastInfo.Brand == "NuPhy" ? "NuPhy" : (lastInfo.Category == DeviceCategory.Headset ? "耳机" : (lastInfo.Category == DeviceCategory.Gamepad ? "手柄" : (lastInfo.Category == DeviceCategory.Keyboard ? "键盘" : "外设"))))));
             string dpiPart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.Dpi > 0) ? (" · " + lastInfo.Dpi + " DPI") : "";
             string ratePart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.PollingRate > 0) ? (" · " + lastInfo.PollingRate + "Hz") : "";
@@ -1771,7 +1780,7 @@ namespace RazerBatteryTray
                     tipText = string.Format("电量: {0}% ({1})", lastInfo.BatteryPercent, chgPart);
                 }
             }
-            trayIcon.Text = tipText;
+            UpdateTrayCombinedSummary(tipText);
         }
 
         private void HideNuphyControls()
