@@ -4,6 +4,12 @@
 
 ## 🚧 [Unreleased] - 社区多设备深度适配 (索尼 / 罗技 / 怒喵 / ATK / 元派 / 飞智 / 迈从)
 
+### 🖱️ 新品牌接入
+- **因科特 (Ironcat) Zero 系列 2.4G 无线鼠标 (`25A7:FA7C`)**（社区贡献者实机逆向）：
+  - 新增 `IroncatDeviceHelper` 与 `IroncatMouseDriver`：通过 `UsagePage 0xFF02 / 0x0002` 的 17 字节 Feature 通道发送 `08 04 ... 49`，在 `0xFF01 / 0x0000` 的 17 字节 Input 通道接收 `09 04` 应答，解析 0..100% 电量、充电位与大端毫伏电压。
+  - 实机验证充电中 95%（`5F 01`）与充满 100%（`64 00`）两态；同 VID 的 Attack Shark 公版由 `pid_fa7c` 精确隔离，避免通用 64B 引擎越界探测。
+  - 仅开放实测能力：`SupportsBattery = true`，DPI/回报率写指令未验证前保持 `false`，不做虚标。
+
 ### 🎧 音频与耳机设备接入
 - **索尼 (Sony) INZONE Buds 真无线降噪电竞耳机 (WF-G700N, `054C:0EC2`)**（感谢 [@jacky50403](https://github.com/jacky50403) 逆向贡献 #22）：
   - 新增 `SonyInzoneHelper`，通过 64 字节 Output Report `0x02` 查询帧发送自增序列号与校验和请求。

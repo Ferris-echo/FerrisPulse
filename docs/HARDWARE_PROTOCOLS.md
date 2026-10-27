@@ -71,6 +71,14 @@
 - **引擎三 (Vaxee 64B Feature `0x0E 0xA5`)**: Page `0x0B` 电量（`raw * 5%`）、Page `0x10` 充电状态。
 - **引擎四 (怒喵 Angry Miao 62B RACE Feature `0x14`)**: 指令 `0x30CF` 读取 `AM Infinity .97` 电量与充放电状态。
 
+### 1.9 因科特 (Ironcat) Zero 系列 2.4G 无线鼠标 (`IroncatDeviceHelper.cs`)
+- **VID/PID**: `0x25A7 / 0xFA7C`，产品串 `ironcat zero wireless`，厂商串 `Compx`，连接形态为 2.4G USB 接收器。
+- **端点隔离**: 配置通道 `UsagePage 0xFF02 / Usage 0x0002` 的 **17 字节 Feature**（Report ID `0x08`）；应答通道 `UsagePage 0xFF01 / Usage 0x0000` 的 **17 字节 Input**（Report ID `0x09`）。同 VID 的 Attack Shark 公版 PID 不得套用本协议。
+- **查询帧**: `08 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 49`，末字节校验为 `frame[16] = 85 - sum(frame[0..15])`。
+- **应答帧**: `09 04 00 00 00 02 <batt> <chg> <mv_hi> <mv_lo> ... <crc>`；`byte[6]` 为电量 `0..100`，`byte[7] == 1` 为充电，`byte[8..9]` 为大端毫伏电压（无电压上报时为 `0`）。
+- **实机样本**: 充电中 `09 04 00 00 00 02 5F 01 ... E6` → 95%；充满后 `09 04 00 00 00 02 64 00 ... E2` → 100% 且充电位回落。
+- **能力边界**: 仅声明已实测的电量与充电状态；DPI 档位与回报率写指令未实机验证，`SupportsDpi` / `SupportsPollingRate` 必须保持 `false`。
+
 ---
 
 ## 2. 键盘、手柄与无线耳机协议

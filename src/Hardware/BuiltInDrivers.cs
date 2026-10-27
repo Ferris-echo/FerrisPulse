@@ -98,6 +98,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new AcerMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new IroncatMouseDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
 
             }
