@@ -28,7 +28,7 @@ namespace RazerBatteryTray
 {
     public static class RazerDeviceHelper
     {
-        private static readonly object hidLock = new object();
+        internal static readonly object hidLock = new object();
         private static readonly object stateCacheLock = new object();
         private static readonly Dictionary<string, RazerDeviceHardwareState> deviceHardwareStates =
             new Dictionary<string, RazerDeviceHardwareState>(StringComparer.OrdinalIgnoreCase);
@@ -1005,7 +1005,7 @@ namespace RazerBatteryTray
             return crc;
         }
 
-        static byte[] CreateRazerReport(byte transactionId, byte commandClass, byte commandId, byte dataSize, int totalLength, bool prependedZero, byte[] args = null)
+        internal static byte[] CreateRazerReport(byte transactionId, byte commandClass, byte commandId, byte dataSize, int totalLength, bool prependedZero, byte[] args = null)
         {
             byte[] report = new byte[totalLength];
             int offset = prependedZero ? 1 : 0;

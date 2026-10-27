@@ -20,6 +20,11 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **雷蛇 (Razer) Viper V3 HyperSpeed 板载按键映射硬件通信层 (`1532:00B8`)**（感谢 [@lililixxx1](https://github.com/lililixxx1) 逆向与架构贡献 #13，关联 Issue #7 / #16）：
+  - 新增 `RazerButtonMapping`，通过 `0x02/0x8C`（读）与 `0x02/0x0C`（写）实现板载 8 个物理按键功能重定义与事务重试；
+  - 引入批量写入保护机制：完整 pre-apply 快照备份、逐键写入回读语义校验与失败自动回滚；
+  - 零依赖自研 JSON 快照解析与注册表持久化（`HKCU\Software\FerrisPulse\ButtonMappingBackup`）；
+  - 配套编写专属单元测试 `tests/test_razer_viper_v3_button_mapping.ps1`（4/4 PASS）。
 - **VGN 蜻蜓 3 Pro 超轻量游戏鼠标 (`391D:1A03`)**（感谢 [@REDTEA3](https://github.com/REDTEA3) 适配贡献 #43）：
   - 扩充 `VgnDeviceHelper`：深度接入 Yjx（易捷翔）私有协议通道（`UsagePage 0xFF01 / Usage 0x0010`，65 字节中断 OUT），支持 `0x30` 电量查询、`0x0E`/`0x0F` 档位与 8K（8000Hz）回报率读写；
   - 挂载至 `VgnMouseDriver` 与 `HardwareCommandBus`，实现全屏游戏自动优化与板载性能同步。
