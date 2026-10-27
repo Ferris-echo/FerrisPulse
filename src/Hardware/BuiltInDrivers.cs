@@ -100,6 +100,10 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new IroncatMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new BlePeripheralDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new KzziKeyboardDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
 
             }

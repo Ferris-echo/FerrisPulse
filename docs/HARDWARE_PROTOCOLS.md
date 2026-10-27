@@ -79,6 +79,13 @@
 - **实机样本**: 充电中 `09 04 00 00 00 02 5F 01 ... E6` → 95%；充满后 `09 04 00 00 00 02 64 00 ... E2` → 100% 且充电位回落。
 - **能力边界**: 仅声明已实测的电量与充电状态；DPI 档位与回报率写指令未实机验证，`SupportsDpi` / `SupportsPollingRate` 必须保持 `false`。
 
+### 1.10 KZZI（珂芝）K75 三模机械键盘 (`KzziDeviceHelper.cs`)
+- **VID/PID**: `0x3554 / 0xFA09`（Compx 公版 20 字节 `0x13` 协议）。同 PID 被 MCHOSE G75 PRO、MARVO Titan 98、AULA F75、YUNZII 等共用，**严禁仅凭 PID 定品牌**。
+- **2.4G 端点**: `UsagePage 0xFF02 / Usage 0x0002`，Input/Output 均为 20 字节。
+- **KZZI 识别指纹（命令 `0x05`）**: TX `13 05 01 00 02 ... 1B`；RX `13 05 01 00 0A 02 ... 37 00 01 ... 5D`（校验和为前 19 字节低 8 位）。
+- **电量边界**: 开源同方案实现（AULA F75 / MARVO Titan 98）已确认该 2.4G 公版协议不提供可信电量；本机 `0x05` 回包的 `0x37=55` 与键盘小屏 `40%` 不一致，故**不采用**为电量。2.4G 下仅上报型号与在线状态，电量走 BLE 标准服务。
+- **BLE 实机**: `Kzzi-K75 5.0`（MAC `ED5E51C2101B`），Windows BLE Battery Service 读取 **100%**。
+
 ---
 
 ## 2. 键盘、手柄与无线耳机协议
@@ -111,3 +118,8 @@
    - **协议**: 帧头 `2E AA EC <cmd> <len_hi> <len_lo>`，载荷逐字节 `XOR 0xA5` 掩码，校验和为从下标 1 起算的 8 位累加和。
    - **指令**: `0xD0` 读电量（`0x86 ^ 0xA5 = 35%`）、`0xC9` 读 UTF-8 名称、`0xC6` 固件版本。
    - **注意**: 2.4G 无线模式下一旦接充电线会被设备端硬件强制关机，诚实缺省 `isCharging = false`，不臆造充电标志。
+
+### 2.4 标准 BLE 外设与 Xbox 手柄 (`BleDeviceHelper.cs`)
+- **通道**: Windows BLE Battery Service（GATT `0x180F`），由 `BluetoothDeviceHelper.ScanAllBluetoothDevices` 读取 `DEVPKEY_Device_BatteryLevel`。
+- **实机样本**: Xbox Wireless Controller（`045E:0B13`，MAC `DEA643E25CB9`）→ **74%**；KZZI K75（`Kzzi-K75 5.0`，MAC `ED5E51C2101B`）→ **100%**。
+- **能力边界**: BLE 电量属性只提供百分比，不提供充电位；统一置 `IsChargingUnknown = true`，不伪造充电闪电。

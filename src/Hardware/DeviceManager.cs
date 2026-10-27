@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK", "Ironcat" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK", "Ironcat", "KZZI" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -125,7 +125,22 @@ namespace RazerBatteryTray
             if (device == null) return false;
             if (deviceIdHidden) return true;
             if (!fingerprintHidden) return false;
+            // 旧版通用指纹隐藏项（如 HID:3554:FA09）只对没有品牌身份的通用记录生效；
+            // KZZI / MCHOSE / Ironcat 等品牌化卡片不得被历史误判记录连带隐藏。
+            if (IsBrandScopedDeviceId(device.DeviceId)) return false;
             return !GameSirDeviceHelper.HasPerUnitIdentity(device.DeviceId);
+        }
+
+        private static bool IsBrandScopedDeviceId(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return false;
+            int colon = deviceId.IndexOf(':');
+            if (colon <= 0) return false;
+            string prefix = deviceId.Substring(0, colon);
+            return !prefix.Equals("HID", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("Gaming", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("BT", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("BLE", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsDeviceHidden(string deviceId)
@@ -1013,6 +1028,67 @@ namespace RazerBatteryTray
                     foreach (var dev in mchoseMice)
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.955 Query KZZI (K75 tri-mode keyboard, CompX 3554:FA09 shared PID)
+            try
+            {
+                var kzzi = KzziDeviceHelper.QueryKzziDevice();
+                if (kzzi != null && kzzi.IsDonglePresent)
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(kzzi.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(kzzi.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyInList)
+                    {
+                        kzzi.IsCustom = false;
+                        list.Add(kzzi);
+                    }
+                }
+            }
+            catch { }
+
+            // 2.965 Query BLE peripherals (Xbox controller / Bluetooth keyboard / mouse)
+            try
+            {
+                var bleDevices = BleDeviceHelper.QueryAllBlePeripherals();
+                if (bleDevices != null && bleDevices.Count > 0)
+                {
+                    foreach (var dev in bleDevices)
+                    {
+                        if (dev != null && dev.IsConnected)
                         {
                             bool alreadyInList = false;
                             for (int i = 0; i < list.Count; i++)
