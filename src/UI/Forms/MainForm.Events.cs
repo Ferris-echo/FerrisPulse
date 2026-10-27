@@ -219,9 +219,6 @@ namespace RazerBatteryTray
                         {
                             cur.IsSleeping = false;
                             isMouseSleeping = false;
-                            // 用户已动鼠标 → 设备就绪，解除熔断降频并恢复正常轮询
-                            consecutiveQueryFailures = 0;
-                            ApplyAdaptiveInterval();
                             EnableMouseWakeDetector(false);
                             UpdateTrayIcon(cur.BatteryPercent, cur.IsCharging, cur.IsConnected, false);
                             try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }

@@ -223,10 +223,6 @@ namespace RazerBatteryTray
                     selectedDevice = devices.Find(d => d.IsPrimary) ?? devices.Find(d => d.IsConnected) ?? devices[0];
                 }
 
-                // 有在线设备 → 清零；否则累加，连续 3 次触发熔断降频
-                if (devices.Exists(x => x.IsConnected)) consecutiveQueryFailures = 0;
-                else if (consecutiveQueryFailures < 999) consecutiveQueryFailures++;
-
                 var primary = GetPrimaryDevice();
                 lastInfo = primary;
 
@@ -240,8 +236,6 @@ namespace RazerBatteryTray
             }
             else
             {
-                if (consecutiveQueryFailures < 999) consecutiveQueryFailures++;
-
                 selectedDevice = null;
                 lastInfo = null;
                 UpdateDeviceTabsUI();

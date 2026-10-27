@@ -354,10 +354,6 @@ namespace RazerBatteryTray
 
         private volatile bool isMouseSleeping = false;
 
-        // 连续查询失败次数：设备挂起/休眠/拔出时累加，用于把轮询降频，
-        // 避免反复触碰已挂起的 USB 设备（历史实测会触发原生崩溃）
-        private int consecutiveQueryFailures = 0;
-
         private System.Windows.Forms.Timer bootPollTimer;
 
         private int bootPollCount = 0;
@@ -1641,14 +1637,6 @@ namespace RazerBatteryTray
             // ⚠️ 不可再延长：实测间隔 ≥60s 时 Windows 会挂起 USB 设备，下次查询会触发原生崩溃
             // （进程静默消失，无 .NET 异常、无 CrashDump）。30s 是已验证稳定的下限。
             int target = background ? Math.Max(userSelectedInterval, 30000) : userSelectedInterval;
-
-            // 连续失败（设备休眠/挂起/被拔出）→ 降频到 2 分钟：
-            // ① 减少对已挂起 USB 设备的触碰（历史实测反复查询会触发原生崩溃）
-            // ② 给鼠标留出真正进入休眠的时间（30s 轮询会让 Z2 永不休眠）
-            if (consecutiveQueryFailures >= 3)
-            {
-                target = Math.Max(target, 120000);
-            }
 
             if (updateTimer.Interval != target) updateTimer.Interval = target;
 
