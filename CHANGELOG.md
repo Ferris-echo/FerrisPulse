@@ -20,6 +20,10 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **皂品 (Zaopin) Z2 三模无线游戏鼠标 (`3554:F526` / `3554:F527`)**（感谢 [@WrongMemory](https://github.com/WrongMemory) 逆向贡献与实机适配 #41）：
+  - **CompX 协议识别与双 PID 覆盖**：基于 `cid == 7 && mid == 2` 与 PID `0xF526`（Nano 1K 接收器）/ `0xF527`（4K 底座接收器）精准识别，动态派生 Zaopin 品牌与官方品牌色（`#FF9100`）。
+  - **锂电池电压精细换算与官方口径对齐**：复刻官方驱动 21 阈值锂电放电表并做线性插值，引入 12mV 负载压降补偿校准，解决固件电量计中间区间滞后问题；支持电压与百分比联动展示。
+  - **DPI 6 档自定义与回报率（4K 上限）调控**：接入 `SetVgnDpiStage`、`SetVgnDpiValue`、`UpdateVgnHardwareStages` 与 `SetVgnPollingRate`，支持 125~4000Hz 6 档回报率；接入 `FastQueryVgnDpiStage` 实时监听实体 DPI 键事件联动。
 - **虚拟 HID 框架过滤与宏碁 (Acer) OMR331 充电状态/哨兵值修复**（感谢 [@Qingyushan](https://github.com/Qingyushan) 架构贡献 #33）：
   - **VHF 虚拟 HID 结构化过滤**：新增 `VirtualHidFilter`，深度拦截网易 UU 远程（uuycinput.sys）等工具注入系统的虚拟键鼠（`HID_DEVICE_SYSTEM_VHF`），消除“设备向导将远程虚拟设备识别为 2.4G 无线”的误判。
   - **Acer OMR331 充电标志纠正**：纠正旧实现将状态位 `[15]` 误当充电标志的偏差，通过 A/B 实测对齐真实充电标志位 `[13]`。

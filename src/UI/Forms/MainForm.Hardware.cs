@@ -159,6 +159,21 @@ namespace RazerBatteryTray
 
                         int dpi = 0, dpiY = 0, stage = 0, count = 0;
                         bool queryOk = false;
+                        if (targetDev != null && (targetDev.Brand == "Zaopin" || targetDev.Brand == "皂品" || targetDev.Brand == "VGN") && targetDev.Category == DeviceCategory.Mouse)
+                        {
+                            int zStage = VgnDeviceHelper.FastQueryVgnDpiStage();
+                            if (zStage >= 1)
+                            {
+                                stage = zStage;
+                                queryOk = true;
+                                if (targetDev.DpiStages != null && targetDev.DpiStages.Length >= zStage)
+                                {
+                                    dpi = targetDev.DpiStages[zStage - 1];
+                                    dpiY = dpi;
+                                    count = targetDev.DpiStages.Length;
+                                }
+                            }
+                        }
                         if (targetDev != null)
                         {
                             queryOk = HardwareCommandBus.FastQueryDpi(targetDev, out dpi, out dpiY, out stage, out count);
@@ -423,6 +438,18 @@ namespace RazerBatteryTray
             SyncMonitoredDpiState(dpi, targetStage > 0 ? targetStage : 1, curDev.DeviceId);
 
             new Thread(() => {
+                if (curDev != null && (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN"))
+                {
+                    if (targetStage > 0)
+                    {
+                        VgnDeviceHelper.SetVgnDpiStage(targetStage);
+                    }
+                    else
+                    {
+                        int activeStage = curDev.DpiStage > 0 ? curDev.DpiStage : 1;
+                        VgnDeviceHelper.SetVgnDpiValue(dpi, activeStage - 1);
+                    }
+                }
                 bool ok = HardwareCommandBus.SetDpi(curDev, dpi, dpiY, targetStage);
                 int queryDpi, queryDpiY, stage, count;
                 if (HardwareCommandBus.FastQueryDpi(curDev, out queryDpi, out queryDpiY, out stage, out count))
@@ -477,6 +504,10 @@ namespace RazerBatteryTray
 
             new Thread(() => {
                 bool ok = false;
+                if (curDev != null && (curDev.Brand == "Zaopin" || curDev.Brand == "皂品" || curDev.Brand == "VGN"))
+                {
+                    ok = VgnDeviceHelper.SetVgnPollingRate(hz);
+                }
                 if (!isGamingActive || !autoGameRateEnabled)
                 {
                     for (int attempt = 0; attempt < 3; attempt++)
@@ -2024,6 +2055,7 @@ namespace RazerBatteryTray
             bool isValkyrieMouse = ((info.Brand == "Valkyrie" || info.Brand == "瓦尔基里") && info.Category == DeviceCategory.Mouse);
             bool isLogitechMouse = (isLogitech && info.Category == DeviceCategory.Mouse);
             bool isRapooMouse = (isRapoo && info.Category == DeviceCategory.Mouse);
+            bool isZaopinMouse = ((info.Brand == "Zaopin" || info.Brand == "皂品") && info.Category == DeviceCategory.Mouse);
 
             int secW = cardPerformance.ClientSize.Width - (int)(32 * dpiScale);
 
@@ -2501,7 +2533,7 @@ namespace RazerBatteryTray
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
             }
-            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isFdasMouse)
+            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isZaopinMouse || isFdasMouse)
             {
                 if (lblPerfTitle != null)
                 {
@@ -2671,7 +2703,7 @@ namespace RazerBatteryTray
                             btnRates[i].AccentColor = brandAccent;
                             if (i < pollingRateValues.Length)
                             {
-                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isFdasMouse)
+                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isZaopinMouse || isFdasMouse)
                                 {
                                     btnRates[i].Selected = (pollingRateValues[i] == info.PollingRate);
                                 }
