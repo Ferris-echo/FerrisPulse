@@ -29,6 +29,108 @@ public static class LogitechDeviceHelper
     private static readonly object hidLock = new object();
     private const string CacheRegistryKey = @"Software\RazerBatteryTray\LogitechCache";
 
+    // 回报率写入能力缓存（按 DeviceId 存 DWord：1=可写，0=固件拒绝，无键值=未知）。
+    // 之所以需要持久化缓存：探测本身需要下发写硬件，绝不可在每次轮询重复探测。
+    private const string RateWriteCapRegistryKey = @"Software\RazerBatteryTray\RateWriteCap";
+
+    private static string RateCapValueName(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return "";
+        return deviceId.Replace(':', '_').Replace('\\', '_').Replace('/', '_');
+    }
+
+    public static bool? GetPollingRateWriteCapability(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return null;
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RateWriteCapRegistryKey, false))
+            {
+                if (key == null) return null;
+                object val = key.GetValue(RateCapValueName(deviceId));
+                if (val is int)
+                {
+                    if ((int)val == 1) return true;
+                    if ((int)val == 0) return false;
+                }
+                return null;
+            }
+        }
+        catch { return null; }
+    }
+
+    public static void SetPollingRateWriteCapability(string deviceId, bool writable)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return;
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RateWriteCapRegistryKey))
+            {
+                if (key != null) key.SetValue(RateCapValueName(deviceId), writable ? 1 : 0, RegistryValueKind.DWord);
+            }
+        }
+        catch { }
+    }
+
+    // 一次性 no-op 探测：把「当前回报率原值」写回自身，观察设备是否接受。
+    //   - 收到成功应答（rx[2]==featureIndex）： true（可写）
+    //   - 收到 HID++ 错误帧（rx[2]==0xFF）：     false（固件拒绝，如 G304 对 0x8060 Func2 返回错误码 0x02）
+    //   - 无应答 / 超时：                      null（未知，UI 保持可点，绝不误判为不可写）
+    // 写入的是当前值，不会对设备现有配置造成改变。
+    private static bool? ProbePollingRateWriteNoOp(IntPtr handle, IntPtr hEvent, int inLen, byte devIdx, byte rateFeatIdx, byte extRateFeatIdx, int currentHz)
+    {
+        if (currentHz <= 0) return null;
+        try
+        {
+            if (extRateFeatIdx > 0)
+            {
+                byte rateIdx;
+                if (currentHz >= 8000) rateIdx = 6;
+                else if (currentHz >= 4000) rateIdx = 5;
+                else if (currentHz >= 2000) rateIdx = 4;
+                else if (currentHz >= 1000) rateIdx = 3;
+                else if (currentHz >= 500) rateIdx = 2;
+                else if (currentHz >= 250) rateIdx = 1;
+                else rateIdx = 0;
+
+                byte[] tx = new byte[20];
+                tx[0] = 0x11;
+                tx[1] = devIdx;
+                tx[2] = extRateFeatIdx;
+                tx[3] = 0x30;
+                tx[4] = rateIdx;
+
+                byte[] rx = SendAndReceive(handle, hEvent, tx, inLen, 250);
+                if (rx != null && rx.Length >= 4 && rx[2] == extRateFeatIdx) return true;
+                if (rx != null && rx.Length >= 3 && rx[2] == 0xFF) return false;
+                return null;
+            }
+
+            if (rateFeatIdx > 0)
+            {
+                byte msInterval;
+                if (currentHz >= 1000) msInterval = 1;
+                else if (currentHz >= 500) msInterval = 2;
+                else if (currentHz >= 250) msInterval = 4;
+                else msInterval = 8;
+
+                byte[] tx = new byte[20];
+                tx[0] = 0x11;
+                tx[1] = devIdx;
+                tx[2] = rateFeatIdx;
+                tx[3] = 0x20;
+                tx[4] = msInterval;
+
+                byte[] rx = SendAndReceive(handle, hEvent, tx, inLen, 250);
+                if (rx != null && rx.Length >= 4 && rx[2] == rateFeatIdx) return true;
+                if (rx != null && rx.Length >= 3 && rx[2] == 0xFF) return false;
+                return null;
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct OVERLAPPED
     {
@@ -437,6 +539,8 @@ public static class LogitechDeviceHelper
         }
 
         // Receiver defaults
+        if (pid == 0xC53F) return "LIGHTSPEED 无线接收器 (0xC53F)";
+        if (pid == 0x4074) return "G304 Lightspeed Wireless Gaming Mouse";
         if (pid == 0xC54F) return "Logitech G PRO X3 SUPERSTRIKE 8K 接收器";
         if (pid == 0xC547) return "Logitech Lightspeed 游戏无线接收器 (0xC547)";
         if (pid == 0xC548) return "Logitech G PRO X SUPERLIGHT 2 4K/8K 接收器";
@@ -1192,16 +1296,13 @@ public static class LogitechDeviceHelper
                                             txGetDpi[0] = 0x11;
                                             txGetDpi[1] = devIdx;
                                             txGetDpi[2] = dpiFeatIdx;
-                                            txGetDpi[3] = 0x18; // Func 1 (0x10) | swid 8
+                                            txGetDpi[3] = 0x28; // Func 2: getSensorDpi | swid 8
                                             txGetDpi[4] = 0x00; // Sensor 0
                                             byte[] rxGetDpi = SendAndReceive(handle, hEvent, txGetDpi, bestEndpoint.InputReportByteLength, 250, bestEndpoint.OutputReportByteLength, devIdx, dpiFeatIdx, 0x08);
-                                            if (rxGetDpi != null && rxGetDpi.Length >= 7)
+                                            int dVal = ParseAdjustableDpiReply(rxGetDpi);
+                                            if (dVal > 0)
                                             {
-                                                int dVal = (rxGetDpi[5] << 8) | rxGetDpi[6];
-                                                if (dVal >= 50 && dVal <= 50000)
-                                                {
-                                                    hardwareDpi = dVal;
-                                                }
+                                                hardwareDpi = dVal;
                                             }
                                         }
                                     }
@@ -1325,6 +1426,15 @@ public static class LogitechDeviceHelper
                                     int finalDpiY = (hardwareDpiY > 0) ? hardwareDpiY : finalDpiX;
                                     int finalRate = (detectedRate > 0) ? detectedRate : CachedPollingRate;
 
+                                    bool? rateWritable = GetPollingRateWriteCapability(deviceId);
+                                    if (!rateWritable.HasValue && deviceOnline && detectedRate > 0 && (rateFeatIdx > 0 || extRateFeatIdx > 0))
+                                    {
+                                        rateWritable = ProbePollingRateWriteNoOp(handle, hEvent, bestEndpoint.InputReportByteLength, devIdx, rateFeatIdx, extRateFeatIdx, detectedRate);
+                                        if (rateWritable.HasValue) SetPollingRateWriteCapability(deviceId, rateWritable.Value);
+                                    }
+
+                                    int[] stageTable = new int[] { 400, 800, 1600, 3200, 6400 };
+
                                     MouseBatteryInfo info = new MouseBatteryInfo
                                     {
                                         DeviceId = deviceId,
@@ -1344,12 +1454,13 @@ public static class LogitechDeviceHelper
                                         Dpi = finalDpiX,
                                         DpiY = finalDpiY,
                                         IsXyIndependent = (finalDpiY != finalDpiX),
-                                        DpiStage = 2,
-                                        DpiStageCount = 5,
-                                        DpiStages = new int[] { 400, 800, 1600, 3200, 6400 },
-                                        DpiStagesY = new int[] { 400, 800, 1600, 3200, 6400 },
+                                        DpiStage = MatchDpiStage(finalDpiX, stageTable),
+                                        DpiStageCount = stageTable.Length,
+                                        DpiStages = stageTable,
+                                        DpiStagesY = stageTable,
                                         PollingRate = finalRate,
-                                        SupportedPollingRates = supportedRates
+                                        SupportedPollingRates = supportedRates,
+                                        SupportsPollingRateWrite = rateWritable
                                     };
 
                                     if (deviceOnline)
@@ -1580,12 +1691,17 @@ public static class LogitechDeviceHelper
                     {
                         success = true;
                     }
+                    else if (rx != null && rx.Length >= 3 && rx[2] == 0xFF)
+                    {
+                        SetPollingRateWriteCapability(ep.DeviceId, false);
+                    }
                 }
 
                 if (success)
                 {
                     ep.PollingRate = hz;
                     CachedPollingRate = hz;
+                    SetPollingRateWriteCapability(ep.DeviceId, true);
                     SaveHardwareCache();
                 }
 
@@ -1626,14 +1742,59 @@ public static class LogitechDeviceHelper
         return false;
     }
 
-    private static int MatchDpiStage(int dpi)
+    // ========================================================================
+    // HID++ 2.0 Feature 0x2201 (ADJUSTABLE_DPI) 应答解析
+    // Func 2 = getSensorDpi，应答布局（Report 0x11，20 字节）：
+    //   [0]=0x11 [1]=deviceIndex [2]=featureIndex [3]=0x28(func2|swid8)
+    //   [4]=sensorIndex [5..6]=当前 DPI (BE) [7..8]=出厂默认 DPI (BE)
+    // 实测 G304/G305（046D:C53F 接收器后 devIdx 1）：00 0C 80 03 20 -> 当前 0x0C80 = 3200，
+    // 默认 0x0320 = 800。Func 1 返回的是受支持档位列表，绝不可当当前 DPI 使用。
+    // 量程校验只过滤明显非法帧（错误帧 / 空帧 / 越界），未命中一律返回 -1 交由缓存兜底，
+    // 严禁把列表首项 200 之类数值伪装成真实 DPI。
+    // ========================================================================
+
+    public static int ParseAdjustableDpiReply(byte[] rx)
     {
-        int[] standardStages = new int[] { 400, 800, 1600, 3200, 6400 };
-        for (int i = 0; i < standardStages.Length; i++)
+        if (rx == null || rx.Length < 7) return -1;
+        if (rx[0] != 0x11 && rx[0] != 0x10) return -1;
+        if (rx[2] == 0xFF) return -1; // HID++ 错误帧
+
+        int dpi = (rx[5] << 8) | rx[6];
+        if (dpi < 200 || dpi > 26000) return -1;
+        return dpi;
+    }
+
+    public static int MatchDpiStage(int dpi)
+    {
+        return MatchDpiStage(dpi, new int[] { 400, 800, 1600, 3200, 6400 });
+    }
+
+    // 由「实测 DPI」反推当前生效档位（严禁再用硬编码常量）：
+    //   1) ±50 容差内的精确命中优先（吸收硬件上报抖动）；
+    //   2) 未命中则取数值最接近的有效档位，保证 UI 高亮不与真实速度脱节；
+    //   3) 空槽（<=0 或 0xFFFF）必须跳过 —— G304 板载档位表末位就是空槽。
+    // 返回值恒 >= 1：desktopDpiStage / 游戏切换还原链路依赖 DpiStage > 0，返回 0 会把还原档位打回第 1 档。
+    public static int MatchDpiStage(int dpi, int[] stages)
+    {
+        if (dpi <= 0) return 1;
+        if (stages == null || stages.Length == 0) return 1;
+
+        int bestStage = 1;
+        int bestDiff = int.MaxValue;
+        for (int i = 0; i < stages.Length; i++)
         {
-            if (Math.Abs(standardStages[i] - dpi) <= 50) return i + 1;
+            int val = stages[i];
+            if (val <= 0 || val > 60000) continue;
+
+            int diff = Math.Abs(val - dpi);
+            if (diff <= 50) return i + 1;
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                bestStage = i + 1;
+            }
         }
-        return 1;
+        return bestStage;
     }
 
     public static MouseBatteryInfo QueryLogitechDeviceInfo(string deviceFingerprint = null)

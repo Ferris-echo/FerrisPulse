@@ -61,6 +61,8 @@ namespace RazerBatteryTray
         public int PollingRate { get; set; }
         public int[] SupportedPollingRates { get; set; }
         public int MaxPollingRate { get; set; }
+        // 三态回报率可写能力位：null=未探测/未知（绝不误伤）, true=固件支持写入, false=固件拒绝（如 G304 等低阶 LightSpeed 鼠标）
+        public bool? SupportsPollingRateWrite { get; set; }
         public string CustomTooltip { get; set; }
         public bool IsPrimary { get; set; }
 

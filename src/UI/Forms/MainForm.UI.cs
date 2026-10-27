@@ -1200,6 +1200,16 @@ namespace RazerBatteryTray
             }
         }
 
+        // 电竞回报率档位按钮的统一可用性：设备锁死回报率时保持 Enabled=true + IsReadOnly=true，
+        // 这样既能灰化不可编辑，又能继续悬停弹出原生气泡（Enabled=false 会让 ToolTip 失效）。
+        private void ApplyGameRateButtonState(ModernSegmentButton btn)
+        {
+            if (btn == null) return;
+            bool rateLocked = (selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
+            btn.IsReadOnly = rateLocked || !autoGameRateEnabled;
+            btn.Enabled = autoGameRateEnabled || rateLocked;
+        }
+
         private void RelayoutRateButtons()
         {
             if (cardPerformance == null || btnRates == null || btnRateManage == null) return;
@@ -1238,7 +1248,12 @@ namespace RazerBatteryTray
                     }
                     btnRates[i].Location = new Point(hzStartX + i * (hzSegW + gap), r2Y);
                     btnRates[i].Size = new Size(hzSegW, segH);
+                    bool rateWritable = !(selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
+                    btnRates[i].IsReadOnly = !rateWritable;
+                    btnRates[i].Enabled = true;
+                    btnRates[i].Cursor = rateWritable ? Cursors.Hand : Cursors.Default;
                     string tipText = string.Format("{0} Hz · 响应延迟 {1:F3} ms", hzVal, 1000.0 / hzVal);
+                    if (!rateWritable) tipText = tipText + "\n该设备不支持修改回报率，当前档位由设备自身配置决定";
                     toolTipTop.SetToolTip(btnRates[i], tipText);
                     btnRates[i].Invalidate();
                 }
@@ -1251,6 +1266,10 @@ namespace RazerBatteryTray
             btnRateManage.Visible = true;
             btnRateManage.Location = new Point(hzStartX + count * (hzSegW + gap), r2Y);
             btnRateManage.Size = new Size(manageBtnW, segH);
+            bool manageWritable = !(selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
+            btnRateManage.Enabled = manageWritable;
+            btnRateManage.Cursor = manageWritable ? Cursors.Hand : Cursors.Default;
+            toolTipTop.SetToolTip(btnRateManage, manageWritable ? "自定义回报率档位" : "该设备不支持修改回报率");
         }
 
         private void RelayoutPerformanceControls()
@@ -1368,6 +1387,12 @@ namespace RazerBatteryTray
                 chkAutoGameRate.Location = new Point(cPad, r5Y);
                 chkAutoGameRate.Size = new Size(lblW, segH);
                 chkAutoGameRate.Visible = showExpanded;
+                bool rateLocked = (selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
+                chkAutoGameRate.Enabled = !rateLocked;
+                chkAutoGameRate.Cursor = rateLocked ? Cursors.Default : Cursors.Hand;
+                toolTipTop.SetToolTip(chkAutoGameRate, rateLocked
+                    ? "该设备不支持修改回报率，电竞回报率已自动关闭"
+                    : "进入全屏游戏时自动切换到下方回报率档位");
             }
             if (btnGameRates != null)
             {
@@ -1390,9 +1415,13 @@ namespace RazerBatteryTray
                             {
                                 btnGameRates[i].Text = hzVal + " Hz";
                             }
+                            bool rateLockedForGame = (selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
                             string tip = string.Format("全屏电竞回报率: {0} Hz · 延迟 {1:F3} ms", hzVal, 1000.0 / hzVal);
+                            if (rateLockedForGame) tip = tip + "\n该设备不支持修改回报率";
                             toolTipTop.SetToolTip(btnGameRates[i], tip);
-                            btnGameRates[i].Enabled = autoGameRateEnabled;
+                            bool gameRateEditable = autoGameRateEnabled && !rateLockedForGame;
+                            ApplyGameRateButtonState(btnGameRates[i]);
+                            btnGameRates[i].Cursor = gameRateEditable ? Cursors.Hand : Cursors.Default;
                             btnGameRates[i].Visible = showExpanded;
                         }
                         else
@@ -1672,7 +1701,12 @@ namespace RazerBatteryTray
             }
 
             // 2. 右上角硬件生效徽标：保留并增加中间点显示 DPI，支持独立 X/Y 轴呈现
-            int currentActiveHz = (isGamingActive && autoGameRateEnabled) ? gamePollingRate : desktopPollingRate;
+            int measuredDesktopHz = (selectedDevice != null && selectedDevice.PollingRate > 0)
+                ? selectedDevice.PollingRate
+                : 0;
+            int effectiveDesktopHz = (measuredDesktopHz > 0) ? measuredDesktopHz : desktopPollingRate;
+            int currentActiveHz = (isGamingActive && autoGameRateEnabled) ? gamePollingRate : effectiveDesktopHz;
+            int desktopHighlightRate = (isGamingActive && autoGameRateEnabled) ? desktopPollingRate : effectiveDesktopHz;
             int currentActiveDpi = 0;
             int currentActiveDpiY = 0;
             int activeStage = (isGamingActive && autoGameDpiEnabled)
@@ -1735,7 +1769,7 @@ namespace RazerBatteryTray
             {
                 if (btnRates[i] != null && pollingRateValues != null && i < pollingRateValues.Length)
                 {
-                    bool isSel = (pollingRateValues[i] == desktopPollingRate);
+                    bool isSel = (pollingRateValues[i] == desktopHighlightRate);
                     btnRates[i].Selected = isSel;
                     btnRates[i].IsPreset = (isSel && isGamingActive && autoGameRateEnabled);
                 }
@@ -1750,7 +1784,7 @@ namespace RazerBatteryTray
                         bool isSel = (pollingRateValues[i] == gamePollingRate);
                         btnGameRates[i].Selected = isSel;
                         btnGameRates[i].IsPreset = (isSel && !isGamingActive);
-                        btnGameRates[i].Enabled = autoGameRateEnabled;
+                        ApplyGameRateButtonState(btnGameRates[i]);
                     }
                 }
             }
@@ -1822,7 +1856,7 @@ namespace RazerBatteryTray
                     if (btnGameRates[i] != null)
                     {
                         btnGameRates[i].Visible = showExpanded && (i < count);
-                        btnGameRates[i].Enabled = autoGameRateEnabled;
+                        ApplyGameRateButtonState(btnGameRates[i]);
                     }
                 }
             }

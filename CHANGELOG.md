@@ -1,4 +1,4 @@
-﻿# 📝 FerrisPulse · 灵脉 更新日志 (Changelog)
+﻿﻿# 📝 FerrisPulse · 灵脉 更新日志 (Changelog)
 
 所有关于 **FerrisPulse · 灵脉 (多品牌外设电量管家与独占感知引擎)** 的重要升级与功能特性均记录于此。
 
@@ -20,6 +20,11 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **罗技 (Logitech) G304 / C53F DPI 误读修正、档位防跳变与回报率三态只读能力位**（感谢 [@FeranyDev](https://github.com/FeranyDev) 架构设计与实机逆向 #34 / #35）：
+  - **Feature 0x2201 实测 DPI 读取修正**：改用 Func 2（`0x28 getSensorDpi`）直读硬件当前 DPI，杜绝旧版误调 Func 1 导致读取到支持列表首项（200 DPI）的严重偏差，新增 `ParseAdjustableDpiReply` 严格校验错误帧与越界帧。
+  - **实测 DPI 反推档位与防回跳**：实现 `MatchDpiStage(dpi, stages)`，优先匹配 ±50 容差并自动跳过板载末尾空槽，彻底解决“点击立即刷新后高亮回跳至 800 DPI”的顽疾。
+  - **回报率写入三态能力位 (`SupportsPollingRateWrite`)**：引入一次性 no-op 写入自检与注册表持久化缓存，对明确不支持修改回报率的设备（如 G304 固件拒绝 0x8060 Func2）在 UI 呈现专属只读态（`IsReadOnly` 保持气泡提示）、全屏电竞优化自动锁定关闭回报率并仅开电竞 DPI。
+  - **右上角徽标实测优先**：右上角「● 硬件生效」徽标与桌面档位高亮改为实测回报率优先，彻底杜绝下发失败时的期望值谎报。
 - **罗技 (Logitech) G502 X PLUS 旗舰无线鼠标与 Lightspeed 接收器重构修复**（感谢 [@TonySen1](https://github.com/TonySen1) 根因排查 #15）：
   - **端点智能优选**：枚举全量 HID 集合，智能识别并优先绑定 20 字节通信端点（`UsagePage 0xFF00, Usage 0x0002`），解决 Windows 下向 7 字节短集合发送报文导致 `WriteFile` 失败的顽疾。
   - **HID++ 2.0 握手修复**：对齐 HID++ 2.0 规范，将 Ping 命令调整为根特性函数 1（`getProtocolVersion`，`txPing[3] = 0x18`）及特征 Token，彻底解决 G502 X 握手无响应。

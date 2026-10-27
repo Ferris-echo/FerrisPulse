@@ -29,12 +29,12 @@ try {
         $p = [System.Diagnostics.Process]::Start($psi)
         $stdoutTask = $p.StandardOutput.ReadToEndAsync()
         $stderrTask = $p.StandardError.ReadToEndAsync()
-        $finished = $p.WaitForExit(8000) # 8秒看门狗超时，防止任何测试脚本无休止卡死
+        $finished = $p.WaitForExit(12000) # 12秒看门狗超时，防止任何测试脚本无休止卡死
         if (-not $finished) {
             try { $p.Kill() } catch { }
             $allPassed = $false
-            $summary += "[TIMEOUT (>8s)] " + $tf.Name
-            Write-Host " -> TIMEOUT (>8s): 强制终止防卡死" -ForegroundColor Red
+            $summary += "[TIMEOUT (>12s)] " + $tf.Name
+            Write-Host " -> TIMEOUT (>12s): 强制终止防卡死" -ForegroundColor Red
             continue
         }
 

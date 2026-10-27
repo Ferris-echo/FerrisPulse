@@ -57,8 +57,19 @@ namespace RazerBatteryTray
             Invalidate();
         }
 
-        protected override void OnMouseEnter(EventArgs e) { if (!Enabled) return; base.OnMouseEnter(e); isHovered = true; Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { if (!Enabled) return; base.OnMouseLeave(e); isHovered = false; Invalidate(); }
+        // 只读态（设备固件不支持某项写入，例如回报率）：
+        // 视觉上等同禁用（灰化、无 hover 高亮、无手型光标），但控件仍保持 Enabled=true，
+        // 这样才能继续收到鼠标消息、由原生 ToolTip 在悬停时弹出说明、移开即消失。
+        // 点击事件仍会派发，由业务层闸门拦截并给出提示，绝不下发硬件报文。
+        private bool isReadOnly = false;
+        public bool IsReadOnly
+        {
+            get { return isReadOnly; }
+            set { if (isReadOnly != value) { isReadOnly = value; Invalidate(); } }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { if (!Enabled || isReadOnly) return; base.OnMouseEnter(e); isHovered = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { if (!Enabled || isReadOnly) return; base.OnMouseLeave(e); isHovered = false; Invalidate(); }
 
         protected override void OnPaint(PaintEventArgs pevent)
         {
@@ -74,7 +85,7 @@ namespace RazerBatteryTray
             Color border;
             Color fg;
 
-            if (!Enabled)
+            if (!Enabled || isReadOnly)
             {
                 if (isSelected)
                 {
