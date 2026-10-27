@@ -2763,7 +2763,10 @@ namespace RazerBatteryTray
                     {
                         tileRapooDpi.ValueText = info.BatteryPercent.ToString();
                         tileRapooDpi.UnitText = "%";
-                        tileRapooDpi.Footnote = string.Format("通道: {0} | 供电: 电池供电", info.Transport ?? "无线");
+                        // 供电文案必须跟随实时充电状态，否则会出现「顶部卡片显示充电中、
+                        // 状态栏却显示电池供电」的自相矛盾（Acer OMR331 插线时曾如此）。
+                        string powerText = info.IsCharging ? "正在充电" : "电池供电";
+                        tileRapooDpi.Footnote = string.Format("通道: {0} | 供电: {1}", info.Transport ?? "无线", powerText);
                     }
                     else
                     {

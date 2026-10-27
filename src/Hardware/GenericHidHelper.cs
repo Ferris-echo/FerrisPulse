@@ -242,6 +242,15 @@ namespace RazerBatteryTray
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
                             if (devicePath != null)
                             {
+                                // VHF 虚拟 HID（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
+                                // 没有物理电池，也不是实体外设；必须排除，否则向导会出现
+                                // “HID VHF Driver / 2.4G 无线 / 可加入监控”的误导项。
+                                if (VirtualHidFilter.IsVirtualHidPath(devicePath))
+                                {
+                                    Marshal.FreeHGlobal(detailBuffer);
+                                    ifData.cbSize = Marshal.SizeOf(ifData);
+                                    continue;
+                                }
                                 string lower = devicePath.ToLower();
                                 // Skip known handled or internal non-mouse devices
                                 if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||

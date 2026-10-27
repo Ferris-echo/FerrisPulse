@@ -1,4 +1,4 @@
-﻿﻿# 📝 FerrisPulse · 灵脉 更新日志 (Changelog)
+﻿# 📝 FerrisPulse · 灵脉 更新日志 (Changelog)
 
 所有关于 **FerrisPulse · 灵脉 (多品牌外设电量管家与独占感知引擎)** 的重要升级与功能特性均记录于此。
 
@@ -20,6 +20,10 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **虚拟 HID 框架过滤与宏碁 (Acer) OMR331 充电状态/哨兵值修复**（感谢 [@Qingyushan](https://github.com/Qingyushan) 架构贡献 #33）：
+  - **VHF 虚拟 HID 结构化过滤**：新增 `VirtualHidFilter`，深度拦截网易 UU 远程（uuycinput.sys）等工具注入系统的虚拟键鼠（`HID_DEVICE_SYSTEM_VHF`），消除“设备向导将远程虚拟设备识别为 2.4G 无线”的误判。
+  - **Acer OMR331 充电标志纠正**：纠正旧实现将状态位 `[15]` 误当充电标志的偏差，通过 A/B 实测对齐真实充电标志位 `[13]`。
+  - **充电 100% 哨兵值智能降级**：解决宏碁鼠标插线瞬间上报 100% 哨兵值的伪满电问题，引入 `ResolveDisplayedBattery` 优雅回退到最近一次非充电实测值；状态栏供电文案动态跟随 `info.IsCharging`。
 - **罗技 (Logitech) G304 / C53F DPI 误读修正、档位防跳变与回报率三态只读能力位**（感谢 [@FeranyDev](https://github.com/FeranyDev) 架构设计与实机逆向 #34 / #35）：
   - **Feature 0x2201 实测 DPI 读取修正**：改用 Func 2（`0x28 getSensorDpi`）直读硬件当前 DPI，杜绝旧版误调 Func 1 导致读取到支持列表首项（200 DPI）的严重偏差，新增 `ParseAdjustableDpiReply` 严格校验错误帧与越界帧。
   - **实测 DPI 反推档位与防回跳**：实现 `MatchDpiStage(dpi, stages)`，优先匹配 ±50 容差并自动跳过板载末尾空槽，彻底解决“点击立即刷新后高亮回跳至 800 DPI”的顽疾。

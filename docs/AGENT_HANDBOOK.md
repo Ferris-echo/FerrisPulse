@@ -95,3 +95,11 @@
   $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path "$PSScriptRoot\..\FerrisPulse.exe").Path)
   $asm = [System.Reflection.Assembly]::Load($bytes)
   ```
+
+---
+
+## 7. 虚拟 HID（VHF）结构化过滤铁律 (Virtual HID Filter)
+
+- **现象**：设备向导或扫描列表中出现 `HID VHF Driver / 2.4G 无线 / HID:5E2A:71B4` 等假设备。
+- **本质**：Windows VHF（Virtual HID Framework）设备。网易 UU 远程（uuycinput.sys）等远程控制/串流/按键映射工具通过内核驱动调用 VHF 注册虚拟键鼠集合。虚拟设备没有物理电池或无线实体，误报“2.4G 无线 / 0%”会误导用户。
+- **治理法则**：`VirtualHidFilter` 统一按 VHF 总线结构（`HID_DEVICE_SYSTEM_VHF`、`VHF\VID_`、`vhf#`）识别，严禁写死单一厂商黑名单，并在 `GenericHidHelper.ScanGenericHidMice` 扫描阶段与 `DeviceManager.QueryAllDevices` 最终列表实行双层过滤。
