@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -1097,6 +1097,75 @@ namespace RazerBatteryTray
                                 }
                             }
 
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.99 Query ATK (V75X Keyboard) & Sony (DualSense Edge / PULSE Explore)
+            try
+            {
+                var atkDevices = AtkDeviceHelper.QueryAllAtkDevices();
+                if (atkDevices != null && atkDevices.Count > 0)
+                {
+                    foreach (var dev in atkDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                var sonyDevices = SonyDeviceHelper.QueryAllSonyDevices();
+                if (sonyDevices != null && sonyDevices.Count > 0)
+                {
+                    foreach (var dev in sonyDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
                             if (!alreadyInList)
                             {
                                 dev.IsCustom = false;

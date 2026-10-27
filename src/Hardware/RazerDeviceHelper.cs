@@ -83,7 +83,7 @@ namespace RazerBatteryTray
                 case 0x00B7: return 0x00B6; // DeathAdder V3 Pro Dongle -> Wired
                 case 0x00B3: return 0x00B2; // DeathAdder V3 HyperSpeed Dongle -> Wired
                 case 0x00B5: return 0x00B4; // Viper V2 Pro Dongle -> Wired
-                case 0x00A6: return 0x00A5; // Cobra Pro Dongle -> Wired
+                case 0x00A6: return 0x00A5; // Viper V2 Pro Dongle -> Wired
                 case 0x009B: return 0x009A; // Basilisk V3 Pro Dongle -> Wired
                 case 0x00AB: return 0x00AA; // Basilisk V3 Pro Alternate Dongle -> Wired
                 case 0x00CD: return 0x00CC; // Basilisk V3 Pro 35K Dongle -> Wired
@@ -258,6 +258,7 @@ namespace RazerBatteryTray
         /// </summary>
         public static int[] GetSupportedPollingRatesForModel(int pid, string modelName)
         {
+            if (pid == 0x00A5 || pid == 0x00A6) return new int[] { 125, 250, 500, 1000 };
             bool is8k = false;
             if (pid != 0)
             {
@@ -387,9 +388,9 @@ namespace RazerBatteryTray
             { 0x007B, "Razer Basilisk Ultimate" },
             { 0x0064, "Razer Basilisk" },
 
-            // Cobra series
-            { 0x00A5, "Razer Cobra Pro" },
-            { 0x00A6, "Razer Cobra Pro" },
+            // Viper V2 Pro and Cobra
+            { 0x00A5, "Razer Viper V2 Pro" },
+            { 0x00A6, "Razer Viper V2 Pro" },
             { 0x00A4, "Razer Cobra" },
 
             // Naga series
@@ -1033,6 +1034,34 @@ namespace RazerBatteryTray
             return report;
         }
 
+        public static RazerDeviceHardwareState ParseDpiStagesReport(byte[] report, int offset)
+        {
+            if (report == null || offset < 0 || report.Length < offset + 11 ||
+                report[offset] != 2 || report[offset + 6] != 4 || report[offset + 7] != 0x86) return null;
+            int activeStage = report[offset + 9];
+            int count = report[offset + 10];
+            if (count < 1 || count > 5 || activeStage < 1 || activeStage > count || report.Length < offset + 11 + count * 7) return null;
+            RazerDeviceHardwareState state = new RazerDeviceHardwareState();
+            state.DpiStages = new int[count];
+            state.DpiStagesY = new int[count];
+            state.DpiStage = activeStage;
+            state.DpiStageCount = count;
+            for (int stageIndex = 0; stageIndex < count; stageIndex++)
+            {
+                int stageOffset = offset + 11 + stageIndex * 7;
+                int dpiX = (report[stageOffset + 1] << 8) | report[stageOffset + 2];
+                int dpiY = (report[stageOffset + 3] << 8) | report[stageOffset + 4];
+                if (report[stageOffset] != stageIndex + 1 || dpiX < 100 || dpiX > 40000 || dpiY < 100 || dpiY > 40000) return null;
+                state.DpiStages[stageIndex] = dpiX;
+                state.DpiStagesY[stageIndex] = dpiY;
+            }
+            state.Dpi = state.DpiStages[activeStage - 1];
+            state.DpiY = state.DpiStagesY[activeStage - 1];
+            state.IsXyIndependent = state.Dpi != state.DpiY;
+            state.XyRatio = (double)state.DpiY / state.Dpi;
+            return state;
+        }
+
         public static List<MouseBatteryInfo> QueryAllRazerDevices()
         {
             lock (hidLock)
@@ -1120,9 +1149,11 @@ namespace RazerBatteryTray
                                                 double exactPct = 0.0;
                                                 bool isCharging = false;
                                                 int liveDpi = 0;
+                                                int liveDpiY = 0;
                                                 int activeStage = 0;
                                                 int stageCount = 0;
                                                 int[] stageList = null;
+                                                int[] stageListY = null;
                                                 int pollingRate = 0;
                                                 byte successfulTid = 0x1F;
 
@@ -1175,22 +1206,15 @@ namespace RazerBatteryTray
                                                                     {
                                                                         if (stResp[offset + 0] == 0x02 && stResp[offset + 6] == 0x04 && stResp[offset + 7] == 0x86)
                                                                         {
-                                                                            activeStage = stResp[offset + 9];
-                                                                            stageCount = stResp[offset + 10];
-                                                                            if (stageCount > 0 && stageCount <= 5 && activeStage >= 1 && activeStage <= stageCount)
+                                                                            RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
+                                                                            if (parsedStages != null)
                                                                             {
-                                                                                stageList = new int[stageCount];
-                                                                                for (int s = 0; s < stageCount; s++)
-                                                                                {
-                                                                                    int stOffset = offset + 11 + (s * 7);
-                                                                                    int stNum = stResp[stOffset];
-                                                                                    int stX = (stResp[stOffset + 1] << 8) | stResp[stOffset + 2];
-                                                                                    stageList[s] = stX;
-                                                                                    if (stNum == activeStage)
-                                                                                    {
-                                                                                        liveDpi = stX;
-                                                                                    }
-                                                                                }
+                                                                                activeStage = parsedStages.DpiStage;
+                                                                                stageCount = parsedStages.DpiStageCount;
+                                                                                stageList = parsedStages.DpiStages;
+                                                                                stageListY = parsedStages.DpiStagesY;
+                                                                                liveDpi = parsedStages.Dpi;
+                                                                                liveDpiY = parsedStages.DpiY;
                                                                             }
                                                                         }
                                                                     }
@@ -1210,6 +1234,8 @@ namespace RazerBatteryTray
                                                                             if (readLiveDpi >= 100 && readLiveDpi <= 40000)
                                                                             {
                                                                                 liveDpi = readLiveDpi;
+                                                                                int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
+                                                                                liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 40000 ? readLiveDpiY : readLiveDpi;
                                                                             }
                                                                         }
                                                                     }
@@ -1258,9 +1284,13 @@ namespace RazerBatteryTray
                                                     stState.ExactBatteryPercent = exactPct;
                                                     stState.DeviceName = resolvedModelName;
                                                     stState.Dpi = liveDpi;
+                                                    stState.DpiY = liveDpiY;
+                                                    stState.IsXyIndependent = liveDpiY > 0 && liveDpi != liveDpiY;
+                                                    stState.XyRatio = liveDpi > 0 ? (double)liveDpiY / liveDpi : 1.0;
                                                     stState.DpiStage = activeStage;
                                                     stState.DpiStageCount = stageCount;
                                                     stState.DpiStages = stageList;
+                                                    stState.DpiStagesY = stageListY;
                                                     stState.PollingRate = pollingRate;
                                                     stState.ActiveTransactionId = successfulTid;
                                                     stState.LastUpdated = DateTime.Now;
@@ -1283,9 +1313,13 @@ namespace RazerBatteryTray
                                                         IsCharging = isCharging,
                                                         LastUpdated = DateTime.Now,
                                                         Dpi = liveDpi,
+                                                        DpiY = liveDpiY,
+                                                        IsXyIndependent = stState.IsXyIndependent,
+                                                        XyRatio = stState.XyRatio,
                                                         DpiStage = activeStage,
                                                         DpiStageCount = stageCount,
                                                         DpiStages = stageList,
+                                                        DpiStagesY = stageListY,
                                                         PollingRate = pollingRate,
                                                         MaxPollingRate = GetMaxPollingRateForModel(curPid, resolvedModelName),
                                                         SupportedPollingRates = GetSupportedPollingRatesForModel(curPid, resolvedModelName)
@@ -1376,9 +1410,13 @@ namespace RazerBatteryTray
                         CachedExactBatteryPercent = primary.ExactBatteryPercent;
                         CachedDeviceName = primary.DeviceName;
                         if (primary.Dpi > 0) CachedDpi = primary.Dpi;
+                        if (primary.DpiY > 0) CachedDpiY = primary.DpiY;
+                        CachedIsXyIndependent = primary.IsXyIndependent;
+                        CachedXyRatio = primary.XyRatio;
                         if (primary.DpiStage > 0) CachedDpiStage = primary.DpiStage;
                         if (primary.DpiStageCount > 0) CachedDpiStageCount = primary.DpiStageCount;
                         if (primary.DpiStages != null) CachedDpiStages = primary.DpiStages;
+                        if (primary.DpiStagesY != null) CachedDpiStagesY = primary.DpiStagesY;
                         if (primary.PollingRate > 0) CachedPollingRate = primary.PollingRate;
                         CachedLastUpdated = primary.LastUpdated;
 

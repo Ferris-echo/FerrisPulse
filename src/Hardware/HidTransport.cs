@@ -311,6 +311,29 @@ namespace RazerBatteryTray
             return CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
         }
 
+        public static IntPtr OpenRead(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return new IntPtr(-1);
+            return CreateFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
+        }
+
+        public static IntPtr OpenFeature(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return new IntPtr(-1);
+            return CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+        }
+
+        public static bool ReadFeatureReport(IntPtr handle, byte reportId, int length, out byte[] data)
+        {
+            data = null;
+            if (!IsValidHandle(handle) || length < 2 || length > 4096) return false;
+            byte[] report = new byte[length];
+            report[0] = reportId;
+            if (!HidD_GetFeature(handle, report, length) || report[0] != reportId) return false;
+            data = report;
+            return true;
+        }
+
         public static void Close(IntPtr handle)
         {
             if (IsValidHandle(handle)) CloseHandle(handle);

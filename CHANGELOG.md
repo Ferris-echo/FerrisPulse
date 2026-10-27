@@ -13,6 +13,10 @@
   - 复用同一 `0xFF04 / 0x0001` 厂商控制通道与 64 字节 Output Report `0x02` 查询帧（`96 C3` key id、`0x41` PC→接收器寻址），无需新增传输层。
   - **电池槽按载荷宽度自适应分派**：头戴型号回传 2 字节 `[charger, percent]`，入耳型号回传 6 字节三组状态对；`ParseBatteryResponseAuto` 依 `hci_len - 12` 判宽，避免为每个新型号维护 PID 表。
   - 充电识别：状态字节非 `0x00` 即充电中，UI 与 Tooltip 同步点亮闪电标记；接收器在线但耳机未开机时保留在线占位并显示「耳机未连接」，绝不伪造电量。
+- **索尼 (Sony) PULSE Explore TWS 无线电竞入耳式耳机 (`054C:0ECC` PS Link / `054C:0ED0` 充电盒 USB)**（感谢 [@Q-LL](https://github.com/Q-LL) 深度逆向贡献 #31）：
+  - 新增 `SonyDeviceHelper.PulseExplore` 与 `SonyPulseExploreState`：支持 PS Link（0011）无线接收器与 USB 充电盒（0111）双通道状态读取；
+  - 精准解析 Feature Report `0xB0` 报文：独立读取左右双耳 16 档精细电量（如 87%）、单耳在位与在盒充电状态；
+  - 遵循物理事实原则：明确标注盒自身电量未知，杜绝伪造数据；在设备切换与断开时实现优雅自愈。
 - **漫步者 (EDIFIER) 花再 Halo Space 2.4G 无线头戴式耳机 (`2D99:E049`)**：
   - 新增 `EdifierDeviceHelper`，直连 `UsagePage 0xFF14 / Usage 0x0001` 的 64 字节中断端点，按 EC 私有协议组帧（`2E AA EC` 帧头 + 大端长度 + `XOR 0xA5` 载荷掩码 + 自下标 1 起算的 8 位累加和）。
   - 实机验证并接入 `0xD0` 电量查询（`0x86 ^ 0xA5 = 35%`）、`0xC9` 设备名称（UTF-8 “花再 Halo Space”）、`0xC6` 固件版本（1.0.2）与 `0xC8` 蓝牙 MAC 查询；名称/版本/MAC 首次成功后缓存，轮询仅保留单条电量命令并节流 1 秒。
@@ -32,6 +36,20 @@
   - 新增 `GameSirDeviceHelper`，直连 `UsagePage 0xFFA0` 专用手柄端点读取实时状态；
   - 精确多控制器匹配与 MAC 地址持久化指纹绑定，杜绝多手柄混淆与同类控制器碰撞；
   - 状态栏与托盘电量精准同步，完美识别充电中与满电状态。
+- **ATK V75X 三模客制化机械键盘 (`320F:5088` 2.4G)**（感谢 [@Q-LL](https://github.com/Q-LL) 架构与实机逆向贡献 #31）：
+  - 新增 `AtkDeviceHelper`，通过 `UsagePage 0xFF1C / Usage 0x0092` 的 64 字节 Output/Input 厂商集合发送非零递增序号请求；
+  - 严谨解析 `0x1A` 状态帧读取实时电量（87% 实测）与真实充电位，杜绝短包与越界电量；
+  - 新增 `AtkLightingDialog` 独立键盘灯效调控台与 `AtkDeviceHelper.Lighting`：支持 20 种官方灯效、5 档亮度、RGB 调色与速度调节，引入 56 字节分块事务读取、写入与全快照校验回滚保护。
+- **索尼 (Sony) DualSense Edge 旗舰无线手柄 (`054C:0DF2` USB)**（感谢 [@Q-LL](https://github.com/Q-LL) 适配贡献 #31）：
+  - 新增 `SonyDeviceHelper`，通过 64 字节 Input Report `0x01` 解析 `rx[53]` 电池档位与充电状态；
+  - 严格映射 10% 档位中点估值，归类为 Gamepad 专属设备卡片。
+- **雷蛇 (Razer) Viper V2 Pro 毒蝰 V2 专业版 (`1532:00A6` 接收器 / `1532:00A5` 有线)**（感谢 [@Q-LL](https://github.com/Q-LL) 根因排查与修复 #31）：
+  - 纠正旧版本将 `00A6/00A5` 误识别为 Cobra Pro 的偏差，精准映射为 Viper V2 Pro；
+  - 限制普通接收器回报率上限为 1000Hz；
+  - 修复全量硬件查询对 Y 轴档位与当前 Y 轴 DPI 的同步丢失问题。
+- **Win32 HID 底层总线生命周期加固 (`HidTransport.cs`)**（感谢 [@Q-LL](https://github.com/Q-LL) 架构贡献 #31）：
+  - 引入 `OpenRead`、`OpenFeature` 与 `ReadFeatureReport`，扩展只读/零权限句柄支持；
+  - 重构 `TransferReport`：异步 I/O 缓冲区使用 `GCHandle` 显式固定，OVERLAPPED 超时取消后等待完成才释放，私有事件绑定 CLR 避让标志，杜绝崩溃与句柄悬挂。
 - **雷蛇 (Razer) Viper V3 HyperSpeed 板载按键映射硬件通信层 (`1532:00B8`)**（感谢 [@lililixxx1](https://github.com/lililixxx1) 逆向与架构贡献 #13，关联 Issue #7 / #16）：
   - 新增 `RazerButtonMapping`，通过 `0x02/0x8C`（读）与 `0x02/0x0C`（写）实现板载 8 个物理按键功能重定义与事务重试；
   - 引入批量写入保护机制：完整 pre-apply 快照备份、逐键写入回读语义校验与失败自动回滚；

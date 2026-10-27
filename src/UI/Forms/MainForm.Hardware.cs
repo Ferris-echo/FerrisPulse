@@ -2088,6 +2088,7 @@ namespace RazerBatteryTray
             if (btnUniversalWinLock != null) btnUniversalWinLock.Visible = false;
             if (btnKeyTestSpeed != null) btnKeyTestSpeed.Visible = false;
             if (btnKeyboardSettings != null) btnKeyboardSettings.Visible = false;
+            if (btnAtkLighting != null) btnAtkLighting.Visible = false;
             if (btnAudioSetDefault != null) btnAudioSetDefault.Visible = false;
             if (btnVolumeMixer != null) btnVolumeMixer.Visible = false;
             if (btnAudioSettings != null) btnAudioSettings.Visible = false;
@@ -2215,6 +2216,7 @@ namespace RazerBatteryTray
                     tileHeadsetAudio.Title = (info.Category == DeviceCategory.Earbuds) ? "TWS 入耳式无线耳机" : "无线音频设备";
                     tileHeadsetAudio.StatusText = info.IsConnected ? (info.BatteryPercent >= 0 ? string.Format("已连接 · 剩余电量 {0}%", info.BatteryPercent) : "已连接就绪") : "已离线 / 未连接";
                     tileHeadsetAudio.Footnote = string.Format("通道: {0} · Windows 原生音频端点", info.Transport ?? "蓝牙");
+                    UpdatePulseExploreTile(info);
                     tileHeadsetAudio.Invalidate();
                 }
 
@@ -2383,6 +2385,7 @@ namespace RazerBatteryTray
                         btnKeyboardSettings.Visible = true;
                         btnKeyboardSettings.SetBounds((int)(16 * dpiScale), row2Y, secW, btnH);
                     }
+                    ConfigureAtkLightingControl(info, secW, btnW, row2Y, btnH);
                 }
 
                 if (dpiMenu != null) dpiMenu.Visible = false;

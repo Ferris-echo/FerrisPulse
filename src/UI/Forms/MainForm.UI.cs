@@ -643,6 +643,7 @@ namespace RazerBatteryTray
                 });
             };
             cardPerformance.Controls.Add(btnKeyboardSettings);
+            InitializeAtkLightingControl();
 
             // Audio Controls
             btnAudioSetDefault = new ModernButton();
