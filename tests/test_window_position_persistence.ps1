@@ -73,6 +73,30 @@ if ($regX -ne $expectedX -or $regY -ne $expectedY) {
     Write-Host "PASS: Registry coordinates were preserved" -ForegroundColor Green
 }
 
+# 5. (PR #17 断言) 模拟极端越界坐标必须被夹紧回工作区内，杜绝窗口底部被任务栏遮挡
+$flags = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+$tMainForm.GetField("savedWindowX", $flags).SetValue($form, $wa.Right + 500)
+$tMainForm.GetField("savedWindowY", $flags).SetValue($form, $wa.Bottom + 500)
+$tMainForm.GetMethod("RestoreWindowPosition", $flags).Invoke($form, $null)
+
+$clampedX = $winForm.Location.X
+$clampedY = $winForm.Location.Y
+$clampedRight = $clampedX + $winForm.Width
+$clampedBottom = $clampedY + $winForm.Height
+
+Write-Host "Simulated Clamped Location: ($clampedX, $clampedY), Bottom=$clampedBottom, WorkAreaBottom=$($wa.Bottom)"
+
+if ($winForm.Width -le $wa.Width -and $winForm.Height -le $wa.Height) {
+    if ($clampedX -lt $wa.Left -or $clampedY -lt $wa.Top -or $clampedRight -gt $wa.Right -or $clampedBottom -gt $wa.Bottom) {
+        Write-Host "FAIL: Out-of-bounds position was not clamped into the work area" -ForegroundColor Red
+        $failed = $true
+    } else {
+        Write-Host "PASS: Out-of-bounds position clamped into the work area" -ForegroundColor Green
+    }
+} else {
+    Write-Host "SKIP: Window larger than work area, clamp assertion skipped" -ForegroundColor Yellow
+}
+
 # 现场清理与关闭
 $winForm.Dispose()
 

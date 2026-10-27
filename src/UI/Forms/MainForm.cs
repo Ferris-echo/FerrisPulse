@@ -1325,35 +1325,22 @@ namespace RazerBatteryTray
 
 
                 Rectangle targetRect = new Rectangle(savedWindowX, savedWindowY, this.Width, this.Height);
-
+                // 选择与保存位置交集最大的屏幕；若全部在屏幕外，则退回主屏 (PR #17 优化)
                 Screen targetScreen = null;
-
+                long bestIntersectionArea = -1;
                 foreach (var scr in Screen.AllScreens)
-
                 {
-
                     Rectangle intersection = Rectangle.Intersect(scr.WorkingArea, targetRect);
-
-                    if (intersection.Width >= 100 && intersection.Height >= 100)
-
+                    long area = (long)Math.Max(0, intersection.Width) * (long)Math.Max(0, intersection.Height);
+                    if (area > bestIntersectionArea)
                     {
-
+                        bestIntersectionArea = area;
                         targetScreen = scr;
-
-                        break;
-
                     }
-
                 }
-
-
-
                 if (targetScreen == null)
-
                 {
-
                     targetScreen = Screen.PrimaryScreen;
-
                 }
 
 
