@@ -830,6 +830,10 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // 258A:01BB 的 Z75/Z75S 为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
+            if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
             {

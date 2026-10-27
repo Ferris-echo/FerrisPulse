@@ -3,7 +3,8 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   零依赖 Win32 HID 底层通信总线：SetupAPI 枚举、HidD 属性/能力查询、
-//   重叠 I/O 读写与超时取消。供 Flydigi / MCHOSE 等新品牌 Helper 复用。
+//   重叠 I/O 读写与超时取消。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
+//   供 Flydigi / MCHOSE 等新品牌 Helper 复用。
 // 依赖关系: 仅 .NET 4.0 核心程序集 + hid.dll / setupapi.dll / kernel32.dll
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -350,6 +351,17 @@ namespace RazerBatteryTray
 
         public static bool ReadReport(IntPtr handle, int length, int timeoutMs, out byte[] data)
         {
+            return ReadReportCore(handle, length, timeoutMs, false, out data);
+        }
+
+        // 固定长度协议必须校验 Win32 实际字节数，不能把分配缓冲区的补零当作收到的数据。
+        public static bool ReadReportExact(IntPtr handle, int length, int timeoutMs, out byte[] data)
+        {
+            return ReadReportCore(handle, length, timeoutMs, true, out data);
+        }
+
+        private static bool ReadReportCore(IntPtr handle, int length, int timeoutMs, bool requireExactLength, out byte[] data)
+        {
             data = null;
             if (!IsValidHandle(handle) || length <= 0) return false;
             IntPtr evt = CreateEvent(IntPtr.Zero, true, false, null);
@@ -371,7 +383,7 @@ namespace RazerBatteryTray
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out read, false);
                 }
-                if (ok && read > 0)
+                if (ok && read > 0 && (!requireExactLength || read == (uint)length))
                 {
                     data = buffer;
                     return true;

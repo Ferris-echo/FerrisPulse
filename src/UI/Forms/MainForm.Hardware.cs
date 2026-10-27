@@ -1503,7 +1503,7 @@ namespace RazerBatteryTray
                     {
                         battText = "⚡ 充电中";
                     }
-                    else if (dev.BatteryPercent > 0)
+                    else if (dev.BatteryPercent >= 0)
                     {
                         battText = dev.BatteryPercent + "%";
                     }
@@ -1514,7 +1514,7 @@ namespace RazerBatteryTray
                 }
                 focusDeviceSelector.BatteryText = battText;
                 focusDeviceSelector.StatusText = dev.IsConnected 
-                    ? (dev.IsSleeping ? "休眠中" : ((dev.Brand == "NuPhy" && (dev.BatteryPercent >= 100 || dev.IsCharging)) ? "充电中" : (dev.Category == DeviceCategory.Keyboard && dev.BatteryPercent <= 0 ? "免驱在线" : "已连接"))) 
+                    ? (dev.IsSleeping ? "休眠中" : ((dev.IsCharging || (dev.Brand == "NuPhy" && dev.BatteryPercent >= 100)) ? "充电中" : (dev.Category == DeviceCategory.Keyboard && dev.BatteryPercent < 0 ? "免驱在线" : "已连接"))) 
                     : "已离线";
                 focusDeviceSelector.Invalidate();
             }
@@ -1659,7 +1659,7 @@ namespace RazerBatteryTray
             string chgPart = lastInfo.IsSleeping ? "休眠待机" : (lastInfo.IsCharging ? "充电中" : "电池供电");
             string chgStr = lastInfo.IsSleeping ? "休眠待机 (移动唤醒)" : (lastInfo.IsCharging ? "正在充电" : "电池供电");
 
-            if (lastInfo.Category == DeviceCategory.Keyboard && !lastInfo.IsCharging)
+            if (lastInfo.Brand == "NuPhy" && lastInfo.Category == DeviceCategory.Keyboard && !lastInfo.IsCharging && !lastInfo.IsSleeping)
             {
                 if (lastInfo.BatteryPercent >= 100)
                 {
@@ -1679,12 +1679,12 @@ namespace RazerBatteryTray
 
             string devDisplayName = lastInfo.DisplayName;
 
-            if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent <= 0)
+            if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent < 0)
             {
                 menuStatus = string.Format("[{0}] {1} (免驱在线)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 免驱在线\n最后同步: {2}", brandTag, devDisplayName, timeStr);
             }
-            else if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent >= 100)
+            else if (lastInfo.Brand == "NuPhy" && lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent >= 100 && !lastInfo.IsSleeping)
             {
                 menuStatus = string.Format("[{0}] {1} (供电中)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 2.4G 供电中\n最后同步: {2}", brandTag, devDisplayName, timeStr);
@@ -2214,7 +2214,7 @@ namespace RazerBatteryTray
                             tileRapooDpi.ValueText = info.BatteryPercent.ToString();
                             tileRapooDpi.UnitText = "%";
                             bool isKbWired = info.Transport != null && (info.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 || info.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0);
-                            string chgStatus = isKbWired ? "USB 持续供电" : (info.IsCharging ? "正在充电" : "电池供电");
+                            string chgStatus = info.IsSleeping ? "休眠缓存" : (isKbWired ? "USB 持续供电" : (info.IsCharging ? "正在充电" : "电池供电"));
                             tileRapooDpi.Footnote = string.Format("通道: {0} | 供电: {1}", info.Transport ?? "无线", chgStatus);
                         }
                         else
@@ -2806,7 +2806,28 @@ namespace RazerBatteryTray
                                    || (info.DeviceId != null && info.DeviceId.IndexOf("pid_a011", StringComparison.OrdinalIgnoreCase) >= 0);
                 bool isBle = info.Transport != null && info.Transport.Contains("蓝牙");
 
-                bool kbCharging = isPureWired;
+                // 休眠缓存不是当前遥测：保留数值与采样时间，停止充电动画。
+                if (info.IsSleeping)
+                {
+                    isMouseSleeping = true;
+                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                    lblBatteryBig.Text = info.BatteryPercent >= 0 ? info.BatteryPercent + "%" : "--";
+                    lblBatteryBig.ForeColor = Color.FromArgb(220, 225, 235);
+                    pillStatus.SetStatus("休眠待机", Color.FromArgb(255, 183, 77));
+                    pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
+                    barBattery.StopFlow(Math.Max(0, info.BatteryPercent), brandAccent);
+                    lblUpdateTime.Text = info.LastUpdated == DateTime.MinValue ? "尚未读取电量 · 等待键盘响应" :
+                        "最后同步: " + info.LastUpdated.ToString("HH:mm:ss") + " · 休眠缓存";
+                    UpdatePerformanceSection(info, brandAccent);
+                    if (info.IsPrimary)
+                    {
+                        UpdateStatusDisplay();
+                        UpdateTrayIcon(info.BatteryPercent, false, true, true, brandAccent);
+                    }
+                    return;
+                }
+
+                bool kbCharging = isPureWired || info.IsCharging;
                 if (isPureWired)
                 {
                     lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);

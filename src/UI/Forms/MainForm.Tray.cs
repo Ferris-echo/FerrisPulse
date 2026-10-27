@@ -558,13 +558,17 @@ namespace RazerBatteryTray
                         {
                             battStr = "供电中";
                         }
+                        else if (dev.IsSleeping)
+                        {
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (休眠)" : "休眠";
+                        }
                         else if (dev.IsCharging || (dev.Brand == "NuPhy" && dev.BatteryPercent >= 100))
                         {
-                            battStr = "充电中";
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (充电中)" : "充电中";
                         }
                         else
                         {
-                            battStr = dev.BatteryPercent > 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
+                            battStr = dev.BatteryPercent >= 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
                         }
                     }
                     else
