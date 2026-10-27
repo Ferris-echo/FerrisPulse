@@ -33,6 +33,8 @@ namespace RazerBatteryTray
         public static string CachedDeviceName = "";
         public static DateTime CachedLastUpdated = DateTime.MinValue;
         public static string CachedCommandPath = null;
+        public static int LastActiveBacklightBrightness = 100;
+        public static int LastActiveSidelightBrightness = 100;
 
         public class NuphyHardwareSettings
         {
@@ -120,6 +122,12 @@ namespace RazerBatteryTray
 
                         var sSideB = key.GetValue("SidelightBrightness");
                         if (sSideB != null) CachedHardwareSettings.SidelightBrightness = Convert.ToInt32(sSideB);
+
+                        var sLastBack = key.GetValue("LastActiveBacklightBrightness");
+                        if (sLastBack != null) LastActiveBacklightBrightness = Convert.ToInt32(sLastBack);
+
+                        var sLastSide = key.GetValue("LastActiveSidelightBrightness");
+                        if (sLastSide != null) LastActiveSidelightBrightness = Convert.ToInt32(sLastSide);
                     }
                 }
             }
@@ -150,6 +158,9 @@ namespace RazerBatteryTray
                             key.SetValue("BacklightBrightness", CachedHardwareSettings.BacklightBrightness);
                             key.SetValue("SidelightEnabled", CachedHardwareSettings.SidelightEnabled ? 1 : 0);
                             key.SetValue("SidelightBrightness", CachedHardwareSettings.SidelightBrightness);
+
+                            if (LastActiveBacklightBrightness > 0) key.SetValue("LastActiveBacklightBrightness", LastActiveBacklightBrightness);
+                            if (LastActiveSidelightBrightness > 0) key.SetValue("LastActiveSidelightBrightness", LastActiveSidelightBrightness);
                         }
                     }
                 }
@@ -487,25 +498,27 @@ namespace RazerBatteryTray
             if (percent > 100) percent = 100;
             try
             {
+                var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
+                if (percent > 0) LastActiveBacklightBrightness = percent;
+                s.BacklightBrightness = percent;
+                s.BacklightEnabled = (percent > 0);
+                CachedHardwareSettings = s;
+                SaveHardwareCache();
+
                 string path = FindNuphyCommandEndpoint();
                 if (string.IsNullOrEmpty(path)) return false;
 
-                var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
-                s.BacklightBrightness = percent;
-                s.BacklightEnabled = (percent > 0);
-
                 bool anyOk = false;
-                int[] modesToUpdate = new int[] { 0, 1, 2, 3 };
-                for (int i = 0; i < modesToUpdate.Length; i++)
-                {
-                    int m = modesToUpdate[i];
-                    ushort baseOffset = (ushort)(m * 64);
-                    byte[] resp = SendNuphyCommand(path, 0x06, (ushort)(baseOffset + 9), 1, new byte[] { (byte)percent }, 0);
-                    if (resp != null) anyOk = true;
-                }
+                int curMode = s.CurrentMode;
+                ushort primaryOffset = (ushort)(curMode * 64 + 9);
+                byte[] resp = SendNuphyCommand(path, 0x06, primaryOffset, 1, new byte[] { (byte)percent }, 80);
+                if (resp != null) anyOk = true;
 
-                CachedHardwareSettings = s;
-                SaveHardwareCache();
+                int secondaryMode = (curMode == 0) ? 1 : 0;
+                ushort secondaryOffset = (ushort)(secondaryMode * 64 + 9);
+                byte[] r2 = SendNuphyCommand(path, 0x06, secondaryOffset, 1, new byte[] { (byte)percent }, 40);
+                if (r2 != null) anyOk = true;
+
                 return anyOk;
             }
             catch { }
@@ -515,8 +528,16 @@ namespace RazerBatteryTray
         public static bool SetBacklightEnabled(bool enable)
         {
             var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
-            int target = enable ? (s.BacklightBrightness > 0 ? s.BacklightBrightness : 100) : 0;
-            return SetBacklightBrightness(target);
+            if (enable)
+            {
+                int target = (s.BacklightBrightness > 0) ? s.BacklightBrightness : (LastActiveBacklightBrightness > 0 ? LastActiveBacklightBrightness : 100);
+                return SetBacklightBrightness(target);
+            }
+            else
+            {
+                if (s.BacklightBrightness > 0) LastActiveBacklightBrightness = s.BacklightBrightness;
+                return SetBacklightBrightness(0);
+            }
         }
 
         public static bool SetSidelightBrightness(int percent)
@@ -525,25 +546,27 @@ namespace RazerBatteryTray
             if (percent > 100) percent = 100;
             try
             {
+                var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
+                if (percent > 0) LastActiveSidelightBrightness = percent;
+                s.SidelightBrightness = percent;
+                s.SidelightEnabled = (percent > 0);
+                CachedHardwareSettings = s;
+                SaveHardwareCache();
+
                 string path = FindNuphyCommandEndpoint();
                 if (string.IsNullOrEmpty(path)) return false;
 
-                var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
-                s.SidelightBrightness = percent;
-                s.SidelightEnabled = (percent > 0);
-
                 bool anyOk = false;
-                int[] modesToUpdate = new int[] { 0, 1, 2, 3 };
-                for (int i = 0; i < modesToUpdate.Length; i++)
-                {
-                    int m = modesToUpdate[i];
-                    ushort baseOffset = (ushort)(m * 64);
-                    byte[] resp = SendNuphyCommand(path, 0x06, (ushort)(baseOffset + 25), 1, new byte[] { (byte)percent }, 0);
-                    if (resp != null) anyOk = true;
-                }
+                int curMode = s.CurrentMode;
+                ushort primaryOffset = (ushort)(curMode * 64 + 25);
+                byte[] resp = SendNuphyCommand(path, 0x06, primaryOffset, 1, new byte[] { (byte)percent }, 80);
+                if (resp != null) anyOk = true;
 
-                CachedHardwareSettings = s;
-                SaveHardwareCache();
+                int secondaryMode = (curMode == 0) ? 1 : 0;
+                ushort secondaryOffset = (ushort)(secondaryMode * 64 + 25);
+                byte[] r2 = SendNuphyCommand(path, 0x06, secondaryOffset, 1, new byte[] { (byte)percent }, 40);
+                if (r2 != null) anyOk = true;
+
                 return anyOk;
             }
             catch { }
@@ -553,8 +576,16 @@ namespace RazerBatteryTray
         public static bool SetSidelightEnabled(bool enable)
         {
             var s = CachedHardwareSettings ?? new NuphyHardwareSettings();
-            int target = enable ? (s.SidelightBrightness > 0 ? s.SidelightBrightness : 100) : 0;
-            return SetSidelightBrightness(target);
+            if (enable)
+            {
+                int target = (s.SidelightBrightness > 0) ? s.SidelightBrightness : (LastActiveSidelightBrightness > 0 ? LastActiveSidelightBrightness : 100);
+                return SetSidelightBrightness(target);
+            }
+            else
+            {
+                if (s.SidelightBrightness > 0) LastActiveSidelightBrightness = s.SidelightBrightness;
+                return SetSidelightBrightness(0);
+            }
         }
 
         public static MouseBatteryInfo QueryNuphyDeviceInfo()

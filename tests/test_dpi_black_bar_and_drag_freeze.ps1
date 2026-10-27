@@ -65,7 +65,7 @@ if ($hwSrc -notmatch "if \(stState != null\)[\s\S]*?info\.IsSleeping = true;") {
 
 # 6. Verify MainForm.Tray.cs async dispatching
 $traySrc = Get-Content "src\UI\Forms\MainForm.Tray.cs" -Raw
-if ($traySrc -match "ThreadPool\.QueueUserWorkItem\(_\s*=>\s*\{[\s\S]*?NuphyDeviceHelper\.SetAutoSleep") {
+if ($traySrc -match "ThreadPool\.QueueUserWorkItem\(_\s*=>\s*\{[\s\S]*?(NuphyDeviceHelper\.SetAutoSleep|HardwareCommandBus\.ExecuteCustomAction)") {
     Write-Host "PASS: MainForm.Tray.cs queues slow hardware commands onto ThreadPool." -ForegroundColor Green
 } else {
     Write-Host "FAIL: MainForm.Tray.cs does not queue slow hardware commands onto ThreadPool!" -ForegroundColor Red

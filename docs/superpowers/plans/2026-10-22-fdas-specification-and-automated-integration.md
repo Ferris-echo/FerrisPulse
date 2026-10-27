@@ -1,4 +1,4 @@
-# FDAS v1.0 设备适配规范与智能融合体系实现计划 (Implementation Plan)
+﻿# FDAS v1.0 设备适配规范与智能融合体系实现计划 (Implementation Plan)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

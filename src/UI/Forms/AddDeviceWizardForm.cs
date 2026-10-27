@@ -662,6 +662,68 @@ namespace RazerBatteryTray
                 }
                 catch { }
 
+                // 2.52 Scan MCHOSE Keyboards (G87 V2 / G75 PRO 2.4G)
+                try
+                {
+                    var mchoseList = MchoseDeviceHelper.QueryAllMchoseDevices();
+                    if (mchoseList != null)
+                    {
+                        foreach (var dev in mchoseList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId ||
+                                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                {
+                                    var cfg = new CustomDeviceConfig
+                                    {
+                                        DeviceId = dev.DeviceId,
+                                        OriginalName = dev.DeviceName,
+                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                        Category = resolveCategory(dev.DeviceId, DeviceCategory.Keyboard),
+                                        Transport = dev.Transport ?? "2.4G 无线",
+                                        CachedBattery = dev.BatteryPercent,
+                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                    };
+                                    tempConfigs.Add(cfg);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 2.53 Scan Acer OMR Series Mice (2.4G / USB)
+                try
+                {
+                    var acerList = AcerDeviceHelper.QueryAllAcerDevices();
+                    if (acerList != null)
+                    {
+                        foreach (var dev in acerList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId ||
+                                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                {
+                                    var cfg = new CustomDeviceConfig
+                                    {
+                                        DeviceId = dev.DeviceId,
+                                        OriginalName = dev.DeviceName,
+                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                        Category = resolveCategory(dev.DeviceId, DeviceCategory.Mouse),
+                                        Transport = dev.Transport ?? "2.4G 无线",
+                                        CachedBattery = dev.BatteryPercent,
+                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                    };
+                                    tempConfigs.Add(cfg);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
                 // 2.55 Scan Logitech Devices (Lightspeed / Unifying / Nano / Wired)
                 try
                 {
@@ -777,6 +839,70 @@ namespace RazerBatteryTray
                                         HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
                                     };
                                     tempConfigs.Add(cfg);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins)
+                try
+                {
+                    CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+                    var fdasList = FdasRuntimeHelper.QueryAllFdasDevices();
+                    if (fdasList != null)
+                    {
+                        foreach (var dev in fdasList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                {
+                                    var cfg = new CustomDeviceConfig
+                                    {
+                                        DeviceId = dev.DeviceId,
+                                        OriginalName = dev.DeviceName,
+                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                        Category = resolveCategory(dev.DeviceId, dev.Category),
+                                        Transport = dev.Transport ?? "2.4G/USB",
+                                        CachedBattery = dev.BatteryPercent,
+                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                    };
+                                    tempConfigs.Add(cfg);
+                                }
+                            }
+                        }
+                    }
+
+                    var drivers = HardwareDriverRegistry.GetAllDriversOrdered();
+                    if (drivers != null)
+                    {
+                        for (int di = 0; di < drivers.Count; di++)
+                        {
+                            var drv = drivers[di];
+                            if (drv == null) continue;
+                            var dList = drv.QueryDevices();
+                            if (dList == null) continue;
+                            for (int k = 0; k < dList.Count; k++)
+                            {
+                                var dev = dList[k];
+                                if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                                {
+                                    if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                    {
+                                        var cfg = new CustomDeviceConfig
+                                        {
+                                            DeviceId = dev.DeviceId,
+                                            OriginalName = dev.DeviceName,
+                                            CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                            Category = resolveCategory(dev.DeviceId, dev.Category),
+                                            Transport = dev.Transport ?? "2.4G/USB",
+                                            CachedBattery = dev.BatteryPercent,
+                                            HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                        };
+                                        tempConfigs.Add(cfg);
+                                    }
                                 }
                             }
                         }
@@ -1154,9 +1280,9 @@ namespace RazerBatteryTray
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v1.0 硬件适配规范包");
+            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v2.0 / .fp-driver.cs 双轨硬件适配扩展包");
             sb.AppendLine();
-            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份严格符合 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON）。");
+            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份符合 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 标准（向下兼容 FDAS v1.0）的适配规范包（`.fp-adapter.json`）或动态 C# 5.0 驱动脚本扩展包（`.fp-driver.cs`）。");
             sb.AppendLine();
             sb.AppendLine("## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）");
             sb.AppendLine("你必须严格按以下两阶段开展工作：");
@@ -1171,10 +1297,11 @@ namespace RazerBatteryTray
             sb.AppendLine("   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！");
             sb.AppendLine("3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。");
             sb.AppendLine();
-            sb.AppendLine("### 阶段二：FDAS v1.0 动态微表达式与规范包封装 (Dynamic Calculation)");
-            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
-            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
-            sb.AppendLine("1. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验，例如：");
+            sb.AppendLine("### 阶段二：FDAS v2.0 声明式扩展包与动态微表达式 (Dynamic Calculation)");
+            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器与 `DriverStateStore` 统一注册表缓存，无需改动主程序即可实现内置包同等待遇（支持冷启动秒亮、多 PID 双模融合、全套五档批量写入、自定义硬件动作）：");
+            sb.AppendLine("1. **FDAS v2.0 多 PID 矩阵与主题契约 (`metadata.brandColor` / `hardware.devices`)**：");
+            sb.AppendLine("   - 支持在单个包内通过 `hardware.devices: [ { \"productId\": \"0x...\", \"transport\": \"2.4G 无线\", \"model\": \"...\" } ]` 同时声明有线 USB 与 2.4G 接收器多 PID。");
+            sb.AppendLine("2. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验，例如：");
             sb.AppendLine("   - `\"rateParity\": \"(0x55 - $rateCode) & 0xFF\"` (CompX 互补校验位)");
             sb.AppendLine("   - `\"dpiEncoded\": \"($dpi / 50) - 1\"` (PAW3950/3395 编码)");
             sb.AppendLine("   - `\"dpiLow\": \"$dpiEncoded & 0xFF\"`");
@@ -1182,16 +1309,17 @@ namespace RazerBatteryTray
             sb.AppendLine("   - `\"dpiFlags\": \"($dpiHigh << 2) | ($dpiHigh << 6)\"`");
             sb.AppendLine("   - `\"dpiParity\": \"(0x55 - $dpiLow - $dpiLow - $dpiFlags) & 0xFF\"`");
             sb.AppendLine("   - `\"dpiAddrLo\": \"(0x000C + $stage0 * 4) & 0xFF\"`");
-            sb.AppendLine("2. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
-            sb.AppendLine("3. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：若设备查询电量需先唤醒接收器再查询，可声明执行序列：`[\"08 02 ...\", \"08 04 ...\"]`");
-            sb.AppendLine("4. **内联表达式支持**：模板中直接支持 `{ (0x55 - rateCode) & 0xFF }` 动态求值。");
+            sb.AppendLine("3. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
+            sb.AppendLine("4. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：若设备查询电量需先唤醒接收器再查询，可声明执行序列：`[\"08 02 ...\", \"08 04 ...\"]`");
+            sb.AppendLine("5. **全套五档批量写入 (`protocol.setStagesTxTemplate`) 与自定义硬件动作 (`capabilities.customActions`)**：支持 `Toggle` / `Slider` / `Button` 扩展控件（如键盘自动休眠、Win键锁定、背光亮度滑块、LOD静默高度），自动映射至主界面与托盘菜单。");
             sb.AppendLine();
-            sb.AppendLine("## 🛡️ 逃生舱机制：代码级深度定制授权");
-            sb.AppendLine("如果该设备的物理协议极其罕见或复杂（例如非标准加解密哈希、流式分片压缩等），确实超出了动态 JSON 的表达边界：");
-            sb.AppendLine("**明确授权你直接深入修改 FerrisPulse 本地 C# 源码（位于 `src/Hardware/` 目录下）**，并在本地运行 `cmd.exe /c \"build.bat\"` 编译验证，确保用户立即能用上，绝不受技术教条限制！");
+            sb.AppendLine("## 🛡️ 逃生舱机制：`.fp-driver.cs` 动态 C# 5.0 驱动脚本包与源码深度定制授权");
+            sb.AppendLine("如果该设备的物理协议极其复杂（如动态 Feature Index 发现、多步条件握手、非标准状态机），超出了声明式 JSON 的表达边界：");
+            sb.AppendLine("1. **方式 B（首选免编译热插拔脚本包）**：请直接输出一个继承自 `RazerBatteryTray.HardwareDriverBase` 的 C# 5.0 驱动类，保存为 `{brand}_{model}.fp-driver.cs` 放入 `adapters/` 目录（或通过软件导入窗口一键粘贴）。FerrisPulse 启动时通过内置 `CSharpCodeProvider` 内存编译加载，优先级（Priority 300）高于内置驱动（Priority 100），可直接热覆盖修复内置驱动！");
+            sb.AppendLine("2. **本地源码级定制**：同时也**明确授权你直接深入修改 FerrisPulse 本地 C# 源码（位于 `src/Hardware/` 目录下）**，并在本地运行 `cmd.exe /c \"build.bat\"` 编译验证，确保用户立即能用上，绝不受技术教条限制！");
             sb.AppendLine();
             sb.AppendLine("## 🤝 开源生态飞轮：社区反哺指引");
-            sb.AppendLine("无论你是通过【FDAS 动态 JSON】还是【C# 源码修改】成功适配了该设备，请务必在回答末尾输出一份《灵脉设备适配成果报告》，并热忱引导用户将此成果提交给官方：");
+            sb.AppendLine("无论你是通过【FDAS v2.0 动态 JSON】、【.fp-driver.cs 脚本扩展包】还是【C# 源码修改】成功适配了该设备，请务必在回答末尾输出一份《灵脉设备适配成果报告》，并热忱引导用户将此成果提交给官方：");
             sb.AppendLine("1. **GitHub Issues / PR**: https://github.com/Ferris-echo/FerrisPulse/issues");
             sb.AppendLine("2. **Gitee Issues / PR**: https://gitee.com/Ferris-echo/FerrisPulse/issues");
             sb.AppendLine("3. **作者个人邮箱直连投递**: 2949225840@qq.com 或 2949225840zpf@gmail.com");
@@ -1214,18 +1342,19 @@ namespace RazerBatteryTray
             sb.AppendLine("- HID 通信拓扑端点列表:");
             sb.AppendLine(endpoints);
             sb.AppendLine();
-            sb.AppendLine("## 4. 输出格式与契约规范");
-            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容符合 FDAS v1.0 规范，包含：");
-            sb.AppendLine("1. `metadata`: brand, model, category, author, description");
-            sb.AppendLine("2. `hardware`: vendorId, productId, endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
+            sb.AppendLine("## 4. 输出格式与契约规范（二选一：常规设备输出 JSON，复杂协议输出 C# 5.0 脚本）");
+            sb.AppendLine("### 方式 A：FDAS v2.0 声明式扩展包（保存为 `{brand}_{model}.fp-adapter.json`）");
+            sb.AppendLine("1. `fdasVersion`: `\"2.0\"`, `metadata`: brand, model, category, author, brandColor, description");
+            sb.AppendLine("2. `hardware`: vendorId, productId, `devices` (多 PID 矩阵), endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
             sb.AppendLine("3. `capabilities`:");
             sb.AppendLine("   - `battery`: reportId, batteryPercentByteOffset, chargingByteOffset, chargingBitMask, batteryFormula, sampleRxHex");
             if (item == null || item.Category == DeviceCategory.Mouse)
             {
                 sb.AppendLine("   - `mouse`: (若需支持 DPI/回报率)");
-                sb.AppendLine("     - `dpi`: minDpi, maxDpi, step, defaultStages, supportsXyIndependence, ratioPresets, activeStageByteOffset, dpiXLoByteOffset, dpiXHiByteOffset, dpiYLoByteOffset, dpiYHiByteOffset, sampleDpiRxHex");
+                sb.AppendLine("     - `dpi`: minDpi, maxDpi, step, sensorDescription, defaultStages, supportsXyIndependence, ratioPresets, activeStageByteOffset, dpiXLoByteOffset, dpiXHiByteOffset, dpiYLoByteOffset, dpiYHiByteOffset, sampleDpiRxHex");
                 sb.AppendLine("     - `pollingRate`: supportedRates, defaultRate, maxRate, rateIndexMap");
             }
+            sb.AppendLine("   - `customActions`: 可选自定义硬件动作数组（id, title, type: Toggle/Slider/Button, activeText, inactiveText, min, max, onTxHex, offTxHex, txTemplate）");
             sb.AppendLine("4. `protocol`:");
             sb.AppendLine("   - queryBatteryTxHex (或 queryBatteryPipeline)");
             if (item == null || item.Category == DeviceCategory.Mouse)
@@ -1234,11 +1363,56 @@ namespace RazerBatteryTray
                 sb.AppendLine("   - rateCodeMap (厂商私有回报率编码映射)");
                 sb.AppendLine("   - setDpiTxTemplate (档位写入模板，支持占位符与微表达式)");
                 sb.AppendLine("   - setDpiValueTxTemplate (DPI 分辨率写入模板，若无独立数值包可省略)");
+                sb.AppendLine("   - setStagesTxTemplate (全套五档批量写入模板，支持 $s1_x_lo..$s5_y_hi)");
                 sb.AppendLine("   - setPollingRateTxTemplate (回报率写入模板)");
             }
             sb.AppendLine("   - checksumType (None / SumMod256 / VgnCompxSum55 / XorSum / SonyInzone)");
             sb.AppendLine();
-            sb.AppendLine("用户将直接把文件保存为 `{brand}_{model}.fp-adapter.json` 导入 FerrisPulse 自动点亮外设！");
+            sb.AppendLine("### 方式 B：C# 5.0 动态驱动脚本扩展包（保存为 `{brand}_{model}.fp-driver.cs`）");
+            sb.AppendLine("- 严格遵守 C# 5.0 语法（禁用 `$` 字符串插值、`?.`、`nameof`），继承 `RazerBatteryTray.HardwareDriverBase`，重写 `DriverId`, `Brand`, `CanHandle`, `PopulateCapabilities`, `QueryDevices`, `SetDpi`, `UpdateHardwareStages`, `SetPollingRate`, `ExecuteCustomAction`，并可使用 `DriverStateStore.LoadState` / `SaveBattery` 持久化状态。");
+            sb.AppendLine();
+            sb.AppendLine("## 5. 标准化示例参考（Razer DeathAdder V4 Pro 旗舰双模鼠标 FDAS v2.0 范例）");
+            sb.AppendLine("```json");
+            sb.AppendLine("{");
+            sb.AppendLine("  \"fdasVersion\": \"2.0\",");
+            sb.AppendLine("  \"metadata\": {");
+            sb.AppendLine("    \"brand\": \"Razer\",");
+            sb.AppendLine("    \"model\": \"DeathAdder V4 Pro\",");
+            sb.AppendLine("    \"category\": \"Mouse\",");
+            sb.AppendLine("    \"brandColor\": \"#00FF00\",");
+            sb.AppendLine("    \"sensorDescription\": \"Focus Pro 35K Gen-2 · 1-DPI 精准步进 (100 ~ 35,000 DPI)\",");
+            sb.AppendLine("    \"author\": \"FerrisPulse Official\"");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"hardware\": {");
+            sb.AppendLine("    \"vendorId\": \"0x1532\",");
+            sb.AppendLine("    \"productId\": \"0x00BE\",");
+            sb.AppendLine("    \"devices\": [");
+            sb.AppendLine("      { \"productId\": \"0x00BE\", \"model\": \"Razer DeathAdder V4 Pro (2.4G)\", \"transport\": \"2.4G 无线\", \"maxRate\": 8000 },");
+            sb.AppendLine("      { \"productId\": \"0x00BF\", \"model\": \"Razer DeathAdder V4 Pro (Wired)\", \"transport\": \"USB 有线\", \"maxRate\": 8000 }");
+            sb.AppendLine("    ],");
+            sb.AppendLine("    \"endpointTopology\": { \"usagePage\": \"0x0001\", \"usage\": \"0x0002\", \"reportType\": \"Feature\", \"reportLength\": 91 }");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"capabilities\": {");
+            sb.AppendLine("    \"battery\": {");
+            sb.AppendLine("      \"reportId\": \"0x00\", \"batteryPercentByteOffset\": 10, \"chargingByteOffset\": 9, \"chargingBitMask\": \"0x01\",");
+            sb.AppendLine("      \"batteryFormula\": \"(b[10] * 100) / 255\",");
+            sb.AppendLine("      \"sampleRxHex\": \"00 02 1F 00 00 00 02 07 80 01 CC 00 00 00 00 00 00 00 00 00\"");
+            sb.AppendLine("    },");
+            sb.AppendLine("    \"mouse\": {");
+            sb.AppendLine("      \"dpi\": { \"minDpi\": 100, \"maxDpi\": 35000, \"step\": 1, \"defaultStages\": [400, 800, 1600, 3200, 6400], \"supportsXyIndependence\": true },");
+            sb.AppendLine("      \"pollingRate\": { \"supportedRates\": [125, 250, 500, 1000, 2000, 4000, 8000], \"defaultRate\": 1000, \"maxRate\": 8000 }");
+            sb.AppendLine("    }");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"protocol\": {");
+            sb.AppendLine("    \"queryBatteryTxHex\": \"00 00 1F 00 00 00 02 07 80 00 00 00 00 00 00 00 00 00 00 00\",");
+            sb.AppendLine("    \"setDpiTxTemplate\": \"00 00 1F 00 00 00 07 04 05 01 {stage} {dpiX_hi} {dpiX_lo} {dpiY_hi} {dpiY_lo} 00 00\",");
+            sb.AppendLine("    \"setPollingRateTxTemplate\": \"00 00 1F 00 00 00 02 00 40 01 {rateIndex} 00 00 00 00 00\",");
+            sb.AppendLine("    \"checksumType\": \"XorSum\"");
+            sb.AppendLine("  }");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("用户将直接把输出内容导入 FerrisPulse「导入扩展适配包」窗口自动点亮外设！");
             return sb.ToString();
         }
     }

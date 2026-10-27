@@ -732,6 +732,57 @@ namespace RazerBatteryTray
             }
         }
 
+        public static bool UpdateMchoseHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
+        {
+            if (stagesX == null || stagesX.Length == 0) return false;
+            if (stagesY == null || stagesY.Length != stagesX.Length) stagesY = stagesX;
+            int count = Math.Min(5, stagesX.Length);
+            if (activeStage < 1) activeStage = 1;
+            if (activeStage > count) activeStage = count;
+
+            lock (hidLock)
+            {
+                int usbPid;
+                IntPtr handle;
+                if (!OpenForWrite(out handle, out usbPid)) return false;
+
+                try
+                {
+                    byte[] config = ReadConfigPayload(handle);
+                    if (config == null) return false;
+
+                    int activeIdx = activeStage - 1;
+                    config[1] = (byte)((config[1] & 0xF0) | activeIdx);
+                    config[2] = (byte)((config[2] & 0xF0) | activeIdx);
+
+                    byte mask = 0;
+                    for (int i = 0; i < count; i++)
+                    {
+                        mask = (byte)(mask | (1 << i));
+                        int dx = Math.Max(100, Math.Min(26000, stagesX[i]));
+                        int dy = Math.Max(100, Math.Min(26000, stagesY[i]));
+                        config[4 + i * 2] = (byte)(dx & 0xFF);
+                        config[5 + i * 2] = (byte)((dx >> 8) & 0xFF);
+                        config[51 + i * 2] = (byte)(dy & 0xFF);
+                        config[52 + i * 2] = (byte)((dy >> 8) & 0xFF);
+                    }
+                    config[16] = mask;
+
+                    if (!WriteConfig(handle, config)) return false;
+                    Thread.Sleep(160);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+                finally
+                {
+                    RazerDeviceHelper.CloseHandle(handle);
+                }
+            }
+        }
+
         private static int GetRateIndex(int hz)
         {
             for (int i = 0; i < RATES.Length; i++)

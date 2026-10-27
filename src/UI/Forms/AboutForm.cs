@@ -61,6 +61,7 @@ namespace RazerBatteryTray
         private Panel qrPanelAlipay;
         private LinkLabel lnkQQ;
         private LinkLabel lnkGithub;
+        private LinkLabel lnkResetApp;
 
         // 背面控件
         private RoundedCard cardQuote;
@@ -282,6 +283,7 @@ namespace RazerBatteryTray
             lblAuthorSuffix.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) HandleAuthorHit(); };
             pnlFront.Controls.Add(lblAuthorSuffix);
 
+
             // Card 1: 软件在线更新卡片
             cardUpdate = new RoundedCard();
             cardUpdate.CardColor = Color.FromArgb(25, 27, 34);
@@ -381,8 +383,12 @@ namespace RazerBatteryTray
             lnkQQ.LinkColor = Color.FromArgb(77, 182, 252);
             lnkQQ.ActiveLinkColor = Color.FromArgb(129, 212, 250);
             lnkQQ.VisitedLinkColor = Color.FromArgb(77, 182, 252);
+            lnkQQ.LinkBehavior = LinkBehavior.NeverUnderline;
             lnkQQ.BackColor = Color.Transparent;
             lnkQQ.AutoSize = true;
+            lnkQQ.Cursor = Cursors.Hand;
+            lnkQQ.MouseEnter += delegate { lnkQQ.LinkColor = Color.FromArgb(140, 215, 255); };
+            lnkQQ.MouseLeave += delegate { lnkQQ.LinkColor = Color.FromArgb(77, 182, 252); };
             lnkQQ.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
                 try
@@ -418,13 +424,36 @@ namespace RazerBatteryTray
             lnkGithub.LinkColor = Color.FromArgb(0, 215, 115);
             lnkGithub.ActiveLinkColor = Color.FromArgb(0, 255, 130);
             lnkGithub.VisitedLinkColor = Color.FromArgb(0, 215, 115);
+            lnkGithub.LinkBehavior = LinkBehavior.NeverUnderline;
             lnkGithub.BackColor = Color.Transparent;
             lnkGithub.AutoSize = true;
+            lnkGithub.Cursor = Cursors.Hand;
+            lnkGithub.MouseEnter += delegate { lnkGithub.LinkColor = Color.FromArgb(60, 255, 160); };
+            lnkGithub.MouseLeave += delegate { lnkGithub.LinkColor = Color.FromArgb(0, 215, 115); };
             lnkGithub.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
                 try { Process.Start("https://github.com/Ferris-echo/FerrisPulse"); } catch { }
             };
             cardDonate.Controls.Add(lnkGithub);
+
+            // 底部低调维护入口：故障排查与深度重置文字链接（克制优雅，彻底还顶部视觉清爽）
+            lnkResetApp = new LinkLabel();
+            lnkResetApp.Text = "故障排查与深度重置 (清空旧版残留)";
+            lnkResetApp.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lnkResetApp.LinkColor = Color.FromArgb(125, 134, 150);
+            lnkResetApp.ActiveLinkColor = Color.FromArgb(255, 130, 140);
+            lnkResetApp.VisitedLinkColor = Color.FromArgb(125, 134, 150);
+            lnkResetApp.LinkBehavior = LinkBehavior.NeverUnderline;
+            lnkResetApp.BackColor = Color.Transparent;
+            lnkResetApp.AutoSize = true;
+            lnkResetApp.Cursor = Cursors.Hand;
+            lnkResetApp.MouseEnter += delegate { lnkResetApp.LinkColor = Color.FromArgb(235, 150, 160); };
+            lnkResetApp.MouseLeave += delegate { lnkResetApp.LinkColor = Color.FromArgb(125, 134, 150); };
+            lnkResetApp.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
+            {
+                OpenResetDialog();
+            };
+            cardDonate.Controls.Add(lnkResetApp);
 
             pnlFront.Controls.Add(cardDonate);
             flipContainer.Controls.Add(pnlFront);
@@ -629,6 +658,13 @@ namespace RazerBatteryTray
                 lnkGithub.Top = (lnkQQ != null ? lnkQQ.Bottom : qrBottom + 16) + 8;
                 CenterControlHorizontally(lnkGithub, cardWidth);
                 lnkGithub.BringToFront();
+            }
+            if (lnkResetApp != null)
+            {
+                lnkResetApp.Font = new Font("Microsoft YaHei UI", 8.2F);
+                lnkResetApp.Top = (lnkGithub != null ? lnkGithub.Bottom : qrBottom + 16) + 12;
+                CenterControlHorizontally(lnkResetApp, cardWidth);
+                lnkResetApp.BringToFront();
             }
 
             // 3. 计算窗体与主容器总高度 (固定 600x668 客户端尺寸)
@@ -1960,6 +1996,68 @@ namespace RazerBatteryTray
 
                 lblUpdateStatus.Text = "当前版本: " + AppVersion;
                 lblUpdateStatus.ForeColor = Color.FromArgb(140, 148, 162);
+            }
+        }
+
+        private void OpenResetDialog()
+        {
+            using (ResetConfirmDialog dlg = new ResetConfirmDialog(this.DpiScale))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK || dlg.SelectedMode == ResetActionMode.None)
+                {
+                    return;
+                }
+
+                bool removeShortcuts = (dlg.SelectedMode == ResetActionMode.CleanAndExit);
+                string errMsg;
+                AppResetManager.PerformFullReset(removeShortcuts, out errMsg);
+
+                if (dlg.SelectedMode == ResetActionMode.ResetAndRestart)
+                {
+                    try
+                    {
+                        StartupManager.EnsureAppShortcutWithAumid();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        Program.ReleaseSingleInstanceMutex();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        string exePath = StartupManager.GetApplicationExecutablePath();
+                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                        {
+                            ProcessStartInfo psi = new ProcessStartInfo(exePath);
+                            psi.WorkingDirectory = Path.GetDirectoryName(exePath);
+                            psi.UseShellExecute = true;
+                            Process.Start(psi);
+                        }
+                    }
+                    catch { }
+
+                    Environment.Exit(0);
+                }
+                else if (dlg.SelectedMode == ResetActionMode.CleanAndExit)
+                {
+                    MessageBox.Show(
+                        this,
+                        "已彻底清空所有历史版本的注册表配置、开机启动项、设备缓存与快捷方式。\n\n点击“确定”后程序将立即退出，您现在可以直接删除软件文件或重新开始。",
+                        "清理完成 - FerrisPulse · 灵脉",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    try
+                    {
+                        Program.ReleaseSingleInstanceMutex();
+                    }
+                    catch { }
+
+                    Environment.Exit(0);
+                }
             }
         }
 

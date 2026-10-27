@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -618,8 +618,75 @@ namespace RazerBatteryTray
             catch { }
         }
 
+        public static void MergeExternalDriverDevice(List<MouseBatteryInfo> list, MouseBatteryInfo dev)
+        {
+            if (list == null || dev == null) return;
+
+            var variants = GetDeviceIdVariants(dev.DeviceId);
+            int devVid, devPid;
+            bool hasVidPid = HardwareDriverBase.TryExtractDeviceVidPid(dev, out devVid, out devPid);
+
+            int existingIdx = -1;
+            for (int i = 0; i < list.Count; i++)
+            {
+                MouseBatteryInfo cur = list[i];
+                if (cur == null) continue;
+
+                if (!string.IsNullOrEmpty(cur.DeviceId) && cur.DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingIdx = i;
+                    break;
+                }
+                if (!string.IsNullOrEmpty(cur.HardwareFingerprint) && !string.IsNullOrEmpty(dev.HardwareFingerprint) &&
+                    cur.HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingIdx = i;
+                    break;
+                }
+
+                for (int vi = 0; vi < variants.Count; vi++)
+                {
+                    if ((!string.IsNullOrEmpty(cur.DeviceId) && cur.DeviceId.Equals(variants[vi], StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(cur.HardwareFingerprint) && cur.HardwareFingerprint.Equals(variants[vi], StringComparison.OrdinalIgnoreCase)))
+                    {
+                        existingIdx = i;
+                        break;
+                    }
+                }
+                if (existingIdx >= 0) break;
+
+                if (hasVidPid)
+                {
+                    int curVid, curPid;
+                    if (HardwareDriverBase.TryExtractDeviceVidPid(cur, out curVid, out curPid))
+                    {
+                        if (curVid == devVid && curPid == devPid &&
+                            (cur.Category == dev.Category || cur.Category == DeviceCategory.Generic || dev.Category == DeviceCategory.Generic))
+                        {
+                            existingIdx = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (existingIdx >= 0)
+            {
+                MouseBatteryInfo oldDev = list[existingIdx];
+                dev.IsCustom = oldDev.IsCustom;
+                if (!string.IsNullOrEmpty(oldDev.CustomName)) dev.CustomName = oldDev.CustomName;
+                list[existingIdx] = dev;
+            }
+            else
+            {
+                dev.IsCustom = false;
+                list.Add(dev);
+            }
+        }
+
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
+            BuiltInDrivers.EnsureRegistered();
             CleanupDuplicateNuphyDevices();
 
             CleanupDuplicateLogitechDevices();
@@ -1053,7 +1120,43 @@ namespace RazerBatteryTray
             catch { }
 
 
-            // 2.14 Query FDAS Runtime Dynamic Devices (Local adapters/*.fp-adapter.json)
+            // 2.13b Query Acer OMR Series Mice (OMR331 Flagship 2.4G / Wired)
+            try
+            {
+                var acerDevices = AcerDeviceHelper.QueryAllAcerDevices();
+                if (acerDevices != null && acerDevices.Count > 0)
+                {
+                    foreach (var dev in acerDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.14 Query FDAS Runtime Dynamic Devices (Local adapters/*.fp-adapter.json, Priority 200)
             try
             {
                 var fdasDevices = FdasRuntimeHelper.QueryAllFdasDevices();
@@ -1063,44 +1166,44 @@ namespace RazerBatteryTray
                     {
                         if (dev != null && dev.IsConnected)
                         {
-                            var variants = GetDeviceIdVariants(dev.DeviceId);
-                            int existingIdx = -1;
-                            for (int i = 0; i < list.Count; i++)
-                            {
-                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
-                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    existingIdx = i;
-                                    break;
-                                }
-                                for (int vi = 0; vi < variants.Count; vi++)
-                                {
-                                    if (list[i].DeviceId.Equals(variants[vi], StringComparison.OrdinalIgnoreCase) ||
-                                        (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(variants[vi], StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        existingIdx = i;
-                                        break;
-                                    }
-                                }
-                                if (existingIdx >= 0) break;
-                            }
-
-                            if (existingIdx >= 0)
-                            {
-                                var oldDev = list[existingIdx];
-                                dev.IsCustom = oldDev.IsCustom;
-                                if (!string.IsNullOrEmpty(oldDev.CustomName)) dev.CustomName = oldDev.CustomName;
-                                list[existingIdx] = dev;
-                            }
-                            else
-                            {
-                                dev.IsCustom = false;
-                                list.Add(dev);
-                            }
-
+                            MergeExternalDriverDevice(list, dev);
                             if (dev.BatteryPercent >= 0)
                             {
                                 UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.15 Query C# 5.0 Dynamic Script Drivers (Local adapters/*.fp-driver.cs, Priority 300)
+            try
+            {
+                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+                var allDrivers = HardwareDriverRegistry.GetAllDriversOrdered();
+                for (int di = 0; di < allDrivers.Count; di++)
+                {
+                    IHardwareDriver drv = allDrivers[di];
+                    if (drv != null && drv.IsExternalPackage && drv.Priority >= 300 &&
+                        (string.IsNullOrEmpty(drv.DriverId) || !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var scriptDevs = drv.QueryDevices();
+                        if (scriptDevs != null && scriptDevs.Count > 0)
+                        {
+                            for (int si = 0; si < scriptDevs.Count; si++)
+                            {
+                                var sDev = scriptDevs[si];
+                                if (sDev != null && (sDev.IsConnected || sDev.IsDonglePresent))
+                                {
+                                    if (string.IsNullOrEmpty(sDev.DriverId)) sDev.DriverId = drv.DriverId;
+                                    drv.PopulateCapabilities(sDev);
+                                    MergeExternalDriverDevice(list, sDev);
+                                    if (sDev.BatteryPercent >= 0)
+                                    {
+                                        UpdateCustomDeviceBattery(sDev.DeviceId, sDev.BatteryPercent, DateTime.Now);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1114,6 +1217,13 @@ namespace RazerBatteryTray
                 var customConfigs = LoadCustomDevices();
                 foreach (var cfg in customConfigs)
                 {
+                    string internalIdentity = (cfg.DeviceId ?? "") + " " + (cfg.HardwareFingerprint ?? "");
+                    string internalName = (cfg.OriginalName ?? "") + " " + (cfg.CustomName ?? "");
+                    if (GenericHidHelper.IsInternalHidDevice(internalName, internalIdentity))
+                    {
+                        continue;
+                    }
+
                     bool isLogitech = (cfg.DeviceId != null && (cfg.DeviceId.StartsWith("Logitech:046D:", StringComparison.OrdinalIgnoreCase) || cfg.DeviceId.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0)) ||
                                       (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -1798,6 +1908,7 @@ namespace RazerBatteryTray
             foreach (var dev in list)
             {
                 dev.IsPrimary = (dev == primary);
+                HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
             }
 
             return list;

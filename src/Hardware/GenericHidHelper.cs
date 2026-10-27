@@ -2,7 +2,8 @@
 // 模块名称: GenericHidHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   通用标准 USB HID 电池报告规范 (HID Usage Page 0x59 / 0x85) 解析
+//   通用标准 USB HID 电池报告规范 (HID Usage Page 0x59 / 0x85) 解析，
+//   并过滤 HIDI2C/I2C HID 等电脑内置触摸板，避免在添加外设向导中误报。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -25,6 +26,15 @@ namespace RazerBatteryTray
 {
     public static class GenericHidHelper
     {
+        public static bool IsInternalHidDevice(string productString, string devicePath)
+        {
+            string product = string.IsNullOrEmpty(productString) ? "" : productString.ToLowerInvariant();
+            string path = string.IsNullOrEmpty(devicePath) ? "" : devicePath.ToLowerInvariant();
+            if (product.Contains("hidi2c") || product.Contains("i2c hid")) return true;
+            if (path.Contains("acpi#htix") || path.Contains("acpi\\htix")) return true;
+            return false;
+        }
+
         public static bool IsDeviceConnected(string hidFingerprint)
         {
             if (string.IsNullOrEmpty(hidFingerprint)) return false;
@@ -237,7 +247,7 @@ namespace RazerBatteryTray
                                 if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||
                                     lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
                                     lower.Contains("vid_17ef") || lower.Contains("vid_054c") || lower.Contains("vid_37d7") || lower.Contains("vid_3837") || lower.Contains("syna") || lower.Contains("tencent") || lower.Contains("virtual") ||
-                                    ValkyrieDeviceHelper.IsValkyrieDevice(lower))
+                                    ValkyrieDeviceHelper.IsValkyrieDevice(lower) || AcerDeviceHelper.IsAcerMouse(lower))
                                 {
                                     Marshal.FreeHGlobal(detailBuffer);
                                     ifData.cbSize = Marshal.SizeOf(ifData);
@@ -258,6 +268,13 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HIDP_CAPS caps;
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                            if (IsInternalHidDevice(prod, devicePath))
+                                            {
+                                                Marshal.FreeHGlobal(detailBuffer);
+                                                ifData.cbSize = Marshal.SizeOf(ifData);
+                                                continue;
+                                            }
 
                                             bool isGamepad = (caps.UsagePage == 0x01 && (caps.Usage == 0x04 || caps.Usage == 0x05)) ||
                                                              (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("gamepad") || prod.ToLower().Contains("controller") || prod.ToLower().Contains("joystick") || prod.Contains("手柄")));

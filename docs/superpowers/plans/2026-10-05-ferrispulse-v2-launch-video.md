@@ -1,4 +1,4 @@
-# FerrisPulse v2.0.0 官方 4K 电影级宣传片与交互舞台实施计划
+﻿# FerrisPulse v2.0.0 官方 4K 电影级宣传片与交互舞台实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

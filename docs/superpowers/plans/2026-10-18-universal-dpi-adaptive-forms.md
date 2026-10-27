@@ -1,4 +1,4 @@
-# 全软件高 DPI 自适应架构实施计划 (Universal High-DPI Adaptive Form System)
+﻿# 全软件高 DPI 自适应架构实施计划 (Universal High-DPI Adaptive Form System)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

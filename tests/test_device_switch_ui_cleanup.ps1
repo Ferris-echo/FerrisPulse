@@ -15,6 +15,11 @@ $tMainForm = $asm.GetType("RazerBatteryTray.MainForm")
 $tInfo = $asm.GetType("RazerBatteryTray.MouseBatteryInfo")
 $tCat = $asm.GetType("RazerBatteryTray.DeviceCategory")
 
+
+# 启用测试防写保护，防止单测覆写用户生产注册表
+$fDisableSave = $tMainForm.GetField("DisableConfigSaveForTesting", [System.Reflection.BindingFlags]'Static,NonPublic,Public')
+if ($fDisableSave -ne $null) { $fDisableSave.SetValue($null, $true) }
+
 $form = [Activator]::CreateInstance($tMainForm, @($false))
 $null = $form.Handle
 $mUpdate = $tMainForm.GetMethod("UpdatePerformanceSection", [System.Reflection.BindingFlags]'Instance,NonPublic')

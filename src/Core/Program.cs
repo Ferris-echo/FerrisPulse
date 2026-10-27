@@ -5,9 +5,9 @@
 //   应用程序顶层入口中枢：
 //   1. 锁定基准工作目录，杜绝开机自启时被重定向至 System32 的路径漂移
 //   2. 声明 Windows 硬件高 DPI 感知 (Per-Monitor DPI Aware)
-//   3. 系统全局命名互斥体 (Mutex) 单实例保护，多开时发送系统广播唤醒已有实例并安全退出
+//   3. 系统全局命名互斥体 (Mutex) 单实例保护，自动接管不同路径/低版本的旧进程，多开时发送系统广播唤醒已有实例并安全退出
 //   4. 解析 --autostart 命令行参数与未捕获异常统一兜底弹窗
-// 依赖关系: NativeMethods.cs, StartupManager.cs, MainForm.cs
+// 依赖关系: NativeMethods.cs, StartupManager.cs, AppResetManager.cs, MainForm.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在新增启动流程或参数时，【必须】同步更新上方说明。
@@ -31,6 +31,16 @@ namespace RazerBatteryTray
         public static readonly int WM_SHOWME = NativeMethods.RegisterWindowMessage("FerrisPulse_ActivateExistingInstance");
 
         private static Mutex appMutex = null;
+
+        public static void ReleaseSingleInstanceMutex()
+        {
+            if (appMutex != null)
+            {
+                try { appMutex.ReleaseMutex(); } catch { }
+                try { appMutex.Close(); } catch { }
+                appMutex = null;
+            }
+        }
 
         [STAThread]
         static void Main(string[] args)
@@ -92,6 +102,19 @@ namespace RazerBatteryTray
                     }
                 }
             }
+
+            // 5.1 跨路径/跨版本旧实例自动接管：
+            // 若后台运行着旧文件夹路径下的 FerrisPulse.exe、更低版本的进程或历史旧名进程 (RazerBatteryTray)，
+            // 直接终止旧进程并自动修正开机自启路径，彻底根除“两个软件同时开”及“唤醒旧版看不到新设备”的问题！
+            try
+            {
+                int takenOver = AppResetManager.TerminateOtherInstances(true);
+                if (takenOver > 0)
+                {
+                    StartupManager.SyncAutoStartRegistry();
+                }
+            }
+            catch { }
 
             // 6. 系统全局单实例检测与健康活体监测（彻底根除死进程锁死导致打不开软件的问题）
             Process currentProc = Process.GetCurrentProcess();
@@ -238,12 +261,7 @@ namespace RazerBatteryTray
             }
             finally
             {
-                if (appMutex != null)
-                {
-                    try { appMutex.ReleaseMutex(); } catch { }
-                    appMutex.Close();
-                    appMutex = null;
-                }
+                ReleaseSingleInstanceMutex();
             }
         }
     }

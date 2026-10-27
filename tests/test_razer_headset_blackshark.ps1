@@ -114,6 +114,8 @@ $sources = @(
     (Join-Path $tempDir "stub.cs"),
     $helperPath,
     "$ProjectDir\src\Models\MouseBatteryInfo.cs",
+    "$ProjectDir\src\Models\DeviceCapabilities.cs",
+    "$ProjectDir\src\Models\CustomDeviceAction.cs",
     "$ProjectDir\src\Models\DeviceCategory.cs"
 )
 & $csc /nologo /target:exe /codepage:65001 /r:System.Drawing.dll "/out:$exe" $sources | Out-String | Write-Host

@@ -2,8 +2,9 @@
 // 模块名称: MouseBatteryInfo.cs
 // 所属区域: Models (数据契约层)
 // 核心职责:
-//   全系统统一的归一化外设数据实体，包含连接状态、电池百分比、DPI与XY轴独立灵敏度、回报率与智能命名推导
-// 依赖关系: DeviceCategory.cs, RazerDeviceHelper.cs
+//   全系统统一的归一化外设数据实体，包含连接状态、电池百分比、DPI与XY轴独立灵敏度、
+//   回报率、智能命名推导、模块化驱动标识 (DriverId) 及声明式能力契约 (DeviceCapabilities)。
+// 依赖关系: DeviceCategory.cs, DeviceCapabilities.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或添加命名映射时，【必须】同步更新上方说明。
@@ -19,6 +20,7 @@ namespace RazerBatteryTray
     public class MouseBatteryInfo
     {
         public string DeviceId { get; set; }
+        public string DriverId { get; set; }
         public string Brand { get; set; } // "Razer", "Rapoo", "VGN", "Logitech", "NuPhy", "Custom", etc.
         public DeviceCategory Category { get; set; }
         public string CustomName { get; set; }
@@ -27,6 +29,17 @@ namespace RazerBatteryTray
         public string HardwareId { get; set; }
         public string Transport { get; set; }
         public bool IsCustom { get; set; }
+
+        private DeviceCapabilities capabilities;
+        public DeviceCapabilities Capabilities
+        {
+            get
+            {
+                if (capabilities == null) capabilities = new DeviceCapabilities();
+                return capabilities;
+            }
+            set { capabilities = value; }
+        }
 
         public bool IsConnected { get; set; }
         public bool IsSleeping { get; set; }
@@ -107,6 +120,14 @@ namespace RazerBatteryTray
         {
             get
             {
+                if (capabilities != null && !string.IsNullOrEmpty(capabilities.ThemeColorHex))
+                {
+                    Color customColor;
+                    if (DeviceCapabilities.TryParseHexColor(capabilities.ThemeColorHex, out customColor))
+                    {
+                        return customColor;
+                    }
+                }
                 if (Brand == "HyperX" || Brand == "极度未知") return Color.FromArgb(226, 0, 43);
                 if (Category == DeviceCategory.Headset) return Color.FromArgb(90, 160, 255);
                 if (Category == DeviceCategory.Earbuds) return Color.FromArgb(179, 136, 255);

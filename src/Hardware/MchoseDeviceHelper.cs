@@ -2,9 +2,10 @@
 // 模块名称: MchoseDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   迈从 (MCHOSE) G87 V2 三模机械键盘 2.4G 电量与充电状态适配：
-//   0x4A 无线电池查询、0x87 有线电池查询、Report ID 0x13/0x09、
-//   64 字节 HID 报告与离线电量缓存。
+//   迈从 (MCHOSE) G87 V2 / G75 PRO 三模机械键盘电量与充电状态适配：
+//   G87 V2 使用 65 字节 0x55/0x4A/0x87 协议；G75 PRO (3554:FA09)
+//   使用 FF02/0002、20 字节 Report ID 0x13 / 命令 0x4A 协议与独立缓存。
+//   特别鸣谢社区贡献者：“yaphets”。
 // 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, Microsoft.Win32
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -26,6 +27,8 @@ namespace RazerBatteryTray
 
         public const int VendorIdMchose = 0x3837;
         public const int PidG87V2 = 0x3033;
+        public const int VendorIdCompX = 0x3554;
+        public const int PidG75Pro = 0xFA09;
 
         private const byte WirelessReportId = 0x13;
         private const byte WiredReportId = 0x09;
@@ -36,6 +39,7 @@ namespace RazerBatteryTray
         private const int PerformanceBatteryOffset = 40;
         private const int PerformanceChargingOffset = 41;
         private const int ReportLength = 65;
+        private const int G75ReportLength = 20;
         private const int ReadTimeoutMs = 320;
         private const int QueryThrottleMs = 5000;
 
@@ -45,6 +49,10 @@ namespace RazerBatteryTray
         private static bool cachedCharging = false;
         private static string cachedDeviceName = "MCHOSE G87 V2";
         private static DateTime cachedLastUpdated = DateTime.MinValue;
+        private static int cachedG75Battery = -1;
+        private static bool cachedG75Charging = false;
+        private static string cachedG75DeviceName = "MCHOSE G75 PRO";
+        private static DateTime cachedG75LastUpdated = DateTime.MinValue;
 
         static MchoseDeviceHelper()
         {
@@ -53,16 +61,19 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedVidPid(int vid, int pid)
         {
-            return vid == VendorIdMchose && pid == PidG87V2;
+            return (vid == VendorIdMchose && pid == PidG87V2) ||
+                   (vid == VendorIdCompX && pid == PidG75Pro);
         }
 
         public static bool IsMchoseKeyboard(string identifier)
         {
             if (string.IsNullOrEmpty(identifier)) return false;
             string lower = identifier.ToLowerInvariant();
-            bool isVid = lower.Contains("vid_3837") || lower.Contains("3837:") || lower.Contains("3837&");
-            if (!isVid) return false;
-            return lower.Contains("pid_3033") || lower.Contains(":3033");
+            bool isG87 = (lower.Contains("vid_3837") || lower.Contains("3837:") || lower.Contains("3837&")) &&
+                         (lower.Contains("pid_3033") || lower.Contains(":3033"));
+            bool isG75 = (lower.Contains("vid_3554") || lower.Contains("3554:") || lower.Contains("3554&")) &&
+                         (lower.Contains("pid_fa09") || lower.Contains(":fa09"));
+            return isG87 || isG75;
         }
 
         public static string GetModelName(string productString)
@@ -78,6 +89,12 @@ namespace RazerBatteryTray
             return "MCHOSE G87 V2";
         }
 
+        public static string GetModelName(int pid, string productString)
+        {
+            if (pid == PidG75Pro) return "MCHOSE G75 PRO";
+            return GetModelName(productString);
+        }
+
         /// <summary>
         /// 构建 0x4A 无线电池查询帧。校验和覆盖 Report ID 0x13 在内的前 19 字节。
         /// </summary>
@@ -91,6 +108,42 @@ namespace RazerBatteryTray
             for (int i = 0; i <= 18; i++) sum += frame[i];
             frame[19] = (byte)(sum & 0xFF);
             return frame;
+        }
+
+        /// <summary>
+        /// 构建 G75 PRO 2.4G 电量查询帧。实机端点要求恰好 20 字节，
+        /// 校验和为前 19 字节无符号和的低 8 位。
+        /// </summary>
+        public static byte[] BuildG75BatteryFrame()
+        {
+            byte[] frame = new byte[G75ReportLength];
+            frame[0] = WirelessReportId;
+            frame[1] = WirelessBatteryCommand;
+            int sum = 0;
+            for (int i = 0; i < G75ReportLength - 1; i++) sum += frame[i];
+            frame[G75ReportLength - 1] = (byte)(sum & 0xFF);
+            return frame;
+        }
+
+        public static bool ParseG75BatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            if (report == null || length < G75ReportLength || report.Length < G75ReportLength) return false;
+            if (report[0] != WirelessReportId || (report[1] & 0x7F) != WirelessBatteryCommand) return false;
+
+            int sum = 0;
+            for (int i = 0; i < G75ReportLength - 1; i++) sum += report[i];
+            if ((byte)(sum & 0xFF) != report[G75ReportLength - 1]) return false;
+
+            int battery = report[5];
+            byte state = report[6];
+            if (battery < 0 || battery > 100) return false;
+            if (state != 0x01 && state != 0x10) return false;
+
+            batteryPercent = battery;
+            isCharging = state == 0x10;
+            return true;
         }
 
         public static byte[] BuildWiredBatteryFrame()
@@ -189,6 +242,19 @@ namespace RazerBatteryTray
                         DateTime dt;
                         if (DateTime.TryParse(updated, out dt)) cachedLastUpdated = dt;
                     }
+
+                    object g75Batt = key.GetValue("G75BatteryPercent");
+                    if (g75Batt != null) cachedG75Battery = Convert.ToInt32(g75Batt);
+                    object g75Chg = key.GetValue("G75IsCharging");
+                    if (g75Chg != null) cachedG75Charging = Convert.ToInt32(g75Chg) == 1;
+                    string g75Name = key.GetValue("G75DeviceName") as string;
+                    if (!string.IsNullOrEmpty(g75Name)) cachedG75DeviceName = g75Name;
+                    string g75Updated = key.GetValue("G75LastUpdated") as string;
+                    if (!string.IsNullOrEmpty(g75Updated))
+                    {
+                        DateTime g75Date;
+                        if (DateTime.TryParse(g75Updated, out g75Date)) cachedG75LastUpdated = g75Date;
+                    }
                 }
             }
             catch { }
@@ -212,6 +278,123 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+        }
+
+        private static void SaveG75HardwareCache(int battery, bool charging, string deviceName)
+        {
+            cachedG75Battery = battery;
+            cachedG75Charging = charging;
+            cachedG75DeviceName = deviceName;
+            cachedG75LastUpdated = DateTime.Now;
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(CacheRegistryKey))
+                {
+                    if (key == null) return;
+                    key.SetValue("G75BatteryPercent", battery, RegistryValueKind.DWord);
+                    key.SetValue("G75IsCharging", charging ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("G75DeviceName", deviceName, RegistryValueKind.String);
+                    key.SetValue("G75LastUpdated", DateTime.Now.ToString("o"), RegistryValueKind.String);
+                }
+            }
+            catch { }
+        }
+
+        private static bool QueryG75Device(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            if (descriptor == null || descriptor.VendorId != VendorIdCompX || descriptor.ProductId != PidG75Pro) return false;
+            if (descriptor.UsagePage != 0xFF02 || descriptor.Usage != 0x0002 ||
+                descriptor.InputReportLength != G75ReportLength || descriptor.OutputReportLength != G75ReportLength) return false;
+
+            IntPtr handle = HidTransport.Open(descriptor.DevicePath);
+            if (!HidTransport.IsValidHandle(handle)) return false;
+            try
+            {
+                HidTransport.DrainReports(handle, G75ReportLength, 8);
+                byte[] query = BuildG75BatteryFrame();
+                if (!HidTransport.WriteReport(handle, query, query.Length, 650)) return false;
+
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] response;
+                    if (!HidTransport.ReadReport(handle, G75ReportLength, ReadTimeoutMs, out response)) continue;
+                    int battery;
+                    bool charging;
+                    if (!ParseG75BatteryResponse(response, response.Length, out battery, out charging)) continue;
+                    batteryPercent = battery;
+                    isCharging = charging;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                HidTransport.Close(handle);
+            }
+            return false;
+        }
+
+        private static void AppendG75Device(List<MouseBatteryInfo> result)
+        {
+            List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdCompX, PidG75Pro);
+            HidDeviceDescriptor selected = null;
+            for (int i = 0; i < descriptors.Count; i++)
+            {
+                HidDeviceDescriptor descriptor = descriptors[i];
+                if (descriptor.UsagePage == 0xFF02 && descriptor.Usage == 0x0002 &&
+                    descriptor.InputReportLength == G75ReportLength && descriptor.OutputReportLength == G75ReportLength)
+                {
+                    selected = descriptor;
+                    break;
+                }
+            }
+            if (selected == null) return;
+
+            int battery;
+            bool charging;
+            bool ok = QueryG75Device(selected, out battery, out charging);
+            string name = GetModelName(PidG75Pro, selected.ProductString);
+            if (!ok && !string.IsNullOrEmpty(cachedG75DeviceName)) name = cachedG75DeviceName;
+
+            MouseBatteryInfo info = new MouseBatteryInfo();
+            info.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
+            info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
+            info.HardwareId = selected.InstanceId;
+            info.DriverId = "BuiltIn:MchoseKeyboard";
+            info.DeviceName = name;
+            info.Brand = "MCHOSE";
+            info.Category = DeviceCategory.Keyboard;
+            info.Transport = "2.4G 无线";
+            info.IsCustom = false;
+            info.IsDonglePresent = true;
+            info.Capabilities.SupportsBattery = true;
+
+            if (ok)
+            {
+                info.IsConnected = true;
+                info.IsSleeping = false;
+                info.IsCharging = charging;
+                info.BatteryPercent = battery;
+                info.ExactBatteryPercent = battery;
+                info.LastUpdated = DateTime.Now;
+                SaveG75HardwareCache(battery, charging, name);
+            }
+            else
+            {
+                info.IsConnected = false;
+                info.IsSleeping = true;
+                info.IsCharging = cachedG75Battery >= 0 ? cachedG75Charging : false;
+                info.BatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : -1;
+                info.ExactBatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : 0;
+                info.LastUpdated = cachedG75Battery >= 0 ? cachedG75LastUpdated : DateTime.Now;
+                info.CustomTooltip = "MCHOSE G75 PRO 接收器在线；键盘可能休眠，正在保留上次电量";
+            }
+
+            result.Add(info);
         }
 
         private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName)
@@ -304,6 +487,7 @@ namespace RazerBatteryTray
                 lastQueryTime = DateTime.Now;
 
                 List<MouseBatteryInfo> result = new List<MouseBatteryInfo>();
+                AppendG75Device(result);
                 List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdMchose, PidG87V2);
                 List<HidDeviceDescriptor> candidates = new List<HidDeviceDescriptor>();
                 HidDeviceDescriptor primary = null;
@@ -314,7 +498,11 @@ namespace RazerBatteryTray
                     if (primary == null && d.UsagePage == 1 && d.Usage == 0) primary = d;
                     candidates.Add(d);
                 }
-                if (candidates.Count == 0) return result;
+                if (candidates.Count == 0)
+                {
+                    cachedDevices = new List<MouseBatteryInfo>(result);
+                    return result;
+                }
                 if (primary != null)
                 {
                     candidates.Remove(primary);

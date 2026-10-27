@@ -1,4 +1,4 @@
-# 全面移植 OpenMouse / All-in-One 外设功能与 Apple/Beats 全系电量适配技术方案
+﻿# 全面移植 OpenMouse / All-in-One 外设功能与 Apple/Beats 全系电量适配技术方案
 
 本文档详细阐述将开源项目 `OpenMouse-Project/openmouse` (含 `mouse-protocol` 与 `keyboard-protocol`) 与 `ShuiJu/All-in-One-Mouse-Driver` 支持的所有外设协议，以及针对 Apple / Beats 全系设备（AirPods、Beats、Magic 外设）在 Windows 平台上的电量读取方案。
 

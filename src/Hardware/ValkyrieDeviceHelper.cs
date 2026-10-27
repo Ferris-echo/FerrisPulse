@@ -102,6 +102,7 @@ namespace RazerBatteryTray
                 case 0xA262: return "VK99 Ultra";
                 case 0xA219: return "VK99 Gaming";
                 case 0xA270: return "VK 87 Max V2";
+                case 0xA272: return "VK 87 Max V2";
                 case 0xA267: return "VK 87 V2";
                 case 0xA274: return "VK MAG87 Max";
                 case 0xA250: return "VK 75 PRO";
@@ -803,6 +804,14 @@ namespace RazerBatteryTray
                                             else if (rx[0] == 0x01)
                                             {
                                                 baseOffset = 0; // 无前导字节
+                                            }
+                                            else if (rx[0] == 0x00 && rx[1] == 0xF7)
+                                            {
+                                                baseOffset = 2; // 含前导 0x00 与命令回显 0xF7
+                                            }
+                                            else if (rx[0] == 0x00)
+                                            {
+                                                baseOffset = 1; // VK 87 Max V2 (A272) 等 2.4G 固件响应形如 00 00 <batt> 00 00 00 01 01
                                             }
 
                                             int isCanRead = rx[baseOffset + 0];

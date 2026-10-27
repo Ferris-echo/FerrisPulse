@@ -1,4 +1,4 @@
-﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 
@@ -407,31 +407,77 @@ namespace RazerBatteryTray
         private DateTime lastRapooDpiPollTime = DateTime.MinValue;
         private DateTime lastGameOptOsdTime = DateTime.MinValue;
 
-        private Dictionary<string, int> lastMonitoredRazerDpis = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private static long lastTargetMouseActivityTicks = DateTime.UtcNow.Ticks;
+        private static AutoResetEvent dpiMonitorWakeEvent = new AutoResetEvent(false);
+        private volatile bool isDpiMonitorSleeping = false;
+        private Dictionary<string, bool> calibratedStartupDevices = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
-        private Dictionary<string, int> lastMonitoredRazerStages = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredDpis = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredStages = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> pendingDpiCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> pendingStageCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        private Dictionary<string, int> pendingRazerDpiCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredRazerDpis { get { return lastMonitoredDpis; } }
+        private Dictionary<string, int> lastMonitoredRazerStages { get { return lastMonitoredStages; } }
+        private Dictionary<string, int> pendingRazerDpiCandidates { get { return pendingDpiCandidates; } }
+        private Dictionary<string, int> pendingRazerStageCandidates { get { return pendingStageCandidates; } }
 
-        private Dictionary<string, int> pendingRazerStageCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public static CustomDeviceAction GetDeviceToggleAction(MouseBatteryInfo dev, string actionId)
+        {
+            return GetDeviceToggleAction(dev, -1, actionId);
+        }
 
+        public static CustomDeviceAction GetDeviceSliderAction(MouseBatteryInfo dev, string actionId)
+        {
+            return GetDeviceSliderAction(dev, -1, actionId);
+        }
 
+        public static CustomDeviceAction GetDeviceToggleAction(MouseBatteryInfo dev, int fallbackIndex, string actionId)
+        {
+            if (dev == null || dev.Capabilities == null || dev.Capabilities.CustomActions == null) return null;
+            var list = dev.Capabilities.CustomActions;
+            if (!string.IsNullOrEmpty(actionId))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (string.Equals(list[i].ActionId, actionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return list[i];
+                    }
+                }
+            }
+            if (fallbackIndex >= 0 && fallbackIndex < list.Count)
+            {
+                return list[fallbackIndex];
+            }
+            return null;
+        }
+
+        public static CustomDeviceAction GetDeviceSliderAction(MouseBatteryInfo dev, int fallbackIndex, string actionId)
+        {
+            if (dev == null || dev.Capabilities == null || dev.Capabilities.CustomActions == null) return null;
+            var list = dev.Capabilities.CustomActions;
+            if (!string.IsNullOrEmpty(actionId))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (string.Equals(list[i].ActionId, actionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return list[i];
+                    }
+                }
+            }
+            if (fallbackIndex >= 0 && fallbackIndex < list.Count)
+            {
+                return list[fallbackIndex];
+            }
+            return null;
+        }
 
         private int lastMonitoredValkyrieDpi = -1;
-
         private int lastMonitoredValkyrieStage = -1;
-
-        private int pendingValkyrieDpiCandidate = -1;
-
-        private int pendingValkyrieStageCandidate = -1;
-
         private int lastMonitoredLogitechDpi = -1;
-
         private int lastMonitoredLogitechStage = -1;
-
-        private int pendingLogitechDpiCandidate = -1;
-
-        private int pendingLogitechStageCandidate = -1;
 
         private DpiOsdForm osdForm;
 
@@ -705,7 +751,8 @@ namespace RazerBatteryTray
 
         private const string StartupApprovedRunKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-        private const string ConfigRegistryKey = @"Software\FerrisPulse";
+        internal static string ConfigRegistryKey = @"Software\FerrisPulse";
+        internal static bool DisableConfigSaveForTesting = false;
 
 
 
@@ -920,6 +967,35 @@ namespace RazerBatteryTray
             StartPeriodicUpdateCheck();
 
             StartWakeupEventListener();
+
+            // 挂载操作系统会话注销、关机与电源睡眠/唤醒守护
+            try
+            {
+                Microsoft.Win32.SystemEvents.SessionEnding += (s, e) => {
+                    RestoreDesktopSettingsSynchronous();
+                };
+                Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) => {
+                    if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
+                    {
+                        RestoreDesktopSettingsSynchronous();
+                    }
+                    else if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                    {
+                        ThreadPool.QueueUserWorkItem(_ => {
+                            System.Threading.Thread.Sleep(1500);
+                            try
+                            {
+                                this.BeginInvoke(new Action(() => {
+                                    calibratedStartupDevices.Clear();
+                                    if (selectedDevice != null) PerformStartupDesktopCalibration(selectedDevice);
+                                }));
+                            }
+                            catch { }
+                        });
+                    }
+                };
+            }
+            catch { }
 
         }
 
@@ -1473,6 +1549,12 @@ namespace RazerBatteryTray
 
             {
 
+                try
+                {
+                    RestoreDesktopSettingsSynchronous();
+                }
+                catch { }
+
                 StopDpiMonitor();
 
                 base.OnFormClosing(e);
@@ -1887,27 +1969,7 @@ namespace RazerBatteryTray
 
 
 
-                        if (autoGameOptVal != null)
-
-                        {
-
-                            bool optMaster = (int)autoGameOptVal == 1;
-
-                            if (!optMaster)
-
-                            {
-
-                                autoGameRateEnabled = false;
-
-                                autoGameDpiEnabled = false;
-
-                            }
-
-                        }
-
-
-
-                        var gameRateVal = key.GetValue("GameTargetPollingRate");
+var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                         if (gameRateVal != null) gamePollingRate = (int)gameRateVal;
 
@@ -2165,9 +2227,10 @@ namespace RazerBatteryTray
 
                 UpdateManageGamesButtonText();
 
-                SetAutoGameRateEnabled(autoGameRateEnabled);
-
-                SetAutoGameDpiEnabled(autoGameDpiEnabled);
+                bool anyOptEnabled = (autoGameRateEnabled || autoGameDpiEnabled);
+                if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyOptEnabled;
+                UpdatePerformanceCardHeightForCurrentDevice();
+                UpdatePollingRateDisplayStates();
 
             }
 
@@ -2188,6 +2251,8 @@ namespace RazerBatteryTray
         private void SaveConfig()
 
         {
+
+            if (DisableConfigSaveForTesting) return;
 
             try
 

@@ -1,4 +1,4 @@
-# 瓦尔基里（Valkyrie）全系外设接入与电量/状态感知实现计划
+﻿# 瓦尔基里（Valkyrie）全系外设接入与电量/状态感知实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

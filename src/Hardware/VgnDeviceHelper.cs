@@ -2,7 +2,10 @@
 // 模块名称: VgnDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   VGN / VXE / 蜻蜓 / ATK 系列鼠标私有 HID 协议通信实现
+//   VGN / VXE / 蜻蜓 / ATK 系列鼠标私有 HID 协议通信实现；
+//   通过 CompX VID、FF02/0002 与严格 17/17 字节端点三重隔离鼠标，
+//   避免向同 VID 的 MCHOSE G75 PRO (FA09, 20/20) 键盘发送鼠标报文。
+//   特别鸣谢社区贡献者：“yaphets”。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -43,6 +46,9 @@ namespace RazerBatteryTray
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ResetEvent(IntPtr hEvent);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToRead, out uint lpNumberOfBytesRead, ref OVERLAPPED lpOverlapped);
@@ -166,6 +172,32 @@ namespace RazerBatteryTray
             return report17;
         }
 
+        public static bool IsVgnProtocolEndpoint(int vid, int pid, int usagePage, int usage, int inputLength, int outputLength)
+        {
+            if (vid != 0x3554 || pid == 0xFA09) return false;
+            return usagePage == 0xFF02 && usage == 0x0002 && inputLength == 17 && outputLength == 17;
+        }
+
+        public static bool ParseBatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            if (report == null || length < 17 || report.Length < 17) return false;
+            if (report[0] != 0x08 || report[1] != 0x04) return false;
+
+            int sum = 0;
+            for (int i = 1; i <= 15; i++) sum += report[i];
+            byte crc = (byte)(85 - (sum & 0xFF));
+            byte expected = (byte)(crc - 8);
+            if (report[16] != expected) return false;
+
+            int battery = report[6];
+            if (battery < 0 || battery > 100) return false;
+            batteryPercent = battery;
+            isCharging = report[7] == 1;
+            return true;
+        }
+
         private static byte[] SendAndReceive(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs)
         {
             if (handle == IntPtr.Zero || handle == new IntPtr(-1)) return null;
@@ -176,6 +208,7 @@ namespace RazerBatteryTray
             {
                 OVERLAPPED dOl = new OVERLAPPED();
                 dOl.hEvent = hEvent;
+                ResetEvent(hEvent);
                 uint readBytes;
                 bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
                 if (!ok && Marshal.GetLastWin32Error() == 997) // ERROR_IO_PENDING
@@ -193,6 +226,7 @@ namespace RazerBatteryTray
             // 2. Write command
             OVERLAPPED wOl = new OVERLAPPED();
             wOl.hEvent = hEvent;
+            ResetEvent(hEvent);
             uint written;
             bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
             if (!wOk && Marshal.GetLastWin32Error() == 997)
@@ -212,6 +246,7 @@ namespace RazerBatteryTray
             byte[] rx = new byte[inLen];
             OVERLAPPED rOl = new OVERLAPPED();
             rOl.hEvent = hEvent;
+            ResetEvent(hEvent);
             uint rxRead = 0;
             bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
             if (!rOk && Marshal.GetLastWin32Error() == 997)
@@ -240,6 +275,7 @@ namespace RazerBatteryTray
             if (cid == 118 && mid == 11) return "VGN Dragonfly F2 Pro Max";
             if (cid == 118 && mid == 10) return "VGN Dragonfly F2 Pro";
             if (cid == 118 && mid == 9) return "VGN Dragonfly F2";
+            if (pid == 0xF503) return "VGN Dragonfly F1 Pro";
             if (!string.IsNullOrEmpty(productString)) return productString;
             switch (pid)
             {
@@ -308,7 +344,9 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null && (devicePath.ToLower().Contains("vid_3554") || devicePath.ToLower().Contains("vgn")))
+                            if (devicePath != null &&
+                                (devicePath.ToLower().Contains("vid_3554") || devicePath.ToLower().Contains("vgn")) &&
+                                !devicePath.ToLower().Contains("pid_fa09"))
                             {
                                 IntPtr handle = RazerDeviceHelper.CreateFile(
                                     devicePath,
@@ -323,22 +361,16 @@ namespace RazerBatteryTray
                                 {
                                     try
                                     {
-                                        if (string.IsNullOrEmpty(foundName))
+                                        string endpointProduct = "";
+                                        StringBuilder sb = new StringBuilder(256);
+                                        if (RazerDeviceHelper.HidD_GetProductString(handle, sb, sb.Capacity))
                                         {
-                                            StringBuilder sb = new StringBuilder(256);
-                                            if (RazerDeviceHelper.HidD_GetProductString(handle, sb, sb.Capacity))
-                                            {
-                                                string pStr = sb.ToString().Trim();
-                                                if (!string.IsNullOrEmpty(pStr)) foundName = pStr;
-                                            }
+                                            endpointProduct = sb.ToString().Trim();
                                         }
 
                                         RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
                                         attr.Size = Marshal.SizeOf(attr);
-                                        if (RazerDeviceHelper.HidD_GetAttributes(handle, ref attr))
-                                        {
-                                            if (attr.ProductID != 0) foundPid = attr.ProductID;
-                                        }
+                                        bool hasAttributes = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
 
                                         IntPtr preparsed;
                                         if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
@@ -347,10 +379,13 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                            // Target communication endpoint: UsagePage == 0xFF02 && Usage == 0x0002
-                                            if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                            // 仅允许 CompX 鼠标 17/17 字节端点，严禁命中 G75 的 FA09 20/20 键盘端点。
+                                            if (hasAttributes && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID,
+                                                caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                             {
                                                 foundVgnDongle = true;
+                                                foundPid = attr.ProductID;
+                                                if (!string.IsNullOrEmpty(endpointProduct)) foundName = endpointProduct;
                                                 IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                 if (hEvent != IntPtr.Zero)
                                                 {
@@ -377,13 +412,14 @@ namespace RazerBatteryTray
 
                                                             // 4. Query Battery (Command 4)
                                                             byte[] rxBat = SendAndReceive(handle, hEvent, BuildReport17(4, null), caps.InputReportByteLength, 400);
-                                                            if (rxBat != null && rxBat.Length > 8)
+                                                            if (rxBat != null)
                                                             {
-                                                                int bVal = rxBat[6];
-                                                                if (bVal >= 0 && bVal <= 100)
+                                                                int bVal;
+                                                                bool charging;
+                                                                if (ParseBatteryResponse(rxBat, rxBat.Length, out bVal, out charging))
                                                                 {
                                                                     foundBattery = bVal;
-                                                                    foundCharging = (rxBat[7] == 1);
+                                                                    foundCharging = charging;
                                                                 }
                                                             }
                                                         }

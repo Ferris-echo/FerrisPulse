@@ -1,4 +1,4 @@
-# 🤖 AI 智能体专属外设适配指南 / AI Agent Device Adaptation Guide
+﻿# 🤖 AI 智能体专属外设适配指南 / AI Agent Device Adaptation Guide
 
 > **致所有 FerrisPulse 用户与开源极客**：  
 > 市场上外设品牌与型号千差万别，仅靠开发者逐个适配已难以满足大家日益丰富的外设需求。  

@@ -190,25 +190,23 @@ Write-Host "==========================================================" -Foregro
 
 $hwPath = "$ProjectDir\src\UI\Forms\MainForm.Hardware.cs"
 $hwContent = [System.IO.File]::ReadAllText($hwPath, [System.Text.Encoding]::UTF8)
+$drvPath = "$ProjectDir\src\Hardware\BuiltInDrivers.cs"
+$drvContent = [System.IO.File]::ReadAllText($drvPath, [System.Text.Encoding]::UTF8)
 
-if (-not $hwContent.Contains("SetLogitechDpi")) {
-    Write-Host "FAILED: MainForm.Hardware.cs 缺少 SetLogitechDpi 调用" -ForegroundColor Red
+if (-not ($hwContent.Contains("HardwareCommandBus.SetDpi") -and $drvContent.Contains("LogitechDeviceHelper.SetLogitechDpi"))) {
+    Write-Host "FAILED: MainForm.Hardware.cs / BuiltInDrivers.cs 缺少 Logitech SetDpi 路由调用" -ForegroundColor Red
     exit 1
 }
-if (-not $hwContent.Contains("SetLogitechPollingRate")) {
-    Write-Host "FAILED: MainForm.Hardware.cs 缺少 SetLogitechPollingRate 调用" -ForegroundColor Red
-    exit 1
-}
-if (-not $hwContent.Contains("isLogitechMouse")) {
-    Write-Host "FAILED: MainForm.Hardware.cs 缺少 isLogitechMouse 判定" -ForegroundColor Red
+if (-not ($hwContent.Contains("HardwareCommandBus.SetPollingRate") -and $drvContent.Contains("LogitechDeviceHelper.SetLogitechPollingRate"))) {
+    Write-Host "FAILED: MainForm.Hardware.cs / BuiltInDrivers.cs 缺少 Logitech SetPollingRate 路由调用" -ForegroundColor Red
     exit 1
 }
 
 $uiPath = "$ProjectDir\src\UI\Forms\MainForm.UI.cs"
 $uiContent = [System.IO.File]::ReadAllText($uiPath, [System.Text.Encoding]::UTF8)
 
-if (-not $uiContent.Contains("LogitechDeviceHelper.SetLogitechDpi")) {
-    Write-Host "FAILED: MainForm.UI.cs 缺少 LogitechDeviceHelper.SetLogitechDpi 硬件持久化下发" -ForegroundColor Red
+if (-not ($uiContent.Contains("HardwareCommandBus.SetDpi") -and $drvContent.Contains("LogitechDeviceHelper.SetLogitechDpi"))) {
+    Write-Host "FAILED: MainForm.UI.cs / BuiltInDrivers.cs 缺少 Logitech SetDpi 硬件持久化下发" -ForegroundColor Red
     exit 1
 }
 Write-Host "PASSED: UI 性能卡片与罗技双向硬件指令（DPI XY独立设置 + 动态回报率 + 游戏电竞自适应）全量贯通！" -ForegroundColor Green

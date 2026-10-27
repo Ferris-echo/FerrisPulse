@@ -222,10 +222,12 @@ namespace RazerBatteryTray
 
             nuphySleepMenuItem = new ToolStripMenuItem("自动休眠: 已开启");
             nuphySleepMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newEn = !cur.SleepEnabled;
+                var dev = GetPrimaryDevice();
+                var act = GetDeviceToggleAction(dev, 0, "auto_sleep");
+                bool newEn = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "auto_sleep";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetAutoSleep(newEn);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newEn ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -241,10 +243,12 @@ namespace RazerBatteryTray
 
             nuphyWinLockMenuItem = new ToolStripMenuItem("Win键锁定: 已关闭");
             nuphyWinLockMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newLock = !cur.WinLock;
+                var dev = GetPrimaryDevice();
+                var act = GetDeviceToggleAction(dev, 1, "win_lock");
+                bool newLock = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "win_lock";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetWinLock(newLock);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newLock ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -266,8 +270,11 @@ namespace RazerBatteryTray
                 int bVal = brightPresets[i];
                 var sub = new ToolStripMenuItem(bVal == 0 ? "关闭背光 (0%)" : (bVal + "% 亮度"));
                 sub.Click += (s, e) => {
+                    var dev = GetPrimaryDevice();
+                    var sliderAct = GetDeviceSliderAction(dev, "backlight_brightness");
+                    string actId = sliderAct != null ? sliderAct.ActionId : "backlight_brightness";
                     ThreadPool.QueueUserWorkItem(_ => {
-                        NuphyDeviceHelper.SetBacklightBrightness(bVal);
+                        HardwareCommandBus.ExecuteCustomAction(dev, actId, bVal);
                         try
                         {
                             this.BeginInvoke(new Action(() => {
@@ -286,10 +293,12 @@ namespace RazerBatteryTray
 
             nuphySidelightMenuItem = new ToolStripMenuItem("前置灯带: 已开启");
             nuphySidelightMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newSide = !(cur.SidelightEnabled && cur.SidelightBrightness > 0);
+                var dev = GetPrimaryDevice();
+                var act = GetDeviceToggleAction(dev, 3, "sidelight_toggle");
+                bool newSide = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "sidelight_toggle";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetSidelightEnabled(newSide);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newSide ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -594,43 +603,65 @@ namespace RazerBatteryTray
             // Context-sensitive controls based on primary tray device
             if (primary != null && primary.IsConnected)
             {
-                if (primary.Brand == "NuPhy" || primary.Category == DeviceCategory.Keyboard)
+                HardwareDriverRegistry.EnsureCapabilitiesInitialized(primary);
+                var drv = HardwareDriverRegistry.FindDriverForDevice(primary);
+                if (drv != null) drv.PopulateCapabilities(primary);
+
+                bool hasCustomActions = (primary.Capabilities != null && primary.Capabilities.CustomActions != null && primary.Capabilities.CustomActions.Count > 0);
+                if (hasCustomActions || primary.Category == DeviceCategory.Keyboard)
                 {
-                    // Primary is NuPhy keyboard: Show NuPhy controls, hide Mouse DPI/Rate
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
 
-                    var curSettings = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
+                    var actSleep = GetDeviceToggleAction(primary, 0, "auto_sleep");
+                    var actWin = GetDeviceToggleAction(primary, 1, "win_lock");
+                    var actSide = GetDeviceToggleAction(primary, 3, "sidelight_toggle");
+                    var actBright = GetDeviceSliderAction(primary, "backlight_brightness");
 
                     if (nuphySleepMenuItem != null)
                     {
-                        nuphySleepMenuItem.Visible = true;
-                        nuphySleepMenuItem.Text = curSettings.SleepEnabled ? "自动休眠: 已开启" : "自动休眠: 已关闭 (常亮)";
+                        nuphySleepMenuItem.Visible = (actSleep != null);
+                        if (actSleep != null)
+                        {
+                            bool en = actSleep.BoolValue || actSleep.IntValue != 0;
+                            nuphySleepMenuItem.Text = en ? (actSleep.Title + ": 已开启") : (actSleep.Title + ": 已关闭 (常亮)");
+                        }
                     }
                     if (nuphyWinLockMenuItem != null)
                     {
-                        nuphyWinLockMenuItem.Visible = true;
-                        nuphyWinLockMenuItem.Text = curSettings.WinLock ? "Win键锁定: 已开启" : "Win键锁定: 已关闭";
+                        nuphyWinLockMenuItem.Visible = (actWin != null);
+                        if (actWin != null)
+                        {
+                            bool en = actWin.BoolValue || actWin.IntValue != 0;
+                            nuphyWinLockMenuItem.Text = en ? (actWin.Title + ": 已开启") : (actWin.Title + ": 已关闭");
+                        }
                     }
                     if (nuphyBacklightMenu != null)
                     {
-                        nuphyBacklightMenu.Visible = true;
-                        ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
-                        for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
+                        nuphyBacklightMenu.Visible = (actBright != null);
+                        if (actBright != null)
                         {
-                            var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
-                            if (sub != null && sub.Tag is int)
+                            ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
+                            for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
                             {
-                                sub.Checked = ((int)sub.Tag == curSettings.BacklightBrightness);
+                                var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
+                                if (sub != null && sub.Tag is int)
+                                {
+                                    sub.Checked = ((int)sub.Tag == actBright.IntValue);
+                                }
                             }
                         }
                     }
                     if (nuphySidelightMenuItem != null)
                     {
-                        nuphySidelightMenuItem.Visible = true;
-                        nuphySidelightMenuItem.Text = (curSettings.SidelightEnabled && curSettings.SidelightBrightness > 0) ? "前置灯带: 已开启" : "前置灯带: 已关闭";
+                        nuphySidelightMenuItem.Visible = (actSide != null);
+                        if (actSide != null)
+                        {
+                            bool en = actSide.BoolValue || actSide.IntValue != 0;
+                            nuphySidelightMenuItem.Text = en ? (actSide.Title + ": 已开启") : (actSide.Title + ": 已关闭");
+                        }
                     }
-                    if (nuphyTraySep != null) nuphyTraySep.Visible = true;
+                    if (nuphyTraySep != null) nuphyTraySep.Visible = hasCustomActions;
                 }
                 else if (primary.Category == DeviceCategory.Mouse)
                 {

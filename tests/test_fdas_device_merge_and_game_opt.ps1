@@ -78,6 +78,11 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $tMainForm = $assembly.GetType("RazerBatteryTray.MainForm")
+
+# 启用测试防写保护，防止单测覆写用户生产注册表
+$fDisableSave = $tMainForm.GetField("DisableConfigSaveForTesting", [System.Reflection.BindingFlags]'Static,NonPublic,Public')
+if ($fDisableSave -ne $null) { $fDisableSave.SetValue($null, $true) }
+
 $form = [System.Activator]::CreateInstance($tMainForm, @($false))
 $null = $form.Handle # 确保句柄与内部控件初始化
 $form.Visible = $true
