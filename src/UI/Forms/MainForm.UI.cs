@@ -264,8 +264,8 @@ namespace RazerBatteryTray
             lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblDpiTitle);
 
-            btnDpiStages = new ModernSegmentButton[5];
-            for (int i = 0; i < 5; i++)
+            btnDpiStages = new ModernSegmentButton[6];
+            for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 int index = i;
                 var btn = new ModernSegmentButton();
@@ -374,8 +374,8 @@ namespace RazerBatteryTray
             lblGameDpiTitle = new Label();
             lblGameDpiTitle.Visible = false;
 
-            btnGameDpiStages = new ModernSegmentButton[5];
-            for (int i = 0; i < 5; i++)
+            btnGameDpiStages = new ModernSegmentButton[6];
+            for (int i = 0; i < btnGameDpiStages.Length; i++)
             {
                 int stageNum = i + 1;
                 var btn = new ModernSegmentButton();
@@ -1141,13 +1141,13 @@ namespace RazerBatteryTray
             int gap = (int)(5 * dpiScale);
             int manageBtnW = segH;
 
-            int count = Math.Max(1, Math.Min(5, dpiStageList.Count));
+            int count = Math.Max(1, Math.Min(btnDpiStages.Length, dpiStageList.Count));
             int remainingW = availableW - manageBtnW - gap;
             int stageW = (remainingW - (count - 1) * gap) / count;
 
             dpiStageValues = dpiStageList.ToArray();
 
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 if (i < count)
                 {
@@ -1348,7 +1348,7 @@ namespace RazerBatteryTray
             }
             if (btnGameDpiStages != null)
             {
-                int dpiCount = Math.Max(1, Math.Min(5, dpiStageList.Count));
+                int dpiCount = Math.Max(1, Math.Min(btnGameDpiStages.Length, dpiStageList.Count));
                 int stageW = (availableW - (dpiCount - 1) * gap) / dpiCount;
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
@@ -1511,7 +1511,8 @@ namespace RazerBatteryTray
                 string devBrand = curDev.Brand ?? "Mouse";
                 SyncMonitoredDpiState(targetDpi, targetStage, devId);
                 new Thread(() => {
-                    HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage);
+                    bool ok = HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage);
+                    if (!ok) return;
                     this.BeginInvoke(new Action(() => {
                         if (curDev != null)
                         {
@@ -2736,5 +2737,36 @@ namespace RazerBatteryTray
             this.Update();
         }
 
-    }
+        private void ApplyRapooDpiConfigurationFromUI(MouseBatteryInfo device, int stage, int[] stagesX, int[] stagesY, bool independent, double ratio)
+        {
+            new Thread(() => {
+                if (!HardwareCommandBus.UpdateHardwareStages(device, stage, stagesX, stagesY)) return;
+                try
+                {
+                    this.BeginInvoke(new Action(() => {
+                        if (selectedDevice != device || IsDisposed) return;
+                        dpiStageList = new List<int>(stagesX);
+                        dpiStageValues = (int[])stagesX.Clone();
+                        device.DpiStages = (int[])stagesX.Clone();
+                        device.DpiStagesY = (int[])stagesY.Clone();
+                        device.DpiStageCount = stagesX.Length;
+                        device.DpiStage = stage;
+                        device.Dpi = stagesX[stage - 1];
+                        device.DpiY = stagesY[stage - 1];
+                        device.IsXyIndependent = independent;
+                        device.XyRatio = ratio;
+                        SaveCustomDpiStages();
+                        RelayoutDpiButtons();
+                        HighlightDpiStage(stage);
+                        OnDpiChanged("Rapoo", device.Dpi, stage, stagesX.Length, device.DeviceId, device.DpiY);
+                        UpdatePerformanceSection(device, device.BrandColor);
+                        UpdateStatusDisplay();
+                    }));
+                }
+                catch (InvalidOperationException) { }
+            }) { IsBackground = true }.Start();
+        }
+
 }
+    }
+

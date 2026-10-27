@@ -462,7 +462,7 @@ namespace RazerBatteryTray
                         OnDpiChanged(curDev.Brand ?? "Mouse", queryDpi, stage, count, curDev.DeviceId, curDev.DpiY);
                     }));
                 }
-                else
+                else if (ok)
                 {
                     this.BeginInvoke(new Action(() => {
                         curDev.Dpi = dpi;
@@ -676,9 +676,10 @@ namespace RazerBatteryTray
             var curDev = selectedDevice ?? GetActiveMouseDevice();
             if (curDev != null)
             {
-                HardwareCommandBus.SetPollingRate(curDev, hz);
+                if (!HardwareCommandBus.SetPollingRate(curDev, hz)) return;
                 curDev.PollingRate = hz;
             }
+
             if (lastInfo != null)
             {
                 lastInfo.PollingRate = hz;
@@ -694,6 +695,27 @@ namespace RazerBatteryTray
                         mi.Checked = ((int)mi.Tag == hz);
                     }
                 }
+            }
+            UpdateStatusDisplay();
+        }
+
+        private void ApplyRapooPollingRateFromHardware(int hz)
+        {
+            if (hz <= 0 || selectedDevice == null || selectedDevice.Category != DeviceCategory.Mouse ||
+                (selectedDevice.Brand != "Rapoo" && selectedDevice.Brand != "雷柏")) return;
+
+            selectedDevice.PollingRate = hz;
+            if (lastInfo != null && string.Equals(lastInfo.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                lastInfo.PollingRate = hz;
+            }
+
+            if (!(isGamingActive && autoGameRateEnabled))
+            {
+                desktopPollingRate = hz;
+                UpdateDesktopRateButtonSelection(hz);
+                UpdatePollingRateDisplayStates();
+                UpdateStatusDisplay();
             }
         }
 
@@ -1754,7 +1776,14 @@ namespace RazerBatteryTray
 
             string devDisplayName = lastInfo.DisplayName;
 
-            if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent < 0)
+            bool ganssWired = lastInfo.Brand == "GANSS" && lastInfo.Category == DeviceCategory.Keyboard &&
+                              lastInfo.Transport != null && lastInfo.Transport.IndexOf("USB 有线", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (ganssWired)
+            {
+                menuStatus = string.Format("[{0}] {1} (USB 有线 · 供电中)", brandTag, devDisplayName);
+                tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: USB 有线 · 供电中\n最后同步: {2}", brandTag, devDisplayName, timeStr);
+            }
+            else if (lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent < 0)
             {
                 menuStatus = string.Format("[{0}] {1} (免驱在线)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 免驱在线\n最后同步: {2}", brandTag, devDisplayName, timeStr);
@@ -1766,7 +1795,16 @@ namespace RazerBatteryTray
             }
             else
             {
-                menuStatus = string.Format("[{0}] {1} ({2}% · {3})", brandTag, devDisplayName, lastInfo.BatteryPercent, chgPart);
+                if (lastInfo.BatteryPercent < 0)
+                {
+                    menuStatus = string.Format("[{0}] {1} ({2})", brandTag, devDisplayName, chgPart);
+                    tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: {2}{3}{4}\n最后同步: {5}",
+                        brandTag, devDisplayName, chgStr, dpiPart, ratePart, timeStr);
+                }
+                else
+                {
+                    menuStatus = string.Format("[{0}] {1} ({2}% · {3})", brandTag, devDisplayName, lastInfo.BatteryPercent, chgPart);
+                }
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1} · {2}%\n状态: {3}{4}{5}\n最后同步: {6}",
                     brandTag, devDisplayName, lastInfo.BatteryPercent, chgStr, dpiPart, ratePart, timeStr);
             }
@@ -2111,13 +2149,13 @@ namespace RazerBatteryTray
                     {
                         tileRapooDpi.ValueText = info.BatteryPercent.ToString();
                         tileRapooDpi.UnitText = "%";
-                        tileRapooDpi.Footnote = string.Format("连接: {0} | 状态: 在线就绪 | 电池供电", info.Transport ?? "蓝牙");
+                        tileRapooDpi.Footnote = string.Format("连接: {0} | 状态: 在线就绪 | {1}", info.Transport ?? "蓝牙", info.IsCharging ? "充电中" : "电池供电");
                     }
                     else
                     {
-                        tileRapooDpi.ValueText = info.IsConnected ? "在线" : "离线";
+                        tileRapooDpi.ValueText = info.IsCharging ? "充电中" : (info.IsConnected ? "在线" : "离线");
                         tileRapooDpi.UnitText = "";
-                        tileRapooDpi.Footnote = string.Format("连接: {0} | 状态: {1}", info.Transport ?? "USB", info.IsConnected ? "在线就绪" : "离线");
+                        tileRapooDpi.Footnote = string.Format("连接: {0} | 状态: {1}{2}", info.Transport ?? "USB", info.IsConnected ? "在线就绪" : "离线", info.IsCharging ? " | 充电中" : "");
                     }
                     tileRapooDpi.Invalidate();
                 }
@@ -2729,7 +2767,11 @@ namespace RazerBatteryTray
                 RelayoutPerformanceControls();
                 SetGameRateControlsVisibility(isOptExpanded);
 
-                if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate == 0)
+                if (isRapooMouse && info.PollingRate > 0 && (!isGamingActive || !autoGameRateEnabled))
+                {
+                    desktopPollingRate = info.PollingRate;
+                }
+                else if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate == 0)
                 {
                     desktopPollingRate = info.PollingRate;
                 }
@@ -2938,8 +2980,22 @@ namespace RazerBatteryTray
                     return;
                 }
 
+                bool isGanssWired = isPureWired && info.Brand == "GANSS";
                 bool kbCharging = isPureWired || info.IsCharging;
-                if (isPureWired)
+                if (isGanssWired)
+                {
+                    lblDeviceName.Text = "GS3108T-PRO";
+                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);
+                    lblBatteryBig.Text = "已连接 · 供电中";
+                    lblBatteryBig.ForeColor = brandAccent;
+
+                    pillStatus.SetStatus("🔌 USB 有线", brandAccent);
+                    pillStatus.Location = new Point(lblBatteryBig.Right + (int)(14 * dpiScale), (int)(54 * dpiScale));
+
+                    barBattery.StartChargingFill(100, brandAccent, Color.FromArgb(200, 255, 230));
+                    lblUpdateTime.Text = GanssDeviceHelper.FormatWiredFootnote(GanssDeviceHelper.LastKnownBatteryPercent, info.LastUpdated);
+                }
+                else if (isPureWired)
                 {
                     lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);
                     lblBatteryBig.Text = "已连接 · 供电中";
@@ -3026,7 +3082,7 @@ namespace RazerBatteryTray
             }
 
             // Connected mouse with zero/unknown battery (only query cache if device is genuinely sleeping)
-            if (info.BatteryPercent <= 0 && info.Category == DeviceCategory.Mouse && info.IsSleeping)
+            if (info.BatteryPercent < 0 && info.Category == DeviceCategory.Mouse && info.IsSleeping)
             {
                 int cached = -1;
                 if (FdasRuntimeHelper.IsFdasMouse(info))
@@ -3058,7 +3114,7 @@ namespace RazerBatteryTray
                 Color sleepColor = Color.FromArgb(255, 183, 77); // Warm amber
                 lblDeviceName.Text = info.DisplayName;
 
-                string battDisplay = (info.BatteryPercent > 0 ? (info.BatteryPercent.ToString() + "%") : "--");
+                string battDisplay = (info.BatteryPercent >= 0 ? (info.BatteryPercent.ToString() + "%") : "--");
 
                 lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
                 lblBatteryBig.Text = battDisplay;
@@ -3069,9 +3125,16 @@ namespace RazerBatteryTray
 
                 barBattery.StopFlow(info.BatteryPercent, sleepColor);
 
-                string timeStr = info.LastUpdated.ToString("HH:mm:ss");
                 string wakeTip = (info.Category == DeviceCategory.Mouse) ? " · 移动鼠标即刻唤醒" : " · 待机中";
-                lblUpdateTime.Text = "最后同步: " + timeStr + wakeTip;
+                if (info.LastUpdated == DateTime.MinValue)
+                {
+                    lblUpdateTime.Text = "尚未取得电量" + wakeTip;
+                }
+                else
+                {
+                    string timeStr = info.LastUpdated.ToString("HH:mm:ss");
+                    lblUpdateTime.Text = "最后同步: " + timeStr + wakeTip;
+                }
 
                 // Update Performance Card
                 UpdatePerformanceSection(info, brandAccent);
@@ -3131,7 +3194,15 @@ namespace RazerBatteryTray
             lblDeviceName.Text = info.DisplayName;
 
             lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
-            string awakeBattDisplay = (info.BatteryPercent >= 0 ? info.BatteryPercent.ToString() : "--") + "%";
+            string awakeBattDisplay;
+            if (info.IsCharging && info.BatteryPercent < 0)
+            {
+                awakeBattDisplay = "充电中";
+            }
+            else
+            {
+                awakeBattDisplay = (info.BatteryPercent >= 0 ? info.BatteryPercent.ToString() : "--") + "%";
+            }
 
             lblBatteryBig.Text = awakeBattDisplay;
             lblBatteryBig.ForeColor = accentColor;

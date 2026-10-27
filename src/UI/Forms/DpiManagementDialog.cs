@@ -53,6 +53,7 @@ namespace RazerBatteryTray
         private DpiActionButton btnSave;
         private DpiActionButton btnCancel;
         private List<DpiStageRowControl> rowControls = new List<DpiStageRowControl>();
+        private int maxStageCount = 5;
 
         public DpiManagementDialog(string devName, int[] initialStages, int currentStage, RazerDeviceHelper.RazerDpiCapability cap)
             : this(devName, initialStages, null, false, currentStage, cap, 1.0f)
@@ -69,9 +70,10 @@ namespace RazerBatteryTray
         {
         }
 
-        public DpiManagementDialog(string devName, int[] initialStagesX, int[] initialStagesY, bool isXy, double xyRatio, int currentStage, RazerDeviceHelper.RazerDpiCapability cap, float scale = 1.0f)
+        public DpiManagementDialog(string devName, int[] initialStagesX, int[] initialStagesY, bool isXy, double xyRatio, int currentStage, RazerDeviceHelper.RazerDpiCapability cap, float scale = 1.0f, int maxStageCount = 5)
             : base(scale)
         {
+            this.maxStageCount = Math.Max(1, Math.Min(6, maxStageCount));
             this.deviceName = devName ?? "外设设备";
             this.capability = cap ?? new RazerDeviceHelper.RazerDpiCapability { MaxDpi = 35000, MinDpi = 100, Step = 1, Description = "高精度光学传感器" };
             this.minDpi = (this.capability.MinDpi > 0) ? this.capability.MinDpi : 100;
@@ -103,7 +105,7 @@ namespace RazerBatteryTray
 
             if (initialStagesX != null && initialStagesX.Length > 0)
             {
-                for (int i = 0; i < initialStagesX.Length && i < 5; i++)
+                for (int i = 0; i < initialStagesX.Length && i < this.maxStageCount; i++)
                 {
                     stageValuesX.Add(initialStagesX[i]);
                     int sy = (initialStagesY != null && i < initialStagesY.Length && initialStagesY[i] > 0) ? initialStagesY[i] : initialStagesX[i];
@@ -469,10 +471,10 @@ namespace RazerBatteryTray
 
             pnlStages.ResumeLayout();
 
-            if (stageValuesX.Count < 5)
+            if (stageValuesX.Count < maxStageCount)
             {
                 btnAddStage.Enabled = true;
-                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/5 档)", stageValuesX.Count);
+                btnAddStage.Text = string.Format("+ 添加新档位  ({0}/{1} 档)", stageValuesX.Count, maxStageCount);
                 btnAddStage.NormalColor = Color.FromArgb(22, 29, 42);
                 btnAddStage.HoverColor = Color.FromArgb(30, 40, 58);
                 btnAddStage.PressedColor = Color.FromArgb(18, 24, 35);
@@ -482,7 +484,7 @@ namespace RazerBatteryTray
             else
             {
                 btnAddStage.Enabled = false;
-                btnAddStage.Text = "已达到板载存储上限 (5 档)";
+                btnAddStage.Text = string.Format("已达到板载存储上限 ({0} 档)", maxStageCount);
                 btnAddStage.NormalColor = Color.FromArgb(18, 22, 30);
                 btnAddStage.HoverColor = Color.FromArgb(18, 22, 30);
                 btnAddStage.PressedColor = Color.FromArgb(18, 22, 30);
@@ -503,7 +505,7 @@ namespace RazerBatteryTray
 
         private void AddStage()
         {
-            if (stageValuesX.Count >= 5) return;
+            if (stageValuesX.Count >= maxStageCount) return;
             SaveCurrentInputs();
             int lastX = stageValuesX.Count > 0 ? stageValuesX[stageValuesX.Count - 1] : 800;
             int nextX = Math.Min(maxDpi, lastX + 400);

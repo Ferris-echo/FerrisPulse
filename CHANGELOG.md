@@ -20,6 +20,18 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **雷柏 (Rapoo) VT3 系列双模电竞鼠标 (`24AE:1412` 等)**（感谢 [@lbyisme](https://github.com/lbyisme) 协议逆向与实机适配贡献 #38，底层协议参考/移植自 Iris `rapoo-tray` MIT 许可项目）：
+  - 新增 `RapooProtocol` 纯协议解析与 `RapooDeviceHelper.Status.cs` 实时遥测管道；
+  - 严谨解析 19 字节遥测报文（Report ID 0x07），支持 6 档自定义 DPI 阶段（上限由 5 档扩至 6 档）、独立 XY 轴 DPI 调节与硬件端点实时同步；
+  - 接入 Win32 可取消异步重叠 I/O，杜绝 EEPROM 写入与多端点枚举阻塞主线程；完善物理父接口端点智能隔离与休眠断连安全自愈。
+- **高斯 (GANSS) GS3108T-PRO 三模机械键盘 (`0C45:8006` 有线 / `0C45:8008` 2.4G)**（感谢 [@lbyisme](https://github.com/lbyisme) 适配贡献 #38）：
+  - 新增 `GanssDeviceHelper`，通过 `0x0C45` 通道与 `0x05 / 0x11` 协议帧精准读取无线电量；
+  - 物理传输模式隔离：精准识别有线（8006）与 2.4G（8008）模式，有线接入时直接判定常供电状态并隐藏过时电量注脚；
+  - 隔离 Apple/Magic Keyboard 泛用发现池，杜绝同类 HID 接口伪造与重名识别冲突。
+- **盖世小鸡 (GameSir) 启明星 2 / Nova 2 双模游戏手柄 (`3537:1011` / `3537:1012`)**（感谢 [@lbyisme](https://github.com/lbyisme) 适配贡献 #38）：
+  - 新增 `GameSirDeviceHelper`，直连 `UsagePage 0xFFA0` 专用手柄端点读取实时状态；
+  - 精确多控制器匹配与 MAC 地址持久化指纹绑定，杜绝多手柄混淆与同类控制器碰撞；
+  - 状态栏与托盘电量精准同步，完美识别充电中与满电状态。
 - **雷蛇 (Razer) Viper V3 HyperSpeed 板载按键映射硬件通信层 (`1532:00B8`)**（感谢 [@lililixxx1](https://github.com/lililixxx1) 逆向与架构贡献 #13，关联 Issue #7 / #16）：
   - 新增 `RazerButtonMapping`，通过 `0x02/0x8C`（读）与 `0x02/0x0C`（写）实现板载 8 个物理按键功能重定义与事务重试；
   - 引入批量写入保护机制：完整 pre-apply 快照备份、逐键写入回读语义校验与失败自动回滚；

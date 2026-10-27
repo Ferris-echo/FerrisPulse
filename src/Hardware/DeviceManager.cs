@@ -117,6 +117,17 @@ namespace RazerBatteryTray
             return "--";
         }
 
+        // 共享的 VID:PID 指纹（如旧通用记录的 HID:3537:1098）只对没有唯一身份的设备生效。
+        // 启明星2 的 DeviceId 带手柄 MAC，旧通用记录留下的一次隐藏不得连带藏掉新品牌卡片，
+        // 也不能误伤同型号的其它手柄；显式隐藏该 MAC 仍然有效。
+        public static bool ShouldHideDevice(MouseBatteryInfo device, bool deviceIdHidden, bool fingerprintHidden)
+        {
+            if (device == null) return false;
+            if (deviceIdHidden) return true;
+            if (!fingerprintHidden) return false;
+            return !GameSirDeviceHelper.HasPerUnitIdentity(device.DeviceId);
+        }
+
         public static bool IsDeviceHidden(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return false;
@@ -358,6 +369,7 @@ namespace RazerBatteryTray
                                             SaveCustomDevice(cfg);
                                         }
 
+                                        if (GanssDeviceHelper.NormalizeConfig(cfg)) SaveCustomDevice(cfg);
                                         list.Add(cfg);
                                     }
                                 }
@@ -765,6 +777,17 @@ namespace RazerBatteryTray
                         }
                     }
                 }
+            }
+            catch { }
+
+            // Nova 2 Lite: native device-information query, wired/wireless deduplication.
+            try { list.AddRange(GameSirDeviceHelper.QueryDevices()); } catch { }
+
+            // GS3108T-PRO: identify by product string AND descriptor, never Apple VID alone.
+            try
+            {
+                var ganss = GanssDeviceHelper.QueryDevice();
+                if (ganss != null) list.Add(ganss);
             }
             catch { }
 
@@ -1389,6 +1412,18 @@ namespace RazerBatteryTray
 
                                          SteelSeriesDeviceHelper.IsSteelSeriesDevice(cfg.OriginalName);
 
+                    if (GameSirDeviceHelper.MatchesConfig(cfg) || (cfg.DeviceId ?? "").StartsWith("GameSir:Nova2Lite:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var gameSir = GameSirDeviceHelper.FindConfiguredDevice(cfg, list);
+                        if (gameSir != null)
+                        {
+                            gameSir.IsCustom = true;
+                            if (!string.IsNullOrEmpty(cfg.CustomName) && cfg.CustomName.IndexOf("XBOX", StringComparison.OrdinalIgnoreCase) < 0)
+                                gameSir.CustomName = cfg.CustomName;
+                            continue;
+                        }
+                    }
+
                     bool isRazer = (cfg.DeviceId != null && cfg.DeviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase)) ||
                                    (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase));
 
@@ -1994,7 +2029,7 @@ namespace RazerBatteryTray
             });
 
             // 3.7 Filter out user-hidden devices
-            list.RemoveAll(d => IsDeviceHidden(d.DeviceId) || (!string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)));
+            list.RemoveAll(d => ShouldHideDevice(d, IsDeviceHidden(d.DeviceId), !string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)));
 
             // 4. Priority Ordering and Primary Selection
             var prioList = GetPriorityList();

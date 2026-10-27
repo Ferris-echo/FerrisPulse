@@ -24,13 +24,12 @@ using Microsoft.Win32.SafeHandles;
 
 namespace RazerBatteryTray
 {
-    public static class RapooDeviceHelper
+    public static partial class RapooDeviceHelper
     {
         private static readonly object hidLock = new object();
         private const string CacheRegistryKey = @"Software\RazerBatteryTray\RapooCache";
 
-        public static int CachedBatteryPercent = 0;
-        public static bool CachedIsCharging = false;
+        public static int CachedBatteryPercent = -1;
         public static string CachedDeviceName = "雷柏无线游戏鼠标";
         public static DateTime CachedLastUpdated = DateTime.MinValue;
         public static int CachedDpi = 1600;
@@ -83,10 +82,7 @@ namespace RazerBatteryTray
             return DateTime.Now < eepromQuietUntil;
         }
 
-        static RapooDeviceHelper()
-        {
-            LoadHardwareCache();
-        }
+
 
         public static void LoadHardwareCache()
         {
@@ -96,11 +92,7 @@ namespace RazerBatteryTray
                 {
                     if (key != null)
                     {
-                        var bp = key.GetValue("BatteryPercent");
-                        if (bp != null) CachedBatteryPercent = Convert.ToInt32(bp);
-
-                        var chg = key.GetValue("IsCharging");
-                        if (chg != null) CachedIsCharging = (Convert.ToInt32(chg) == 1);
+                        // Battery and its sample time load only after physical endpoint matching.
 
                         var dn = key.GetValue("DeviceName") as string;
                         if (!string.IsNullOrEmpty(dn)) CachedDeviceName = dn;
@@ -565,35 +557,7 @@ namespace RazerBatteryTray
             return false;
         }
 
-        public static bool ProcessTelemetryReport(byte[] report)
-        {
-            if (report == null || report.Length < 18 || report[0] != 0x07) return false;
 
-            int batt = report[8];
-            if (batt > 0 && batt <= 100)
-            {
-                CachedBatteryPercent = batt;
-            }
-
-            CachedIsCharging = (report[7] == 0x02);
-
-            int stage = report[2] + 1;
-            if (stage > 0) CachedDpiStage = stage;
-
-            int dpiX = report[3] | (report[4] << 8);
-            if (dpiX > 0) CachedDpi = dpiX;
-
-            int dpiY = report[5] | (report[6] << 8);
-            if (dpiY > 0) CachedDpiY = dpiY;
-
-            int stageCount = report.Length > 17 ? report[17] : 0;
-            if (stageCount > 0 && stageCount <= 10) CachedDpiStageCount = stageCount;
-
-            lastTelemetryTime = DateTime.Now;
-            CachedLastUpdated = DateTime.Now;
-            SaveHardwareCache();
-            return true;
-        }
 
         public static bool PollTelemetryStream()
         {
@@ -1134,7 +1098,7 @@ namespace RazerBatteryTray
                 case 500:  return 0x02;
                 case 250:  return 0x04;
                 case 125:  return 0x08;
-                default:   return 0x01;
+                default:   return 0;
             }
         }
 
@@ -1149,7 +1113,7 @@ namespace RazerBatteryTray
                 case 0x02: return 500;
                 case 0x04: return 250;
                 case 0x08: return 125;
-                default:   return 1000;
+                default:   return 0;
             }
         }
 
@@ -1178,6 +1142,7 @@ namespace RazerBatteryTray
 
         public static bool SetRapooPollingRate(int hz)
         {
+            if (hz != 125 && hz != 250 && hz != 500 && hz != 1000 && hz != 2000 && hz != 4000 && hz != 8000) return false;
             try
             {
                 byte code = EncodeRapooPollingRate(hz);
@@ -1199,8 +1164,32 @@ namespace RazerBatteryTray
             return false;
         }
 
+                public static int ResolveRapooProductId(int physicalPid, int modelPid)
+        {
+            if (physicalPid == 0x14FF || physicalPid == 0x1500 || physicalPid == 0x1501)
+            {
+                if (modelPid > 0 && modelPid != physicalPid) return modelPid;
+            }
+            return physicalPid;
+        }
+
+        private static bool ApplyConfirmedRapooDpiStage(string expectedGroup, int targetStage)
+        {
+            if (string.IsNullOrEmpty(expectedGroup) || !string.Equals(expectedGroup, activeRapooGroup, StringComparison.OrdinalIgnoreCase) ||
+                targetStage < 1 || targetStage > CachedDpiStageCount || targetStage > CachedDpiStages.Length ||
+                targetStage > CachedDpiStagesY.Length) return false;
+            int idx = targetStage - 1;
+            CachedDpiStage = targetStage;
+            CachedDpi = CachedDpiStages[idx];
+            CachedDpiY = CachedDpiStagesY[idx];
+            CachedIsXyIndependent = CachedDpi != CachedDpiY;
+            CachedXyRatio = (double)CachedDpiY / CachedDpi;
+            return true;
+        }
+
         public static bool SetRapooDpiStage(int targetStage)
         {
+            if (targetStage < 1 || targetStage > 6 || CachedDpiStageCount == 0 || (CachedDpiStages != null && targetStage > CachedDpiStages.Length)) return false;
             try
             {
                 int idx = Math.Max(0, targetStage - 1);
@@ -1232,6 +1221,7 @@ namespace RazerBatteryTray
 
         public static bool SetRapooXyDpi(int dpiX, int dpiY, int stageIndex)
         {
+            if (dpiX < 50 || dpiX > 65535 || dpiY < 50 || dpiY > 65535 || stageIndex < 1 || stageIndex > 6) return false;
             if (CachedDpiStages == null || CachedDpiStages.Length == 0)
             {
                 CachedDpiStages = new int[] { 400, 800, 1200, 1600, 3200 };
