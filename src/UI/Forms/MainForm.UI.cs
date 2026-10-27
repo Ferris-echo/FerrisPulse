@@ -915,8 +915,8 @@ namespace RazerBatteryTray
             lblStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
             cardSettings.Controls.Add(lblStyleTitle);
 
-            int seg1Gap = (int)(6 * dpiScale);
-            int seg1W = (secW - lblTitleW - (seg1Gap * 2)) / 3;
+            int seg1Gap = (int)(5 * dpiScale);
+            int seg1W = (secW - lblTitleW - (seg1Gap * 3)) / 4;
             int seg1X = cPad + lblTitleW;
 
             btnStyleCapsule = new ModernSegmentButton();
@@ -942,6 +942,14 @@ namespace RazerBatteryTray
             btnStylePureNum.Size = new Size(seg1W, card3SegH);
             btnStylePureNum.Click += (s, e) => SetTrayStyle(2, false);
             cardSettings.Controls.Add(btnStylePureNum);
+
+            btnStyleMouse = new ModernSegmentButton();
+            btnStyleMouse.Text = "鼠标轮廓";
+            btnStyleMouse.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
+            btnStyleMouse.Location = new Point(seg1X + (seg1W + seg1Gap) * 3, row1Y);
+            btnStyleMouse.Size = new Size(seg1W, card3SegH);
+            btnStyleMouse.Click += (s, e) => SetTrayStyle(3, false);
+            cardSettings.Controls.Add(btnStyleMouse);
 
             // Row 2: 自动刷新频率 (30s / 1m / 5m)
             int row2Y = (int)(76 * dpiScale);
@@ -2580,8 +2588,8 @@ namespace RazerBatteryTray
 
                     int row1Y = (int)(40 * dpiScale);
                     int lblTitleW = (int)(95 * dpiScale);
-                    int seg1Gap = (int)(6 * dpiScale);
-                    int seg1W = (secW - lblTitleW - (seg1Gap * 2)) / 3;
+                    int seg1Gap = (int)(5 * dpiScale);
+                    int seg1W = (secW - lblTitleW - (seg1Gap * 3)) / 4;
                     int seg1X = cPad + lblTitleW;
                     int segH = (int)(28 * dpiScale);
 
@@ -2605,6 +2613,11 @@ namespace RazerBatteryTray
                     {
                         btnStylePureNum.Location = new Point(seg1X + (seg1W + seg1Gap) * 2, row1Y);
                         btnStylePureNum.Size = new Size(seg1W, segH);
+                    }
+                    if (btnStyleMouse != null)
+                    {
+                        btnStyleMouse.Location = new Point(seg1X + (seg1W + seg1Gap) * 3, row1Y);
+                        btnStyleMouse.Size = new Size(seg1W, segH);
                     }
 
                     int row2Y = (int)(76 * dpiScale);

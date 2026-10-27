@@ -44,19 +44,20 @@ if ($styleMenu -eq $null) {
 Write-Host "PASS: '托盘图标样式' menu found with $($styleMenu.DropDownItems.Count) items." -ForegroundColor Green
 
 # 验证子菜单项数量与名称
-if ($styleMenu.DropDownItems.Count -ne 3) {
-    Write-Host "FAIL: Expected 3 style items, but found $($styleMenu.DropDownItems.Count)" -ForegroundColor Red
+if ($styleMenu.DropDownItems.Count -ne 4) {
+    Write-Host "FAIL: Expected 4 style items, but found $($styleMenu.DropDownItems.Count)" -ForegroundColor Red
     exit 1
 }
 
 $capsuleItem = $styleMenu.DropDownItems[0]
 $numItem = $styleMenu.DropDownItems[1]
 $pureNumItem = $styleMenu.DropDownItems[2]
-if ($capsuleItem.Text -ne "现代胶囊电池" -or $numItem.Text -ne "醒目数字能量表" -or $pureNumItem.Text -ne "极简纯数字") {
-    Write-Host "FAIL: Style menu items text mismatch! Found: '$($capsuleItem.Text)', '$($numItem.Text)', '$($pureNumItem.Text)'" -ForegroundColor Red
+$mouseItem = $styleMenu.DropDownItems[3]
+if ($capsuleItem.Text -ne "现代胶囊电池" -or $numItem.Text -ne "醒目数字能量表" -or $pureNumItem.Text -ne "极简纯数字" -or $mouseItem.Text -ne "鼠标轮廓电量") {
+    Write-Host "FAIL: Style menu items text mismatch! Found: '$($capsuleItem.Text)', '$($numItem.Text)', '$($pureNumItem.Text)', '$($mouseItem.Text)'" -ForegroundColor Red
     exit 1
 }
-Write-Host "PASS: Style menu items text: '现代胶囊电池', '醒目数字能量表', '极简纯数字'." -ForegroundColor Green
+Write-Host "PASS: Style menu items text: '现代胶囊电池', '醒目数字能量表', '极简纯数字', '鼠标轮廓电量'." -ForegroundColor Green
 
 # 2. 验证 SetTrayStyle(2) 切换与联动
 $mSetTrayStyle = $tMain.GetMethod("SetTrayStyle", [System.Reflection.BindingFlags]"NonPublic,Instance")
@@ -91,14 +92,14 @@ if ($regKey -ne $null) {
     Write-Host "PASS: Registry correctly saved TrayIconStyle = 2." -ForegroundColor Green
 }
 
-# 4. 验证 GDI+ 矢量渲染：DrawTrayBitmap 在全部 3 种样式下的 16x16 与 24x24 渲染
+# 4. 验证 GDI+ 渲染：DrawTrayBitmap 在全部 4 种样式下的 16x16 与 24x24 渲染
 $mDraw = $tMain.GetMethod("DrawTrayBitmap", [System.Reflection.BindingFlags]"NonPublic,Static")
 if ($mDraw -eq $null) {
     Write-Host "FAIL: Method DrawTrayBitmap not found!" -ForegroundColor Red
     exit 1
 }
 
-foreach ($style in @(0, 1, 2)) {
+foreach ($style in @(0, 1, 2, 3)) {
     foreach ($size in @(16, 24)) {
         # 1. 正常连接 (0-100%)
         foreach ($pct in @(0, 40, 85, 100)) {

@@ -123,6 +123,7 @@ D:\FerrisPulse · 灵脉\
 | :--- | :--- | :--- |
 | **开机自启动与注册表 Run 键** | `src/Core/StartupManager.cs` | 处理自启动注册、StartupApproved 协同 |
 | **托盘图标丢失 / Explorer 重启自愈** | `src/UI/Forms/MainForm.Events.cs` | 监听 `WM_TASKBARCREATED` 并自动恢复 |
+| **托盘图标四种样式（胶囊/数字/纯数字/鼠标轮廓）** | `src/UI/Forms/MainForm.Tray.cs` / `src/UI/Resources/MouseSilhouetteTrayRenderer.cs` | 样式 3 载入内嵌 `mouse_body.png` 后按 alpha 逐像素重着色：<=15% 红 / <=40% 黄 / 其余 #19FAC6；电量按 5% 步进量化 20 档 |
 | **雷蛇 DPI 档位 / 8K 回报率 / XY 轴独立灵敏度** | `src/Hardware/RazerDeviceHelper.cs` | 雷蛇私有 HID 报文、独立 X/Y 轴与板载 Flash 写入 |
 | **瓦尔基里全系键盘/鼠标支持** | `src/Hardware/ValkyrieDeviceHelper.cs` | 瓦尔基里全系 2.4G 接收器/HID 协议解析、双模电量、8K 回报率与独立 X/Y 轴 DPI 调节 |
 | **飞智 APEX 6 / Vader 5 Pro 手柄电量** | `src/Hardware/FlydigiDeviceHelper.cs` | GPA6 0xFFA0 33 字节帧、命令 0x01 设备信息、0..10 档电量与充电状态 |

@@ -230,6 +230,8 @@ namespace RazerBatteryTray
 
         private ToolStripMenuItem stylePureNumItem;
 
+        private ToolStripMenuItem styleMouseItem;
+
         private ToolStripMenuItem osdStyleMenu;
 
         private ToolStripMenuItem osdStyleCapsuleItem;
@@ -705,6 +707,8 @@ namespace RazerBatteryTray
 
         private ModernSegmentButton btnStylePureNum;
 
+        private ModernSegmentButton btnStyleMouse;
+
         private Label lblIntervalTitle;
 
         private ModernSegmentButton btnInt30s;
@@ -764,7 +768,7 @@ namespace RazerBatteryTray
 
         private bool isUpdatingUI = false;
 
-        private int trayStyle = 0; // 0 = Capsule, 1 = Number, 2 = Pure Number
+        private int trayStyle = 0; // 0 = Capsule, 1 = Number, 2 = Pure Number, 3 = Mouse Silhouette
 
         private int osdStyle = 0; // 0 = Centered Capsule, 1 = Stepped Gauge, 2 = Compact Top-Right
 
@@ -1664,7 +1668,7 @@ namespace RazerBatteryTray
 
             trayStyle = style;
 
-            if (trayStyle < 0 || trayStyle > 2) trayStyle = 0;
+            if (trayStyle < 0 || trayStyle > 3) trayStyle = 0;
 
             SaveConfig();
 
@@ -1681,6 +1685,7 @@ namespace RazerBatteryTray
                 if (styleNumItem != null) styleNumItem.Checked = (trayStyle == 1);
 
                 if (stylePureNumItem != null) stylePureNumItem.Checked = (trayStyle == 2);
+                if (styleMouseItem != null) styleMouseItem.Checked = (trayStyle == 3);
 
 
 
@@ -1689,6 +1694,7 @@ namespace RazerBatteryTray
                 if (btnStyleNum != null) btnStyleNum.Selected = (trayStyle == 1);
 
                 if (btnStylePureNum != null) btnStylePureNum.Selected = (trayStyle == 2);
+                if (btnStyleMouse != null) btnStyleMouse.Selected = (trayStyle == 3);
 
             }
 
@@ -1902,7 +1908,7 @@ namespace RazerBatteryTray
 
                             trayStyle = (int)sVal;
 
-                            if (trayStyle < 0 || trayStyle > 2) trayStyle = 0;
+                            if (trayStyle < 0 || trayStyle > 3) trayStyle = 0;
 
                         }
 
@@ -2153,12 +2159,14 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                 if (styleNumItem != null) styleNumItem.Checked = (trayStyle == 1);
 
                 if (stylePureNumItem != null) stylePureNumItem.Checked = (trayStyle == 2);
+                if (styleMouseItem != null) styleMouseItem.Checked = (trayStyle == 3);
 
                 if (btnStyleCapsule != null) btnStyleCapsule.Selected = (trayStyle == 0);
 
                 if (btnStyleNum != null) btnStyleNum.Selected = (trayStyle == 1);
 
                 if (btnStylePureNum != null) btnStylePureNum.Selected = (trayStyle == 2);
+                if (btnStyleMouse != null) btnStyleMouse.Selected = (trayStyle == 3);
 
 
 
