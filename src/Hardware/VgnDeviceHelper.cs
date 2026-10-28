@@ -1347,7 +1347,11 @@ namespace RazerBatteryTray
                     // 缓存必须写「界面显示值」而不是固件电量计：两者在低电量段会分叉
                     // （实测固件计卡在 30% 长达 80 分钟，而电压法已降到 26%）。
                     // 否则冷启动首屏、外部读取注册表的程序都会拿到旧口径，与界面差数个百分点。
-                    if (foundBattery >= 0 && displayBattery > 0)
+                    // 允许缓存 0%：原来条件写 displayBattery > 0，导致电量耗尽关机前
+                    // 那几轮（0%）不写缓存，缓存永远停在最后一个正值（实测停在 1%）。
+                    // 设备关机后查询失败会回退显示缓存值，于是界面上一直挂着 1%，
+                    // 用户以为还有电，实际已经关机。
+                    if (foundBattery >= 0 && displayBattery >= 0)
                     {
                         CachedBatteryPercent = displayBattery;
                         SaveHardwareCache();
