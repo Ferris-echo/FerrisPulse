@@ -95,6 +95,72 @@
   - 深度支持 0x12/0x67 与 0x12/0x57 报文引擎，读取并配置 6 档板载 DPI，且原生支持 **X 轴与 Y 轴独立分离调校** 与回读校验；
   - 原生接入 0x11/0x41 档位指令，覆盖 125Hz、500Hz、1000Hz、2000Hz、4000Hz（2.4G）与 8000Hz（有线）超高回报率切换，全面打通主界面交互与全屏游戏自动优化。
 
+- **迈从 (MCHOSE) K7 V2 Ultra+ 三模无线游戏鼠标（新一代 4D 帧协议族，`3837:1018` 等）**：
+  - 新增 `MchoseMouse4DHelper`，面向与 A5 V2 Ultra 完全不兼容的 **64 字节 `0x4D` 帧**协议族（K7 Ultra / K7 V2 Ultra+ / A5 V3 Ultra+ / A7 V3 等，PID 白名单 `1001 / 1014 / 1016 / 1018 / 101C / 101D`）。
+  - 帧结构：`[0]=0x4D` 帧头、`[1]=0x01` 版本、`[2]=flags`、`[3]=data 长度`、`[4..5]=命令字（小端）`、`[6]=bizCode`、`[7]=sequence`、`[8..]=data`、`[8+len]`=从 `[2]` 到 `[7+len]` 逐字节 XOR 校验和；payload **不做 `^0xFF` 反转**（旧 A5 协议才反转）。
+  - **必须走 `WriteFile`/`ReadFile` 中断管道**（`GENERIC_READ|GENERIC_WRITE`），`HidD_SetFeature`/`HidD_GetFeature` 对该协议族一律无效；设备刚唤醒或落盘配置时回包首字节为 `0xFF`（忙标志），按 `BusyRetryCount × BusyRetryDelayMs` 退避重发而非当作有效应答。
+  - `0x0900` 读设备信息：`[8..9]` VID、`[10..11]` PID、`[12]` 配置档数、`[18]` 连接状态（`0`=有线 / `2`=2.4G 接收器）、`[19]` 充电状态、`[20]` 电量百分比、`[21]` 游戏模式；实机 K7 V2 Ultra+ 读得 77%。
+  - `0x0002` 读性能配置：`[9]` 高 4 位 USB 回报率索引 / 低 4 位 USB DPI 档，`[10]` 高 4 位 2.4G 回报率索引 / 低 4 位 2.4G DPI 档；回报率索引为「RATES 索引 + 1」存储（`DecodeRateIndex`/`EncodeRateIndex` 往返），支持 125/500/1000/2000/4000/8000 Hz 六档。
+  - `0x0003` 读 DPI：`[10]` 档位总数、`[11]` 当前档位、`[12]` 是否 XY 独立、`[13..24]` 6×uint16 小端 DPI；`0x0103` 整表回写 17 字节、`0x0102` 全量回写 19 字节性能配置（只改回报率半字节，其余字段原样回写，避免误改休眠/传感器/消抖）。
+  - 与旧版协议**按 PID 物理隔离**：`MchoseMouseHelper.FindControlPath` 遇到 4D 白名单 PID 直接跳过，避免生成电量未知的重复卡片；四个写入入口（查询 / DPI 档位 / 双轴 DPI / 回报率）优先委派 4D 驱动，失败自动回退旧协议，既有 A5 V2 设备零回归。
+  - 能力契约按 PID 分流：4D 机型 50~42,000 DPI（PAW3950）、旧 A5 V2 保持 50~26,000 DPI；两者均声明回报率调节。
+  - **XY 双轴能力修正（实机证伪）**：早期实现把 4D 机型的 `SupportsXyIndependence` 硬编码为 `true`。实机验证发现 K7 V2 Ultra+（PAW3950 单传感器）`0x0003` 回包 `[12]` HasY 恒为 `0`，向 `0x0103` 写入 `1200x800` 后回读为 `1200x1200`（固件强制 Y 轴跟随 X 轴），`0x0102` 的 XY 标志位写入亦被忽略。现改为对 4D 协议族直接取设备回包 `dev.IsXyIndependent`，仅对真实支持双轴的旧版 A5 V2 Ultra 保持 `true`，不再向用户暴露无效开关。
+  - 新增 `test_mchose_mouse_4d_support.ps1` 六项契约测试（帧结构与 XOR 校验、`0x0900` 电量/充电/异常拒绝、回报率编解码往返、六档 DPI 解析、PID 白名单与双能力档分流、XY 能力跟随 HasY 标志的正反用例）。
+  - **设备聚焦记忆修复（用户反馈：“在 exe 里没法调整 DPI”）**：反射与真实点击双路验证发现，驱动与硬件层写入均 100% 正确（`SetDpi`/`SetPollingRate` 均回读一致），真正缺陷在**启动默认聚焦**：主窗口每次启动都回落到托盘主设备（本机为 MCHOSE K99 V3 键盘），而键盘视图下 DPI/回报率控件整块不渲染，用户不手动切换设备就“看不到也调不了”。
+    - 新增 `MainForm.lastSelectedDeviceId` 与注册表键 `HKCU\Software\FerrisPulse\LastSelectedDevice`：`SelectDeviceView` 在用户（或托盘菜单）选中设备时记住 `DeviceId`；`LoadConfig`/`SaveConfig` 负责读写。
+    - 新增 `MainForm.GetPreferredStartupDevice()` 与 `FindRememberedDevice()`，`ShowWindow` 改用前者。启动展示优先级：① 上次主动选中且仍可用的设备 → ② 主设备本身可调节性能 → ③ 任一真正在线且可调节的鼠标 → ④ 任一休眠占位但接收器在场的可调节鼠标 → ⑤ 托盘主设备兜底。
+    - `ApplyDeviceStatus` 首次刷新时也优先重建记忆设备，避免启动竞态导致回落。
+    - **无线鼠标休眠占位修正**：2.4G 鼠标刚启动时常处于休眠状态，此时 `IsConnected=false` 但 `IsDonglePresent=true`。早期规则要求必须 `IsConnected`，导致优选永远跳过鼠标、回落到键盘，修复即为失效。现补充一轮「接收器在场即可选」的源，并同步放宽 `FindRememberedDevice` 的可用性判定。
+    - **用户固定标记**：新增 `MainForm.deviceSelectionPinnedByUser`。只有用户主动选择过设备（`SelectDeviceView`）后才锁定；否则启动期间每轮刷新都重新评估优选，避免鼠标尚未枚举出来时被一次性锁死在键盘上。
+    - **严格隔离**：本修复只影响主窗口内容区，`GetPrimaryDevice()`、托盘图标、托盘菜单与 OSD 展示的主设备行为完全不变（已测试验证）。
+    - 新增 `tests/test_device_focus_memory.ps1` 六项回归验证：字段与方法存在性、冷启动无记忆时选中休眠占位但可调节的鼠标、记忆的休眠设备在接收器在场时仍可定位、记忆键盘时恢复键盘、记忆设备不存在时安全回退、`GetPrimaryDevice` 行为不变全部通过。
+  - **严格按板载实际档位渲染（用户反馈：“给我多加了 1600 和 3200 的 DPI 选项出来”）**：实机排查发现，`SetDpi` / `SetDpiStage` 原先在目标档位超出当前档数时会执行 `if (target >= stageCount) stageCount = target + 1;`，即**自动扩档并永久写入板载**。先前调试写入第 2/3 档时，把设备真实的 1 档永久改写成 3 档（`2200 / 1600 / 3200`），这才是 UI 多出档位的直接原因，而非 UI 层伪造。
+    - `MchoseMouse4DHelper.SetDpi` / `SetDpiStage` 改为严格保守：`if (target < 0 || target >= stageCount) return false;`，越界直接拒绝，**增删档位只能显式走 `SetDpiStages`**。
+    - 新增板载真实快照 `CachedDpiStages` / `CachedDpiStagesY` / `CachedDpiStage` / `CachedDpiX` / `CachedDpiY` / `CachedPollingRate`，随 `MchoseMouse4DCache` 持久化。休眠占位卡片 `BuildStaleCard` 改用这份真实快照渲染，**不再硬编码 `PollingRate = 1000`、不再给出全量 125~8000 Hz、不再留空档位让 UI 回落默认值**；无快照时如实留空（`DpiStages = null`、`PollingRate = 0`）。
+    - `MainForm` 移除全部“凭空造选项”的路径：`dpiStageList` 默认值由 `{400, 800, 1600, 3000, 6400}` 改为空列表、`dpiStageValues` 与 `pollingRateValues` 改为空数组；`LoadConfig` 不再把注册表 `CustomDpiStages` 当作 UI 选项来源（仅作历史记录）。
+    - `UpdatePerformanceSection` 兜底三层化：设备上报档位表 → 用档位表；只上报当前 DPI → 只呈现这一个值；两者都没有 → 保持空档位。回报率兜底同样改为「设备上报表 → 自报单一值 → 空」，并对 `LoadCustomPollingRates` 的结果按设备能力表过滤去重。
+    - `RelayoutDpiButtons` / `RelayoutRateButtons` / 电竞 DPI / 电竞回报率 / `SetGameRateControlsVisibility` 中的 `Math.Max(1, ...)` 全部去除，按钮数量严格等于 `dpiStageList.Count` 与 `pollingRateValues.Length`（空时数量为 0，不再强行渲染一个假档位）。
+    - 写入与 OSD 文案中的兜底值同步收紧：`targetDpi` 不再回落 `800`，改为设备自报的当前 DPI，取不到就不写；OSD/通知中的档位总数不再回落 `5`。
+    - 新增 `tests/test_mchose_onboard_truthfulness.ps1`（37 项）：源码层禁止自动扩档、禁止伪造默认档位表；UI 层断言各按钮数量表达式严格等于板载数量、电竞区块同样不得 `Math.Max(1, ...)`、注册表不再作选项源；运行时断言 `DpiStageCount == DpiStages.Length`、越界 `SetDpi` 被拒且板载档数不变。
+  - **清除残留的硬编码兜底值（同一原则的延伸）**：实机语义探针逐场景验证后，把最后几处“凭空造数”的兜底一并去掉。
+    - `MainForm.Hardware.cs` 中 `RestoreDesktopSettingsSynchronous` / `RestoreDesktopDpiStage` 的 `targetDpi` 不再回落 `1600`，改为设备自报的 `curDev.Dpi`，取不到就不下发；档位上限由写死的 `5` 改为 `dpiStageValues.Length`，设备板载槽位数变化时不再被截断。
+    - `ApplyGameOptimization` / `ApplyGameDpiStage` / `SetGameDpiStageFromUI` 的档位上限一律改为按当前设备实际档位数收敛，不再假定固定 5 档。
+    - Rapoo 托盘菜单在 `info.Dpi <= 0` 时显示「当前 DPI: 未知」，不再伪造 `1600 DPI`。
+    - `MainForm.LoadConfig` 中 `gameDpiStage` 的上界不再写死 `5`（下界仍为 1），上界在运行时按设备真实档位数收敛。
+    - `OpenPollingRateManagementDialog` 在设备未上报可用回报率时直接返回，不再补一张 `125 ~ 8000 Hz` 全量表；`curHz` 也不再凭空回落 `1000`，改取设备上报表中的实际值。
+  - **电竞 DPI / 电竞回报率的实机语义确认（用户问“是不是只在游戏里生效”）**：用反射状态机逐场景验证，行为与上游一致且符合预期。
+    - 非游戏状态修改电竞 DPI / 电竞回报率：**不写硬件**，只记配置（实测改电竞回报率 8000 Hz 后硬件仍为 1000 Hz）。
+    - 进入游戏（`isGamingActive`）：自动下发电竞值（实测回报率 1000 → 2000 Hz 生效），并记住进入前的日用档位 `desktopDpiStage`。
+    - 游戏运行中修改**日用** DPI / 回报率：**不写硬件**，仅作为退出后的恢复预设，避免打断游戏中的手感。
+    - 游戏运行中修改**电竞**值且对应自动切换开关已开启：立即下发（实测 2000 → 4000 → 8000 Hz 连续生效）；开关关闭时按设计不下发。
+    - 退出游戏：恢复日用值与日用回报率，并清空 `desktopDpiStage` 记忆。
+  - `tests/test_mchose_onboard_truthfulness.ps1` 由 37 项扩到 45 项，新增断言：无残留 `1600` DPI 兜底、无写死的档位上限 `5`、回报率对话框不再补全量表、不再凭空回落 `1000 Hz`。
+
+  - **电竞回报率 / 电竞 DPI 双开关独立生效（用户反馈：“电竞回报率没勾选，游戏场景却改了回报率”）**：用户指出电竞回报率复选框未勾选时，进入游戏仍然改写了回报率。排查确认为真实缺陷：`ApplyGameOptimization(bool isEntering)` 在“进/退游戏”路径上**不看两个子开关**，只按 `applyRate && applyDpi` 的组合调用关系推断，于是组合模式（两个都开）下能正确下发，但只要走到 `ApplyGameOptimization` 就一定同时写回报率与 DPI；而 `StartGameMonitor`、`PerformStartupDesktopCalibration` 又都优先调用它，导致未勾选的通道被一并改写。
+    - `ApplyGameOptimization` 内置闸门：`bool applyRate = autoGameRateEnabled;` / `bool applyDpi = autoGameDpiEnabled;`，两者皆假时直接 `return`，回报率写入被 `if (applyRate)` 包裹、DPI 写入被 `if (applyDpi)` 包裹，**不再依赖调用方事先判断**，任何新增调用点都无法绕过。
+    - `ApplyGamePollingRate()` 增加 `if (!autoGameRateEnabled) return;`、`ApplyGameDpiStage()` 增加 `if (!autoGameDpiEnabled) return;`，单通道入口同样自带闸门。
+    - OSD 与通知气泡按实际生效通道展示：仅回报率生效时文案不再出现 DPI 数值，仅 DPI 生效时不再出现 Hz 数值，避免虚报未勾选的项目。
+    - `RestoreDesktopSettingsSynchronous()` 写回报率前检查 `autoGameRateEnabled`、写 DPI 前检查 `autoGameDpiEnabled`（原有逻辑保留并加注释），启动同步校准同样不会越权改写。
+    - 新增 `tests/test_game_toggle_independence.ps1`（23 项）：源码契约层断言双闸门存在、`ApplyGameOptimization` 内两个写入点各自被对应 `if` 包裹且写入点唯一、`ApplyGamePollingRate`/`ApplyGameDpiStage` 各自带闸门、`StartGameMonitor` 与 `PerformStartupDesktopCalibration` 内不存在绕过闸门的直接硬件写入、同步校准的两处开关前置判断、以及三个文件的 UTF-8 BOM 与无 CRCRLF 腐败。
+    - 实机四场景验证（反射状态机，硬件回读）：① 电竞回报率未勾选 + 电竞 DPI 已勾选 → 进游戏回报率保持 `1000 Hz` 不变、退出亦不变；② 两者均勾选 → 进游戏回报率 `1000 → 8000 Hz`、退出恢复 `1000 Hz`；③ 两者均未勾选 → 完全不触碰硬件；④ 直接调用 `ApplyGamePollingRate()` 在未勾选时被闸门拦住。
+
+  - **设备品类权威纠错（用户反馈：“为什么我的鼠标被识别为键盘了？”）**：实机排查确认为真实缺陷——手工添加设备时一旦把复合外设记成键盘，错误会被永久固化，且原逻辑只做「键盘单向迁移」，没有反向纠错。
+    - 根因链条：`HKCU\Software\RazerBatteryTray\CustomDevices\HID:3837:1018` 的 `Category = 3`（Keyboard）→ `DeviceManager.LoadCustomDevices()` 直接采用注册表值 → `1782` 行 `devInfo.Category = cfg.Category;` 用错误品类造卡 → `MchoseMouseDriver.CanHandle` 因 `dev.Category != DeviceCategory.Mouse` 拒绝接管 → `PopulateCapabilities` 不执行 → DPI / 回报率 / 档位能力全部为 `false`，UI 控件整块消失，用户无法自行恢复。
+    - 错误首因：`3837:1018` 是复合外设，`MI_00` 为 HID 鼠标、`MI_01` 为 HID 键盘、`MI_02` 为厂商接口；`AddDeviceWizardForm` 的 `resolveCategory` 会无条件返回注册表中已有的旧 `Category`，把错值继承并固化。
+    - 新增 `MchoseDeviceHelper.TryGetAuthoritativeCategory(deviceId, hardwareFingerprint, out DeviceCategory)`：按 VID/PID 反推权威品类——`0x3837` 且 PID 命中 4D 白名单（`1001 / 1014 / 1016 / 1018 / 101C / 101D`）判为 `Mouse`，`0x3837:0x3033`（G87 V2）、CompX `0x3554:0xFA09`（G75 PRO）、`0x0E8D:0x01BB`（Z75s）判为 `Keyboard`，其余返回 `false` 不干预。
+    - `DeviceManager.LoadCustomDevices()` 读盘时立即用该 API 纠正并 `SaveCustomDevice(cfg)` 落盘；自定义配置合并相位改为硬件事实优先：`mergeTruthKnown && mergeTruthCat != Generic` 时覆盖历史值，否则才沿用注册表值。
+    - `AddDeviceWizardForm.resolveCategory` 改为硬件事实优先：先查 `TryGetAuthoritativeCategory(devId, devId)`，再查已有配置的权威品类，最后才回退 `match.Category` / `defCat`，从源头阻止错误被继承。
+    - 实机验证：无需手工改注册表，仅调用 `QueryAllDevices()` 即自动自愈 —— `HID:3837:1018` 的 `Category` 由 `3` 改写为 `0`，卡片变为 `cat=Mouse` / `driver=BuiltIn:MchoseMouse` / `dpi=2200` / `stages=1` / `caps(dpi=True rate=True)`；键盘 `3837:3033` 保持 `Keyboard` 不受影响。
+    - 新增 `tests/test_device_category_truth.ps1`（39 项）：三文件 BOM/CRCRLF 合规、权威 API 覆盖两族、`LoadCustomDevices` 改写并落盘、向导不再盲目继承、运行时 `3837:1018` 必须为 `Mouse` 且具备 DPI/回报率/档位能力、注册表无残留错值。
+
+  - **性能卡片左列宽度自适应（用户反馈：“电竞回报率的‘率’字被 1000Hz 框框遮住”）**：实测确认属上游原版既有布局缺陷，与本次适配无关。
+    - 根因：`MainForm.UI.cs` 四处 `int lblW = (int)(82 * dpiScale);` 写死左列宽度，但 `ModernCheckBox.OnPaint` 的文字从控件内 `x = 25` 起绘（1px 留白 + 16px 方框 + 8px 间距），`电竞回报率` 实测宽 68px，实际需要 97px 控件宽度；而右侧首个回报率按钮正好从 `x = 96` 紧贴该栏右边缘起排，于是文字区（到 `x = 107`）与按钮重叠 11px，压掉了“率”字右半。
+    - 新增 `MainForm.MeasurePerfLabelColumnW()`：用 `TextRenderer.MeasureText` 实测左列全部文案（`lblDpiTitle` / `lblRateTitle` / `lblNuphyBrightTitle` / `chkAutoGameDpi` / `chkAutoGameRate`）的最宽值，加上 `boxAndGap = 25`（与 `ModernCheckBox` 绘制偏移保持一致）与 `4 * dpiScale` 留白，与原 `82 * dpiScale` 取大值作为实际宽度；控件尚未创建时回退 68px 文本宽。
+    - 四处 `int lblW = (int)(82 * dpiScale);` 全部改为 `int lblW = MeasurePerfLabelColumnW();`，区域包括 `BuildUI` 控件创建、`RelayoutDpiButtons`、`RelayoutRateButtons`、`RelayoutPerformanceControls`，任意新增文案都不会再被遮挡。
+    - 实机验证：`lblW` 由 82px 变为 97px，`chkAutoGameRate` 文字占据 `X = 39..107`、控件右边缘 111，首个回报率按钮左边缘 111，完全不再重叠；屏幕截图像素分析确认文字最后亮列与按钮首列不相交。
+    - 新增 `tests/test_perf_label_layout.ps1`（27 项）：源码层禁止写死 82px、要求 4 处均使用实测宽度；运行时在 1.0/1.25/1.5/1.75/2.0 五个缩放比下逐档断言文字不溢出自身控件且不越过首个回报率按钮左边缘。
+
+
 ### 🎮 手柄与键盘设备接入
 - **飞智 (Flydigi) APEX 6 / APEX 6 Pro / Vader 5 Pro** (#24)：
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。

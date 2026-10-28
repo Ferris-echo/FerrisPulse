@@ -923,17 +923,37 @@ namespace RazerBatteryTray
 
             dev.Capabilities.SupportsPollingRate = true;
 
-            dev.Capabilities.SupportsXyIndependence = true;
+            // XY 独立双轴不可一概而论：4D 协议族（K7 V2 Ultra+ 等）回包 [12] 为
+            // HasY 标志，实测 PAW3950 单传感器机型该位恒为 0（写入 1200x800 后
+            // 回读为 1200x1200，Y 轴被固件强制同步为 X 轴）。旧版 A5 V2 Ultra 走
+            // 独立报文且真实支持双轴，故按协议族分流，避免把不支持的开关亮给用户。
+            int xyProbePid = 0;
+            int xyProbeVid = 0;
+            bool xyPidOk = HardwareDriverBase.TryExtractDeviceVidPid(dev, out xyProbeVid, out xyProbePid);
+            bool is4DFamily = xyPidOk && MchoseMouse4DHelper.IsSupportedPid(xyProbePid);
+            dev.Capabilities.SupportsXyIndependence = is4DFamily ? dev.IsXyIndependent : true;
 
             dev.Capabilities.SupportsHardwareDpiMonitor = false;
 
-            dev.Capabilities.MinDpi = 50;
-
-            dev.Capabilities.MaxDpi = 26000;
-
-            dev.Capabilities.DpiStep = 50;
-
-            dev.Capabilities.SensorDescription = "迈从原相高精度电竞光学传感器 (PAW3395/PAW3950，最高 26,000 DPI)";
+            // 新一代 4D 帧协议族（K7 V2 Ultra+ / A5 V3 Ultra+ 等）搭载 PAW3950，
+            // 上限 42,000 DPI 且支持 6 档板载；旧版 A5 V2 Ultra 为 26,000 DPI。
+            int pid = 0;
+            int vidIgnored = 0;
+            bool pidOk = HardwareDriverBase.TryExtractDeviceVidPid(dev, out vidIgnored, out pid);
+            if (pidOk && MchoseMouse4DHelper.IsSupportedPid(pid))
+            {
+                dev.Capabilities.MinDpi = 50;
+                dev.Capabilities.MaxDpi = 42000;
+                dev.Capabilities.DpiStep = 50;
+                dev.Capabilities.SensorDescription = "迈从原相 PAW3950 旗舰电竞光学传感器（最高 42,000 DPI）";
+            }
+            else
+            {
+                dev.Capabilities.MinDpi = 50;
+                dev.Capabilities.MaxDpi = 26000;
+                dev.Capabilities.DpiStep = 50;
+                dev.Capabilities.SensorDescription = "迈从原相高精度电竞光学传感器 (PAW3395/PAW3950，最高 26,000 DPI)";
+            }
 
         }
 

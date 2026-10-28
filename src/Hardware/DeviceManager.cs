@@ -370,6 +370,19 @@ namespace RazerBatteryTray
                                         }
 
                                         if (GanssDeviceHelper.NormalizeConfig(cfg)) SaveCustomDevice(cfg);
+
+                                        // 品类权威纠错：VID/PID 能唯一确定品类时以硬件事实为准。
+                                        // 复合外设（如 3837:1018）同时暴露键盘与鼠标接口，手动添加时
+                                        // 容易被记成 Keyboard；错误一旦固化，鼠标驱动 CanHandle 会
+                                        // 拒绝接管，DPI/回报率控件整块消失，且原逻辑只做键盘单向迁移、
+                                        // 没有反向纠错，用户无法自行恢复。此处立即写回正确品类。
+                                        DeviceCategory authoritativeCat;
+                                        if (MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out authoritativeCat) &&
+                                            cfg.Category != authoritativeCat)
+                                        {
+                                            cfg.Category = authoritativeCat;
+                                            SaveCustomDevice(cfg);
+                                        }
                                         list.Add(cfg);
                                     }
                                 }
@@ -1527,7 +1540,15 @@ namespace RazerBatteryTray
                     if (existDev != null)
                     {
                         existDev.IsCustom = true;
-                        if (cfg.Category != DeviceCategory.Generic)
+                        DeviceCategory mergeTruthCat;
+                        bool mergeTruthKnown = MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out mergeTruthCat);
+                        if (mergeTruthKnown && mergeTruthCat != DeviceCategory.Generic)
+                        {
+                            // 硬件事实优先：驱动已按 VID/PID 正确归类时，
+                            // 不允许注册表里的历史错值把品类再改回去。
+                            existDev.Category = mergeTruthCat;
+                        }
+                        else if (cfg.Category != DeviceCategory.Generic)
                         {
                             existDev.Category = cfg.Category;
                         }
