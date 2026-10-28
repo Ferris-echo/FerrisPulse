@@ -1336,7 +1336,12 @@ namespace RazerBatteryTray
                     // 只记放电（充电时电压被抬高，样本无意义），不写盘之外的任何副作用。
                     if (isZaopin && displayVoltageMv > 0 && !displayCharging)
                     {
-                        Diagnostics.Log(string.Format("[A1] mv={0} vPct={1} gauge={2} cal={3} raw={4}", displayVoltageMv, vPct, coulombPct, calibratedMv, VoltageToPercent(calibratedMv)));
+                        #if A1_SAMPLE
+                    // 低电量校准采样（默认关闭）：编译时加 /define:A1_SAMPLE 才输出。
+                    // 常开会每轮查询写一行（10 秒一次），一天近万行，日志 1MB 轮转会把
+                    // 真正的错误日志冲掉。2026-10-29 已完成校准，结论见 HANDOVER.md。
+                    Diagnostics.Log(string.Format("[A1] mv={0} vPct={1} gauge={2} cal={3} raw={4}", displayVoltageMv, vPct, coulombPct, calibratedMv, VoltageToPercent(calibratedMv)));
+#endif
                     }
 
                     // 缓存必须写「界面显示值」而不是固件电量计：两者在低电量段会分叉
