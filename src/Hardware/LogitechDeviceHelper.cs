@@ -141,6 +141,21 @@ public static class LogitechDeviceHelper
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint OPEN_EXISTING = 3;
     private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+
+    // 长期存在的 OVERLAPPED：所有访问都在 lock(hidLock) 内串行，可安全复用。
+    // 放静态字段而非栈上——超时放弃时内核稍后仍会写入这块内存，栈上会变成悬垂指针。
+    private static OVERLAPPED lgDrainOl;
+    private static OVERLAPPED lgWriteOl;
+    private static OVERLAPPED lgReadOl;
+
+    private static void PrepareOverlapped(ref OVERLAPPED ol, IntPtr hEvent)
+    {
+        ol.Internal = IntPtr.Zero;
+        ol.InternalHigh = IntPtr.Zero;
+        ol.Offset = 0;
+        ol.OffsetHigh = 0;
+        ol.hEvent = hEvent;
+    }
     private const uint WAIT_OBJECT_0 = 0;
 
     public class LogitechEndpoint
@@ -273,44 +288,45 @@ public static class LogitechDeviceHelper
         byte[] drain = new byte[inLen];
         for (int i = 0; i < 5; i++)
         {
-            OVERLAPPED dOl = new OVERLAPPED();
-            dOl.hEvent = hEvent;
+            PrepareOverlapped(ref lgDrainOl, hEvent);
             uint readBytes;
             ResetEvent(hEvent); // 手动重置事件必须每次 I/O 前清零
-            bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
+            bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref lgDrainOl);
             if (!ok && Marshal.GetLastWin32Error() == 997)
             {
                 if (WaitForSingleObject(hEvent, 10) == WAIT_OBJECT_0)
                 {
-                    GetOverlappedResult(handle, ref dOl, out readBytes, false);
+                    GetOverlappedResult(handle, ref lgDrainOl, out readBytes, false);
                     continue;
                 }
                 CancelIo(handle);
-                // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                GetOverlappedResult(handle, ref dOl, out readBytes, true);
+                // OVERLAPPED 是静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                // 但绝不做无界等待——否则设备无响应时会永久持锁，整个程序假死。
+                WaitForSingleObject(hEvent, 500);
+                GetOverlappedResult(handle, ref lgDrainOl, out readBytes, false);
             }
             break;
         }
 
         // Write command
-        OVERLAPPED wOl = new OVERLAPPED();
-        wOl.hEvent = hEvent;
+        OVERLAPPED lgWriteOl = new OVERLAPPED();
+        lgWriteOl.hEvent = hEvent;
         uint written;
         ResetEvent(hEvent);
-        bool wOk = WriteFile(handle, txBuffer, (uint)txBuffer.Length, out written, ref wOl);
+        bool wOk = WriteFile(handle, txBuffer, (uint)txBuffer.Length, out written, ref lgWriteOl);
         if (!wOk && Marshal.GetLastWin32Error() == 997)
         {
             if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
             {
-                GetOverlappedResult(handle, ref wOl, out written, false);
+                GetOverlappedResult(handle, ref lgWriteOl, out written, false);
             }
             else
             {
                 CancelIo(handle);
-                // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                GetOverlappedResult(handle, ref wOl, out written, true);
+                // OVERLAPPED 是静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                // 但绝不做无界等待——否则设备无响应时会永久持锁，整个程序假死。
+                WaitForSingleObject(hEvent, 500);
+                GetOverlappedResult(handle, ref lgWriteOl, out written, false);
                 return null;
             }
         }
@@ -323,23 +339,23 @@ public static class LogitechDeviceHelper
             if (remainingMs <= 0) break;
 
             byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
+            PrepareOverlapped(ref lgReadOl, hEvent);
             uint rxRead = 0;
             ResetEvent(hEvent);
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
+            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref lgReadOl);
             if (!rOk && Marshal.GetLastWin32Error() == 997)
             {
                 if (WaitForSingleObject(hEvent, (uint)remainingMs) == WAIT_OBJECT_0)
                 {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
+                    GetOverlappedResult(handle, ref lgReadOl, out rxRead, false);
                 }
                 else
                 {
                     CancelIo(handle);
-                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                    GetOverlappedResult(handle, ref rOl, out rxRead, true);
+                    // OVERLAPPED 是静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                    // 但绝不做无界等待——否则设备无响应时会永久持锁，整个程序假死。
+                    WaitForSingleObject(hEvent, 500);
+                    GetOverlappedResult(handle, ref lgReadOl, out rxRead, false);
                     return null;
                 }
             }

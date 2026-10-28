@@ -48,6 +48,20 @@ namespace RazerBatteryTray
         private const uint FILE_SHARE_WRITE = 0x00000002;
         private const uint OPEN_EXISTING = 3;
         private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+
+        // 长期存在的 OVERLAPPED：调用方串行访问，可安全复用。
+        // 放静态字段而非栈上——超时放弃时内核稍后仍会写入这块内存，栈上会变成悬垂指针。
+        private static OVERLAPPED htWriteOl;
+        private static OVERLAPPED htReadOl;
+
+        private static void PrepareOverlapped(ref OVERLAPPED ol, IntPtr hEvent)
+        {
+            ol.Internal = IntPtr.Zero;
+            ol.InternalHigh = IntPtr.Zero;
+            ol.Offset = 0;
+            ol.OffsetHigh = 0;
+            ol.hEvent = hEvent;
+        }
         private const int ERROR_IO_PENDING = 997;
 
         [StructLayout(LayoutKind.Sequential)]
@@ -320,24 +334,24 @@ namespace RazerBatteryTray
             if (!IsValidHandle(handle) || buffer == null || length <= 0 || length > buffer.Length) return false;
             IntPtr evt = CreateEvent(IntPtr.Zero, true, false, null);
             if (evt == IntPtr.Zero) return false;
-            OVERLAPPED overlapped = new OVERLAPPED();
-            overlapped.hEvent = evt;
+            PrepareOverlapped(ref htWriteOl, evt);
             try
             {
                 uint written = 0;
-                bool ok = WriteFile(handle, buffer, (uint)length, out written, ref overlapped);
+                bool ok = WriteFile(handle, buffer, (uint)length, out written, ref htWriteOl);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
                 {
                     uint wait = WaitForSingleObject(evt, (uint)timeoutMs);
                     if (wait != 0)
                     {
                         CancelIo(handle);
-                        // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                        // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                        GetOverlappedResult(handle, ref overlapped, out written, true); // 等真正完成，避免栈上 OVERLAPPED 悬垂
+                        // OVERLAPPED 是静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                        // 但绝不做无界等待——否则设备无响应时会永久持锁，整个程序假死。
+                        WaitForSingleObject(evt, 500);
+                        GetOverlappedResult(handle, ref htWriteOl, out written, false);
                         return false;
                     }
-                    ok = GetOverlappedResult(handle, ref overlapped, out written, false);
+                    ok = GetOverlappedResult(handle, ref htWriteOl, out written, false);
                 }
                 return ok && written > 0;
             }
@@ -357,25 +371,25 @@ namespace RazerBatteryTray
             if (!IsValidHandle(handle) || length <= 0) return false;
             IntPtr evt = CreateEvent(IntPtr.Zero, true, false, null);
             if (evt == IntPtr.Zero) return false;
-            OVERLAPPED overlapped = new OVERLAPPED();
-            overlapped.hEvent = evt;
+            PrepareOverlapped(ref htReadOl, evt);
             try
             {
                 byte[] buffer = new byte[length];
                 uint read = 0;
-                bool ok = ReadFile(handle, buffer, (uint)length, out read, ref overlapped);
+                bool ok = ReadFile(handle, buffer, (uint)length, out read, ref htReadOl);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
                 {
                     uint wait = WaitForSingleObject(evt, (uint)timeoutMs);
                     if (wait != 0)
                     {
                         CancelIo(handle);
-                        // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                        // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                        GetOverlappedResult(handle, ref overlapped, out read, true); // 等真正完成，避免栈上 OVERLAPPED 悬垂
+                        // OVERLAPPED 是静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                        // 但绝不做无界等待——否则设备无响应时会永久持锁，整个程序假死。
+                        WaitForSingleObject(evt, 500);
+                        GetOverlappedResult(handle, ref htReadOl, out read, false);
                         return false;
                     }
-                    ok = GetOverlappedResult(handle, ref overlapped, out read, false);
+                    ok = GetOverlappedResult(handle, ref htReadOl, out read, false);
                 }
                 if (ok && read > 0)
                 {
