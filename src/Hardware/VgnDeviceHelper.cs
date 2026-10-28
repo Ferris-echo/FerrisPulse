@@ -107,8 +107,22 @@ namespace RazerBatteryTray
 
         private static int PercentWithHysteresis(int mv)
         {
+            // 电压合理性闸门：单节锂电池不可能低于 2.8V 或高于 4.3V。
+            // 越界值只可能来自响应错位/半包，必须丢弃——否则一次垃圾读数（如 65535mV）
+            // 会算出 100% 并被滞回逻辑锁死：之后电压正常了，因 |mv 变化| < 6 仍永远返回 100%。
+            if (mv < 2800 || mv > 4300)
+            {
+                return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            }
+
             int pct = VoltageToPercent(mv);
             if (pct < 0) return pct;
+
+            // 轨值合理性：100% 只可能出现在 >=4050mV，0% 只可能出现在 <=3100mV。
+            // 落在中间却算出轨值，说明电压读数不可信，丢弃而不是采纳——
+            // 否则一次错误读数会把滞回基准锁在 100%，之后再也降不下来。
+            if (pct >= 100 && mv < 4050) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            if (pct <= 0 && mv > 3100) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
             if (lastAcceptedPct < 0)
             {
                 lastAcceptedPct = pct;
@@ -120,6 +134,9 @@ namespace RazerBatteryTray
                 lastAcceptedMv = mv;
                 return pct;
             }
+            // 突变保护：百分比跳变 >10% 时，必须有 >=60mV 的电压变化支撑才采纳
+            // （60mV 约对应 10%），否则判为异常读数，丢弃。
+            if (Math.Abs(pct - lastAcceptedPct) > 10 && Math.Abs(mv - lastAcceptedMv) < 60) return lastAcceptedPct;
             // 变化幅度不足 6mV 视为噪声，维持原显示
             if (Math.Abs(mv - lastAcceptedMv) < 6) return lastAcceptedPct;
             lastAcceptedPct = pct;
@@ -1289,7 +1306,7 @@ namespace RazerBatteryTray
                     // 只记放电（充电时电压被抬高，样本无意义），不写盘之外的任何副作用。
                     if (isZaopin && displayVoltageMv > 0 && !displayCharging)
                     {
-                        Diagnostics.Log(string.Format("[A1] mv={0} vPct={1} gauge={2}", displayVoltageMv, vPct, coulombPct));
+                        Diagnostics.Log(string.Format("[A1] mv={0} vPct={1} gauge={2} cal={3} raw={4}", displayVoltageMv, vPct, coulombPct, calibratedMv, VoltageToPercent(calibratedMv)));
                     }
 
                     // 缓存必须写「界面显示值」而不是固件电量计：两者在低电量段会分叉
