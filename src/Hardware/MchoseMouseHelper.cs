@@ -4,7 +4,11 @@
 // 核心职责:
 //   MCHOSE（迈从）A5 V2 Ultra 等 2.4G / USB / 蓝牙三模鼠标私有 HID 协议驱动。
 //   （特别鸣谢社区群友“冰城”逆向贡献，原生支持精确物理电量、充电感知、XY 轴独立 DPI 与 8K 回报率）
-// 依赖关系: RazerDeviceHelper.cs (共享 HID P/Invoke), MouseBatteryInfo.cs
+//   本文件只处理旧版 0x11/0x12 帧协议族。新一代 4D 帧协议族
+//   （K7 V2 Ultra+ / A5 V3 Ultra+ / A7 V3 等 PID 见 MchoseMouse4DHelper.SupportedPids）
+//   在 FindControlPath 中按 PID 物理隔离，并在此处四个入口（查询 / DPI 档位 /
+//   DPI 双轴 / 回报率）优先委派给 MchoseMouse4DHelper，失败再回退旧协议。
+// 依赖关系: RazerDeviceHelper.cs (共享 HID P/Invoke), HidTransport.cs, MchoseMouse4DHelper.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、协议解析或签名时，【必须】同步更新上方说明。
@@ -373,6 +377,10 @@ namespace RazerBatteryTray
                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
                             if (capsStatus != 0x00110000) continue;
 
+                            // 新一代 4D 帧协议族（K7 V2 Ultra+ / A5 V3 Ultra+ 等）由
+                            // MchoseMouse4DHelper 独立接管，此处必须跳过，避免生成电量未知的重复卡片。
+                            if (MchoseMouse4DHelper.IsSupportedPid(attr.ProductID)) continue;
+
                             bool isPreferred = (caps.UsagePage == 0xFF01 && caps.FeatureReportByteLength >= 21);
                             bool isFallback = (caps.UsagePage == 0xFF0B && caps.FeatureReportByteLength >= 21);
 
@@ -506,6 +514,19 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+
+            // 新一代 4D 帧协议族（K7 V2 Ultra+ / A5 V3 Ultra+ 等）走独立驱动，
+            // 旧版 0x11/0x12 帧在 FindControlPath 中已按 PID 物理隔离。
+            try
+            {
+                MouseBatteryInfo dev4d = MchoseMouse4DHelper.QueryMchose4DMouse();
+                if (dev4d != null && (dev4d.IsConnected || dev4d.IsDonglePresent))
+                {
+                    list.Add(dev4d);
+                }
+            }
+            catch { }
+
             return list;
         }
 
@@ -645,6 +666,17 @@ namespace RazerBatteryTray
         public static bool SetMchoseDpiStage(int stage)
         {
             if (stage < 1) stage = 1;
+
+            // 新一代 4D 帧协议族优先（支持 6 档 DPI，档位号 1 基）。
+            try
+            {
+                if (MchoseMouse4DHelper.HasControlEndpoint() && MchoseMouse4DHelper.SetDpiStage(stage))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
             if (stage > 5) stage = 5;
 
             lock (hidLock)
@@ -683,6 +715,16 @@ namespace RazerBatteryTray
 
         public static bool SetMchoseDpi(int dpiX, int dpiY, int stage)
         {
+            // 新一代 4D 帧协议族优先（支持 6 档 DPI，上限 42000）。
+            try
+            {
+                if (MchoseMouse4DHelper.HasControlEndpoint() && MchoseMouse4DHelper.SetDpi(dpiX, dpiY, stage))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
             if (dpiX < 100) dpiX = 100;
             if (dpiX > 26000) dpiX = 26000;
             if (dpiY < 100) dpiY = dpiX;
@@ -736,6 +778,18 @@ namespace RazerBatteryTray
         {
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length != stagesX.Length) stagesY = stagesX;
+
+            // 新一代 4D 帧协议族优先：整表回写 0x0103，写入后回读逐档校验。
+            try
+            {
+                if (MchoseMouse4DHelper.HasControlEndpoint() &&
+                    MchoseMouse4DHelper.SetDpiStages(stagesX, stagesY, activeStage))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
             int count = Math.Min(5, stagesX.Length);
             if (activeStage < 1) activeStage = 1;
             if (activeStage > count) activeStage = count;
@@ -806,6 +860,16 @@ namespace RazerBatteryTray
 
         public static bool SetMchosePollingRate(int hz)
         {
+            // 新一代 4D 帧协议族优先（回报率随 0x0102 全量配置写）。
+            try
+            {
+                if (MchoseMouse4DHelper.HasControlEndpoint() && MchoseMouse4DHelper.SetPollingRate(hz))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
             int idx = GetRateIndex(hz);
 
             lock (hidLock)
