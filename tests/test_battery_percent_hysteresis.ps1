@@ -52,6 +52,9 @@ Write-Host "===== 1. 查表正确性 =====" -ForegroundColor Cyan
 Assert-Eq ($mTable.Invoke($null, @(3633))) 23 "3633mV 应查表得 23%"
 Assert-Eq ($mTable.Invoke($null, @(4110))) 100 "4110mV 应查表得 100%"
 Assert-Eq ($mTable.Invoke($null, @(3050))) 0 "3050mV 应查表得 0%"
+Assert-Eq ($mTable.Invoke($null, @(3200))) 0 "3200mV（最低档）应查表得 0%"
+Assert-Eq ($mTable.Invoke($null, @(3311))) 3 "3311mV 应查表得 3%（官方驱动实测基准）"
+Assert-Eq ($mTable.Invoke($null, @(3362))) 4 "3362mV 应查表得 4%（官方驱动实测基准）"
 
 Write-Host ""
 Write-Host "===== 2. 越界读数必须丢弃 =====" -ForegroundColor Cyan
