@@ -26,6 +26,23 @@ namespace RazerBatteryTray
     public static class VgnDeviceHelper
     {
         private static readonly object hidLock = new object();
+
+        // 长期存在的 OVERLAPPED：所有 HID 访问都在 lock(hidLock) 内串行，故可安全复用同一组实例。
+        // 放在静态字段而非栈上——超时放弃时内核稍后仍会写入这块内存，若在栈上就会变成悬垂指针
+        // （原生访问违例、进程静默消失）；静态字段永远有效，因此可以放心用有界等待。
+        private static OVERLAPPED drainOl;
+        private static OVERLAPPED writeOl;
+        private static OVERLAPPED readOl;
+
+        private static void PrepareOverlapped(ref OVERLAPPED ol, IntPtr hEvent)
+        {
+            // 复用前必须清零：Internal/InternalHigh 残留上次的 NTSTATUS，会让 GetOverlappedResult 误判
+            ol.Internal = IntPtr.Zero;
+            ol.InternalHigh = IntPtr.Zero;
+            ol.Offset = 0;
+            ol.OffsetHigh = 0;
+            ol.hEvent = hEvent;
+        }
         private const string CacheRegistryKey = @"Software\RazerBatteryTray\VgnCache";
 
         [StructLayout(LayoutKind.Sequential)]
@@ -286,23 +303,23 @@ namespace RazerBatteryTray
             int emptyRounds = 0;
             while (true)
             {
-                OVERLAPPED dOl = new OVERLAPPED();
-                dOl.hEvent = hEvent;
+                PrepareOverlapped(ref drainOl, hEvent);
                 uint readBytes;
                 ResetEvent(hEvent); // 手动重置事件必须每次 I/O 前清零，否则后续 Wait 会被上次的信号立即唤醒
-                bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
+                bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref drainOl);
                 if (!ok && Marshal.GetLastWin32Error() == 997) // ERROR_IO_PENDING
                 {
                     if (WaitForSingleObject(hEvent, 15) == WAIT_OBJECT_0)
                     {
-                        GetOverlappedResult(handle, ref dOl, out readBytes, false);
+                        GetOverlappedResult(handle, ref drainOl, out readBytes, false);
                         emptyRounds = 0;
                         continue;
                     }
                     CancelIo(handle);
-                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                    GetOverlappedResult(handle, ref dOl, out readBytes, true); // 等内核真正完成，避免 OVERLAPPED 悬垂
+                    // OVERLAPPED 是长期存在的静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                    // 但绝不做无界等待——无界等待会在设备无响应时永久持有 hidLock，导致整个程序假死。
+                    WaitForSingleObject(hEvent, 500);
+                    GetOverlappedResult(handle, ref drainOl, out readBytes, false);
                     emptyRounds++;
                     if (emptyRounds >= 2) break;
                     continue;
@@ -312,47 +329,47 @@ namespace RazerBatteryTray
             }
 
             // 2. Write command
-            OVERLAPPED wOl = new OVERLAPPED();
-            wOl.hEvent = hEvent;
+            PrepareOverlapped(ref writeOl, hEvent);
             uint written;
             ResetEvent(hEvent);
-            bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
+            bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref writeOl);
             if (!wOk && Marshal.GetLastWin32Error() == 997)
             {
                 if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
                 {
-                    GetOverlappedResult(handle, ref wOl, out written, false);
+                    GetOverlappedResult(handle, ref writeOl, out written, false);
                 }
                 else
                 {
                     CancelIo(handle);
-                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                    GetOverlappedResult(handle, ref wOl, out written, true);
+                    // OVERLAPPED 是长期存在的静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                    // 但绝不做无界等待——无界等待会在设备无响应时永久持有 hidLock，导致整个程序假死。
+                    WaitForSingleObject(hEvent, 500);
+                    GetOverlappedResult(handle, ref writeOl, out written, false);
                     return null;
                 }
             }
 
             // 3. Read response
             byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
+            PrepareOverlapped(ref readOl, hEvent);
             uint rxRead = 0;
             ResetEvent(hEvent);
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
+            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref readOl);
             if (!rOk && Marshal.GetLastWin32Error() == 997)
             {
                 if (WaitForSingleObject(hEvent, (uint)timeoutMs) == WAIT_OBJECT_0)
                 {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
+                    GetOverlappedResult(handle, ref readOl, out rxRead, false);
                     return rx;
                 }
                 else
                 {
                     CancelIo(handle);
-                    // 必须等 I/O 真正结束（bWait=true）再让 OVERLAPPED 出栈：
-                    // 若超时后直接返回，栈上的 OVERLAPPED 会在内核完成时被写入 → 原生访问违例 → 进程静默消失。
-                    GetOverlappedResult(handle, ref rOl, out rxRead, true);
+                    // OVERLAPPED 是长期存在的静态字段，超时放弃也不会悬垂；再等 500ms 让内核收尾，
+                    // 但绝不做无界等待——无界等待会在设备无响应时永久持有 hidLock，导致整个程序假死。
+                    WaitForSingleObject(hEvent, 500);
+                    GetOverlappedResult(handle, ref readOl, out rxRead, false);
                     return null;
                 }
             }
@@ -1165,7 +1182,7 @@ namespace RazerBatteryTray
                         CachedLastUpdated = DateTime.Now;
                         HasValidHardwareReading = true;
                         if (foundVoltageMv > 0) CachedBatteryVoltageMv = foundVoltageMv;
-                        SaveHardwareCache();
+                        // 缓存写入移到 displayBattery 算完之后（见文件末尾），保证写入的是界面显示值
                     }
 
                     string devName = GetModelName(foundPid, foundName, detectedCid, detectedMid);
@@ -1266,6 +1283,22 @@ namespace RazerBatteryTray
                         {
                             batteryTooltip = string.Format("电池电压: {0}.{1:D3}V (换算参考 {2}%)", displayVoltageMv / 1000, displayVoltageMv % 1000, vPct);
                         }
+                    }
+
+                    // A1 低电量校准采样：放电时每轮记录 电压/电压法/固件电量计，供事后对比 12mV 压降补偿是否够用。
+                    // 只记放电（充电时电压被抬高，样本无意义），不写盘之外的任何副作用。
+                    if (isZaopin && displayVoltageMv > 0 && !displayCharging)
+                    {
+                        Diagnostics.Log(string.Format("[A1] mv={0} vPct={1} gauge={2}", displayVoltageMv, vPct, coulombPct));
+                    }
+
+                    // 缓存必须写「界面显示值」而不是固件电量计：两者在低电量段会分叉
+                    // （实测固件计卡在 30% 长达 80 分钟，而电压法已降到 26%）。
+                    // 否则冷启动首屏、外部读取注册表的程序都会拿到旧口径，与界面差数个百分点。
+                    if (foundBattery >= 0 && displayBattery > 0)
+                    {
+                        CachedBatteryPercent = displayBattery;
+                        SaveHardwareCache();
                     }
 
                     return new MouseBatteryInfo
