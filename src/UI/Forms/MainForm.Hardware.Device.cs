@@ -123,7 +123,7 @@ namespace RazerBatteryTray
             {
                 bootPollTimer = new System.Windows.Forms.Timer();
                 // 省电模式：启动时不立刻查询（查询会把鼠标从 LP 推到 HP，导致其无法休眠），
-                // 首屏沿用上次缓存值，5 分钟后再取一次。
+                // 首屏沿用上次缓存值，90 秒后再取一次。
                 bootPollTimer.Interval = VgnDeviceHelper.EcoModeEnabled ? 300000 : 1200;
                 bootPollTimer.Tick += (s, e) =>
                 {
@@ -154,7 +154,7 @@ namespace RazerBatteryTray
         // 省电模式：启动后这段时间内忽略所有「自动」查询（用户主动刷新不受限），
         // 目的是不让程序在开机就把鼠标从 LP 低功耗推到 HP 高性能。
         private static readonly DateTime appStartUtc = DateTime.UtcNow;
-        private static readonly TimeSpan ecoBootQuietWindow = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan ecoBootQuietWindow = TimeSpan.FromSeconds(90);
 
         private void RefreshBatteryStatus(bool showTipIfManual)
         {
