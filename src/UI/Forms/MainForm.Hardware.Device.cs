@@ -21,36 +21,6 @@ namespace RazerBatteryTray
     public partial class MainForm : Form
     {
 
-        private void SetAsPrimaryDevice(string deviceId)
-        {
-            DeviceManager.SetConfiguredPrimaryDeviceId(deviceId);
-            var prio = DeviceManager.GetPriorityList();
-            prio.Remove(deviceId);
-            prio.Insert(0, deviceId);
-            DeviceManager.SavePriorityList(prio);
-
-            if (activeDevices != null)
-            {
-                foreach (var d in activeDevices)
-                {
-                    d.IsPrimary = string.Equals(d.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            UpdateDeviceTabsUI();
-            if (selectedDevice != null)
-            {
-                UpdatePrimaryPinButton(selectedDevice);
-            }
-            var primary = GetPrimaryDevice();
-            if (primary != null)
-            {
-                lastInfo = primary;
-                UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping);
-                UpdateStatusDisplay();
-            }
-            UpdateTrayDeviceMenuItems();
-        }
-
         private MouseBatteryInfo GetPrimaryDevice()
         {
             if (activeDevices == null || activeDevices.Count == 0) return lastInfo;

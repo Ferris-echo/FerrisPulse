@@ -1623,11 +1623,6 @@ namespace RazerBatteryTray
             switcherFlyout.Show(this);
         }
 
-        private void ShowDeviceSwitcherMenu()
-        {
-            ToggleDeviceSwitcherFlyout();
-        }
-
         private void RenameCurrentDevice()
         {
             var targetDev = selectedDevice ?? lastInfo;

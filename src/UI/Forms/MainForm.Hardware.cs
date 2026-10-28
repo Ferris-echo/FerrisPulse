@@ -930,16 +930,6 @@ namespace RazerBatteryTray
             }
         }
 
-        private void CycleRapooPollingRate()
-        {
-            var curDev = selectedDevice;
-            int curRate = (curDev != null && curDev.PollingRate > 0) ? curDev.PollingRate : 1000;
-            int[] rates = new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 };
-            int idx = Array.IndexOf(rates, curRate);
-            int nextRate = rates[(idx + 1) % rates.Length];
-            SetRapooPollingRateManual(nextRate);
-        }
-
         public void SetRapooPollingRateManual(int hz)
         {
             RapooDeviceHelper.SetRapooPollingRate(hz);

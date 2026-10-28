@@ -102,11 +102,6 @@ namespace RazerBatteryTray
             catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.Events.cs: 已忽略异常", diagEx); }
         }
 
-        private void UnregisterMouseWakeDetector()
-        {
-            EnableMouseWakeDetector(false);
-        }
-
         private static bool IsTargetMouseHardwarePath(string path, MouseBatteryInfo targetMouse)
         {
             if (string.IsNullOrEmpty(path)) return false;

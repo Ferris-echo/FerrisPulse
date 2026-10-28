@@ -1882,11 +1882,6 @@ namespace RazerBatteryTray
             }
         }
 
-        private void OnAuthorNameClick(object sender, EventArgs e)
-        {
-            HandleAuthorHit();
-        }
-
         private void SpawnHeartParticles(int originX, int originY)
         {
             Color[] heartColors = new Color[]

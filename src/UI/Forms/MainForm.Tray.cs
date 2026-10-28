@@ -1197,19 +1197,6 @@ namespace RazerBatteryTray
             }
         }
 
-        private static void DrawBolt24(Bitmap bmp, int cx, int cy, Color color)
-        {
-            Point[] pts = new Point[] {
-                new Point(cx + 1, cy - 5), new Point(cx - 3, cy), new Point(cx, cy),
-                new Point(cx - 2, cy + 5), new Point(cx + 3, cy - 1), new Point(cx, cy - 1)
-            };
-            using (Graphics g = Graphics.FromImage(bmp))
-            using (SolidBrush b = new SolidBrush(color))
-            {
-                g.FillPolygon(b, pts);
-            }
-        }
-
         private static readonly byte[] DigitalTubeSegMasks24 = new byte[] {
             0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
         };
@@ -1470,23 +1457,6 @@ namespace RazerBatteryTray
                     }
                 }
                 curX += w + 1;
-            }
-        }
-
-        private static void DrawBolt16(Bitmap bmp, int startX, int startY, Color color)
-        {
-            int[,] bolt = new int[,] {
-                {0, 2}, {1, 1}, {2, 0},
-                {1, 2}, {2, 2}, {3, 2},
-                {0, 3}, {1, 3}, {2, 3},
-                {1, 4}, {2, 5}
-            };
-            for (int i = 0; i < bolt.GetLength(0); i++)
-            {
-                int px = startX + bolt[i, 0];
-                int py = startY + bolt[i, 1];
-                if (px >= 0 && px < bmp.Width && py >= 0 && py < bmp.Height)
-                    bmp.SetPixel(px, py, color);
             }
         }
 

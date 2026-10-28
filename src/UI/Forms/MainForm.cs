@@ -1713,7 +1713,7 @@ namespace RazerBatteryTray
                 if (barBattery != null) barBattery.StopFlow(hasCache ? cached : 0, Color.FromArgb(255, 183, 77));
                 if (lblUpdateTime != null)
                 {
-                    lblUpdateTime.Text = "省电模式：启动未读取设备 · 点「立即刷新」获取最新（移动鼠标也会自动刷新）";
+                    lblUpdateTime.Text = "省电模式：启动 5 分钟内不自动刷新，点「立即刷新」可强制获取";
                 }
             }
             catch (Exception diagEx) { Diagnostics.Log("UI/Forms/MainForm.cs: 填充缓存态失败", diagEx); }
