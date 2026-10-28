@@ -104,6 +104,10 @@ namespace RazerBatteryTray
         // 只有电压相对「上次采纳值」移动超过 6mV 才允许改变百分比，否则保持上一次显示。
         private static int lastAcceptedPct = -1;
         private static int lastAcceptedMv = -1;
+        // 「连续拒绝」计数：突变保护/噪声抑制会保持上次值，若长期保持同一值说明
+        // 滞回可能已被锁死（历史故障：一次脏读数把基准置为 100%，之后电压恢复正常
+        // 也永远返回 100%）。累计超过阈值即强制采纳当前读数，保证最坏情况能自愈。
+        private static int stuckCount = 0;
 
         private static int PercentWithHysteresis(int mv)
         {
@@ -132,15 +136,34 @@ namespace RazerBatteryTray
             if (pct == lastAcceptedPct)
             {
                 lastAcceptedMv = mv;
+                stuckCount = 0;
                 return pct;
             }
+
             // 突变保护：百分比跳变 >10% 时，必须有 >=60mV 的电压变化支撑才采纳
             // （60mV 约对应 10%），否则判为异常读数，丢弃。
-            if (Math.Abs(pct - lastAcceptedPct) > 10 && Math.Abs(mv - lastAcceptedMv) < 60) return lastAcceptedPct;
-            // 变化幅度不足 6mV 视为噪声，维持原显示
-            if (Math.Abs(mv - lastAcceptedMv) < 6) return lastAcceptedPct;
+            // 噪声抑制：变化幅度不足 6mV 视为抖动，维持原显示。
+            bool rejected =
+                (Math.Abs(pct - lastAcceptedPct) > 10 && Math.Abs(mv - lastAcceptedMv) < 60)
+                || (Math.Abs(mv - lastAcceptedMv) < 6);
+
+            if (rejected)
+            {
+                // 自愈闸门：连续 20 次（约 200 秒）都被拒绝，说明基准可能已经错误，
+                // 此时强制采纳当前读数，避免滞回被永久锁死。
+                if (++stuckCount >= 20)
+                {
+                    lastAcceptedPct = pct;
+                    lastAcceptedMv = mv;
+                    stuckCount = 0;
+                    return pct;
+                }
+                return lastAcceptedPct;
+            }
+
             lastAcceptedPct = pct;
             lastAcceptedMv = mv;
+            stuckCount = 0;
             return pct;
         }
 

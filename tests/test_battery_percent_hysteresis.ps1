@@ -78,6 +78,21 @@ Assert-Eq ($mHyst.Invoke($null, @(3633))) 23 "电压回到 3633mV 仍为 23%（�
 Assert-Eq ($mHyst.Invoke($null, @(3637))) 23 "再次小幅抖动仍为 23%"
 
 Write-Host ""
+Write-Host "===== 5. 自愈：滞回被锁死后必须能自行恢复 =====" -ForegroundColor Cyan
+# 模拟历史故障状态：基准被脏数据置为 100%，而电压停在 3633mV
+$fPct.SetValue($null, 100)
+$fMv.SetValue($null, 3633)
+$recovered = $false
+for ($i = 1; $i -le 25; $i++) {
+    $v = $mHyst.Invoke($null, @(3633))
+    if ($v -eq 23) { $recovered = $true; Write-Host ("PASS: 第 {0} 次调用后自愈为 23%" -f $i) -ForegroundColor Green; break }
+}
+if (-not $recovered) {
+    Write-Host "FAIL: 25 次调用后仍未自愈（自愈闸门失效）" -ForegroundColor Red
+    $failures++
+}
+
+Write-Host ""
 if ($failures -eq 0) {
     Write-Host "ALL PASS" -ForegroundColor Green
     exit 0
