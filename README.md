@@ -53,8 +53,8 @@ FerrisPulse/
 * **NuPhy (努斐)**：全系客制化键盘休眠超时调节、WinLock 锁、RGB 背光与无级亮度控制。
 * **国产电竞矩阵 (CompX 方案)**：深度适配 ATK、VGN、VXE、迈从 (MCHOSE)、狼蛛 (AULA) 等国产主流 8K 无线鼠标。
 
-### 2. 100% 反作弊安全的游戏焦点仲裁引擎
-* **零内存读写，零 DLL 注入**：完全基于 Windows 原生 `GetForegroundWindow` 与 `GetWindowThreadProcessId` 进行进程特征比对。
+### 2. 不触碰游戏数据的游戏焦点仲裁引擎
+* **零内存读写，零 DLL 注入**：仅使用 Windows 原生 `GetForegroundWindow` 判断前台窗口，配合进程名白名单比对；只读取进程名称，不申请 `PROCESS_VM_READ`/`PROCESS_VM_WRITE` 权限，无法读取任何进程内存。
 * **严苛的仲裁机制**：内置 1200ms 窗口切换防抖、全屏独占排他性判断、浏览器与视频播放器防误触白名单，确保在高烈度竞技中绝不误判、绝无作弊封号风险。
 
 ### 3. 极速纯原生编译与零依赖设计
@@ -68,9 +68,9 @@ FerrisPulse/
 > **问：在《无畏契约 (Valorant)》《CS2》《Apex 英雄》等竞技游戏中使用会被封号吗？**
 
 **答：绝对不会。**
-1. **纯标准 Windows API**：灵脉仅使用操作系统官方公开的 `user32.dll` 查询“当前哪个窗口在最前台”，就像 OBS 或 Discord 检测你是否在玩游戏一样。
+1. **仅使用系统公开 API**：通过 `user32.dll` 的 `GetForegroundWindow` 查询“当前哪个窗口在最前台”；开启「全屏游戏自动优化」时，会枚举进程列表用于匹配游戏白名单（**只读取进程名**，不读取任何进程内存）；程序注册了 RawInput 以监听鼠标事件（用于检测唤醒与鼠标实体键切换），该接口为 Windows 公开标准接口。上述行为与 OBS、Discord、G HUB 等常见软件一致。
 2. **纯标准 HID 硬件通信**：切换回报率时，向鼠标发送的是该品牌鼠标固件公开支持的标准 HID 特征包，完全等同于你在官方驱动里点了一下“切换回报率”。
-3. **零敏感行为**：本程序没有对任何游戏进程调用 `OpenProcess(PROCESS_VM_READ/WRITE)`，不挂任何 API Hook，不注入任何 DLL，代码全部开源接受全球开发者审计。
+3. **零敏感行为**：不调用 `OpenProcess(PROCESS_VM_READ/WRITE)`、不挂任何 API Hook、不注入任何 DLL、不模拟任何输入（不调用 `SendInput`）、不读写任何游戏内存。代码全部开源，接受全球开发者审计。
 
 ---
 
