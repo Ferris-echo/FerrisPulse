@@ -18,7 +18,7 @@ Write-Host "==========================================================" -Foregro
 Write-Host " [测试 1/5] 校验核心字段与注册表持久化契约" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-$mainFormCs = Get-Content "src/UI/Forms/MainForm.cs" -Raw -Encoding UTF8
+$mainFormCs = (Get-ChildItem "src/UI/Forms/MainForm*.cs" | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }) -join "`n"
 $mainHardwareCs = (Get-ChildItem "src/UI/Forms/MainForm.Hardware*.cs" | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }) -join "`n"
 $mainUiCs = (Get-ChildItem "src/UI/Forms/MainForm.UI*.cs" | ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }) -join "`n"
 $mainTrayCs = Get-Content "src/UI/Forms/MainForm.Tray.cs" -Raw -Encoding UTF8
