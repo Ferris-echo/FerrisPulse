@@ -200,11 +200,26 @@ namespace RazerBatteryTray
                             }
                             existingProc.Refresh();
                             IntPtr hWnd = existingProc.MainWindowHandle;
-                            if (hWnd != IntPtr.Zero && NativeMethods.IsWindowVisible(hWnd))
+                            if (hWnd != IntPtr.Zero)
                             {
-                                successfullyWoken = true;
-                                break;
+                                if (NativeMethods.IsWindowVisible(hWnd))
+                                {
+                                    // 窗口已可见：唤醒成功
+                                    successfullyWoken = true;
+                                    break;
+                                }
+                                // 窗口存在但不可见 = 已最小化到托盘。托盘态永远不可见，
+                                // 原实现只看 IsWindowVisible，必然把健康实例判成卡死并误杀
+                                // （表现：重复点图标时旧实例被杀、窗口闪一下重开）。
+                                // 这里改用消息循环响应性判断：托盘实例的消息循环正常在跑，应视为健康。
+                                if (existingProc.Responding)
+                                {
+                                    successfullyWoken = true;
+                                    break;
+                                }
                             }
+                            // 窗口句柄为 0 时保持原有行为：继续等待，超时后仍按「卡死」处理，
+                            // 以保住「点图标打不开、旧实例死锁时能接管」的原始能力。
                         }
                         catch (Exception diagEx) { Diagnostics.Log("Core/Program.cs: 已忽略异常", diagEx); }
                     }
