@@ -437,7 +437,9 @@ namespace RazerBatteryTray
             if (!string.IsNullOrEmpty(productString)) return productString;
             switch (pid)
             {
-                case 0xF526: return "Zaopin Z2"; // Nano 1K 直插接收器
+                // 实测（2026-10-29）：F526 = Type-C 线直插鼠标（接收器拔掉）时出现；
+                //                    F527 = 4K 底座式接收器（2.4G）时出现。
+                case 0xF526: return "Zaopin Z2"; // 有线直连
                 case 0xF527: return "Zaopin Z2"; // 4K 底座式接收器 (NORDIC nRF52810)
                 case 0xFB3E: return "VGN Dragonfly F2 Pro Max";
                 case 0xFC03: return "VXE Dragonfly R1 Pro";
@@ -1093,6 +1095,10 @@ namespace RazerBatteryTray
                                                             }
                                                             if (rxBat != null && rxBat.Length > 8)
                                                             {
+#if CHG_DEBUG
+                                                                // 临时诊断：确认充电标志位到底在第几字节、取值是什么
+                                                                Diagnostics.Log("[CHG] len=" + rxBat.Length + " raw=" + BitConverter.ToString(rxBat));
+#endif
                                                                 int bVal = rxBat[6];
                                                                 if (bVal >= 0 && bVal <= 100)
                                                                 {
@@ -1301,8 +1307,13 @@ namespace RazerBatteryTray
                         ? new int[] { 125, 250, 500, 1000, 2000, 4000 }
                         : GetSupportedPollingRatesForModel(foundPid, devName);
 
-                    // 连接形态判断：皂品 Z2 有线直连时必然在充电（foundCharging=true），2.4G 无线时不充电
-                    string transportText = displayCharging ? "有线连接" : "2.4G 无线";
+                    // 连接形态判断：**不能只看是否充电**。
+                    // 2.4G 模式下把充电线插到鼠标上同样会 charging=true（实测 2026-10-29），
+                    // 原来按 charging 判断会把 2.4G 误标成「有线连接」。
+                    // 正确的判据是 USB PID：F526 = 有线直连，F527 = 2.4G 底座接收器。
+                    // 保留 charging 作为与条件，是为了兼容「Nano 接收器也用 F526」的传闻——
+                    // 那种情况下不会充电，仍应显示 2.4G。
+                    string transportText = (foundPid == 0xF526 && displayCharging) ? "有线连接" : "2.4G 无线";
 
                     // 悬停提示：皂品 Z2 的固件电量计在中间区间会长时间停滞（实测 50% 卡住 100 分钟），
                     // 官方驱动用的是电压法，故放电时主显示与官方对齐用电压法，库仑计仅作参考
