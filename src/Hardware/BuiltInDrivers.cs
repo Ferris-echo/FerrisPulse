@@ -917,6 +917,38 @@ namespace RazerBatteryTray
 
             dev.Capabilities.SupportsBattery = true;
 
+            // 蓝牙 BLE 形态（HID over GATT）只暴露标准鼠标/键盘/多媒体集合，
+            // 没有 0x4D 厂商通道，因此 DPI 与回报率在物理上不可读写。
+            // 此时必须如实降级为"不支持"，否则 UI 会亮出永远写不进去的按钮。
+            bool isBleTransport = (dev.Transport != null && dev.Transport.IndexOf("蓝牙", StringComparison.Ordinal) >= 0);
+
+            if (isBleTransport)
+            {
+
+                dev.Capabilities.SupportsDpi = false;
+
+                dev.Capabilities.SupportsDpiStages = false;
+
+                dev.Capabilities.SupportsPollingRate = false;
+
+                dev.Capabilities.SupportsXyIndependence = false;
+
+                dev.Capabilities.SupportsHardwareDpiMonitor = false;
+
+                dev.Capabilities.SupportedPollingRates = new int[0];
+
+                dev.Capabilities.MinDpi = 50;
+
+                dev.Capabilities.MaxDpi = 42000;
+
+                dev.Capabilities.DpiStep = 50;
+
+                dev.Capabilities.SensorDescription = "迈从原相 PAW3950 旗舰电竞光学传感器（蓝牙形态无厂商通道，DPI 与回报率需切回 2.4G/有线调整）";
+
+                return;
+
+            }
+
             dev.Capabilities.SupportsDpi = true;
 
             dev.Capabilities.SupportsDpiStages = true;

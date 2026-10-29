@@ -40,6 +40,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
@@ -66,6 +69,61 @@ namespace RazerBatteryTray
             0x101C,
             0x101D
         };
+
+        // 蓝牙 BLE 形态的硬件身份：BLE HID over GATT 节点上 Windows 报告的
+        // PID 与 USB 接口 PID 不同（本机实测 K7 V2 Ultra+ 走 BLE 时为 0x4026）。
+        // 该形态只暴露标准 HID 集合（鼠标/键盘/多媒体），没有 0x4D 厂商通道，
+        // 因此 DPI 与回报率一律不可读写，只有电量可经 Windows 原生 GATT 电池服务取得。
+        public const int BleProductIdK7V2UltraPlus = 0x4026;
+
+        private static readonly int[] SupportedBlePids = new int[]
+        {
+            BleProductIdK7V2UltraPlus
+        };
+
+        // [物理设备键] 同一台鼠标在不同连接形态下 PID 不同（USB 接口 PID vs BLE 节点 PID），
+        // 但物理上仍是同一台设备。设备聚焦记忆若按原始 DeviceId 字符串比对，
+        // 用户在 2.4G 形态下记住的卡片在切到蓝牙后会失配，启动时回落到键盘视图。
+        // 这里把已知的「同一型号不同形态 PID」归并到同一个物理键。
+        private static readonly int[] PhysicalGroupK7V2UltraPlus = new int[]
+        {
+            0x1018, // USB / 2.4G 接收器接口
+            BleProductIdK7V2UltraPlus // 0x4026，蓝牙 BLE 节点
+        };
+
+        /// <summary>
+        /// 将 MCHOSE 设备的 DeviceId 归一化为「物理设备键」：
+        /// 同一台鼠标的 USB 形态与蓝牙形态得到相同键，便于跨形态匹配聚焦记忆。
+        /// 无法识别或非本协议族时原样返回，绝不猜测其它型号的对应关系。
+        /// </summary>
+        public static string GetPhysicalDeviceKey(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return deviceId;
+
+            string prefix = string.Format("MCHOSE:{0:X4}:", VendorIdMchose);
+            if (!deviceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return deviceId;
+
+            string tail = deviceId.Substring(prefix.Length);
+            int pid;
+            if (!int.TryParse(tail, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out pid))
+            {
+                return deviceId;
+            }
+
+            for (int i = 0; i < PhysicalGroupK7V2UltraPlus.Length; i++)
+            {
+                if (PhysicalGroupK7V2UltraPlus[i] == pid)
+                {
+                    // 组键取该型号 USB 形态 PID，作为与形态无关的稳定标识。
+                    return string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdMchose, 0x1018);
+                }
+            }
+            return deviceId;
+        }
+
+        private const uint DigcfPresent = 0x00000002;
+        private const uint DigcfAllClasses = 0x00000004;
 
         private const byte FrameHead = 0x4D;
         private const byte FrameVersion = 0x01;
@@ -1037,6 +1095,533 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+        }
+
+        // ------------------------------------------------------------------
+        // 蓝牙 BLE 形态支持
+        // ------------------------------------------------------------------
+        //
+        // 该鼠标切到蓝牙后不再以 USB HID 厂商通道出现，而是成为 BLE HID over GATT
+        // 节点，Windows 在该节点上报的 PID 为 0x4026（与 USB 接口 PID 0x1018 不同）。
+        // BLE 形态只暴露标准鼠标/键盘/多媒体集合，**没有 0x4D 厂商通道**：
+        //   - 电量：可读，来自 Windows 原生 GATT 电池服务 0x180F（SetupAPI 属性缓存）
+        //   - 充电状态：不可读（标准电池服务只给百分比）
+        //   - DPI / 回报率：不可读写（无厂商通道），必须如实降级为不支持
+        // 因此这里只做“识别 + 电量”，绝不伪造 DPI 与回报率。
+
+        /// <summary>该 PID 是否为 4D 协议族在蓝牙 BLE 形态下的硬件身份。</summary>
+        public static bool IsSupportedBlePid(int pid)
+        {
+            for (int i = 0; i < SupportedBlePids.Length; i++)
+            {
+                if (SupportedBlePids[i] == pid) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 从 BTHLE 实例 ID 中解析硬件 PID。
+        /// 形如：BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&amp;023837_PID&amp;4026_REV&amp;0100_C19A783235F4
+        /// 注意 VID/PID 前面带 "0" 前缀（023837 / 04026），是 Windows 的两位前缀约定。
+        /// </summary>
+        public static bool TryParseBleVidPid(string instanceId, out int vid, out int pid)
+        {
+            vid = 0;
+            pid = 0;
+            if (string.IsNullOrEmpty(instanceId)) return false;
+
+            string upper = instanceId.ToUpperInvariant();
+            int vidIdx = upper.IndexOf("VID&");
+            int pidIdx = upper.IndexOf("PID&");
+            if (vidIdx < 0 || pidIdx < 0) return false;
+
+            if (!TryParseBleHex(upper, vidIdx + 4, out vid)) return false;
+            if (!TryParseBleHex(upper, pidIdx + 4, out pid)) return false;
+            return vid > 0 && pid > 0;
+        }
+
+        /// <summary>解析 BLE 实例 ID 中 "VID&amp;" / "PID&amp;" 之后的十六进制字段，遇非十六进制字符即止。</summary>
+        private static bool TryParseBleHex(string text, int start, out int value)
+        {
+            value = 0;
+            if (start < 0 || start >= text.Length) return false;
+
+            int end = start;
+            while (end < text.Length && Uri.IsHexDigit(text[end])) end++;
+            if (end <= start) return false;
+
+            string hex = text.Substring(start, end - start);
+            // Windows 会在 VID/PID 前补两位序号前缀（如 023837 → 3837），
+            // 因此只取末 4 位作为真实 VID/PID。
+            if (hex.Length > 4) hex = hex.Substring(hex.Length - 4, 4);
+
+            try
+            {
+                value = int.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 枚举当前在线的迈从 4D 协议族 BLE 节点，返回 BTHLE 父节点的实例 ID。
+        ///
+        /// 关键事实（本机实测，务必保留）：Windows 把 VID/PID 与电量属性分别挂在
+        /// 两个**不同**的节点上，任何一步走错都会读不到电量——
+        ///   BTHLEDEVICE\{GATT 服务 GUID}_DEV_VID&amp;023837_PID&amp;4026_REV&amp;0100_&lt;MAC&gt;\...
+        ///       这里才有 VID/PID，但**没有**电量属性；
+        ///   BTHLE\DEV_&lt;MAC&gt;\...
+        ///       这里才有 DEVPKEY_Device_BatteryLevel 与 FriendlyName，但实例 ID 里**不含** VID/PID。
+        /// 因此必须先从 BTHLEDEVICE 拿到 MAC，再回到 BTHLE 取电量，两步缺一不可。
+        /// </summary>
+        public static List<string> EnumerateBleNodeInstanceIds()
+        {
+            List<string> result = new List<string>();
+
+            List<string> macs;
+            try
+            {
+                macs = EnumerateBleDeviceMacs();
+            }
+            catch
+            {
+                return result;
+            }
+            if (macs == null || macs.Count == 0) return result;
+
+            for (int i = 0; i < macs.Count; i++)
+            {
+                string parent = FindBleParentNodeId(macs[i]);
+                if (!string.IsNullOrEmpty(parent)) result.Add(parent);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 从 BTHLEDEVICE 服务节点枚举出属于迈从 4D 协议族的设备 MAC（12 位大写十六进制）。
+        /// 同一个 MAC 会对应多个 GATT 服务节点（0x1800/0x1801/0x180A/0x180F/0x1812），
+        /// 这里去重后返回。
+        /// </summary>
+        public static List<string> EnumerateBleDeviceMacs()
+        {
+            List<string> result = new List<string>();
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLEDEVICE", IntPtr.Zero, DigcfPresent | DigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return result;
+
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+
+                    string instId = idSb.ToString();
+                    int nodeVid, nodePid;
+                    if (!TryParseBleVidPid(instId, out nodeVid, out nodePid)) continue;
+                    if (nodeVid != VendorIdMchose) continue;
+                    if (!IsSupportedBlePid(nodePid)) continue;
+
+                    string mac = TryParseBleMacFromServiceNode(instId);
+                    if (string.IsNullOrEmpty(mac)) continue;
+                    if (result.Contains(mac)) continue;
+                    result.Add(mac);
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 从服务节点实例 ID 中取出设备 MAC。
+        /// 形如：BTHLEDEVICE\{...GUID...}_DEV_VID&amp;023837_PID&amp;4026_REV&amp;0100_C19A783235F4\9&amp;27EA35C3&amp;0&amp;0010
+        /// MAC 是第一个反斜杠前、最后一个下划线后的 12 位字段。
+        /// 注意不能用 BluetoothDeviceHelper.ExtractMac：它按 "DEV_" 后取 12 位，
+        /// 对这种带 VID&amp;/PID&amp; 前缀的 BLE 格式会截成 "VID&amp;023837_P"。
+        /// </summary>
+        public static string TryParseBleMacFromServiceNode(string instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return null;
+
+            // MAC 位于**最后**一个反斜杠之前、且是该段中最后一个下划线之后的部分。
+            // 不能取第一个反斜杠：实例 ID 形如 "BTHLEDEVICE\{GUID}_DEV_..._<MAC>\9&..."，
+            // 首个反斜杠在 "BTHLEDEVICE" 之后就出现了，会把整段截成 "BTHLEDEVICE"。
+            int slash = instanceId.LastIndexOf('\\');
+            string head = (slash > 0) ? instanceId.Substring(0, slash) : instanceId;
+
+            int us = head.LastIndexOf('_');
+            if (us < 0 || head.Length - us - 1 < 12) return null;
+
+            string mac = head.Substring(us + 1).Trim().ToUpperInvariant();
+            if (mac.Length != 12) return null;
+
+            for (int i = 0; i < mac.Length; i++)
+            {
+                if (!Uri.IsHexDigit(mac[i])) return null;
+            }
+            return mac;
+        }
+
+        /// <summary>
+        /// 在 BTHLE 枚举器中按 MAC 找到父节点实例 ID（形如 BTHLE\DEV_C19A783235F4\8&amp;71E4D4F&amp;0&amp;C19A783235F4）。
+        /// 该节点被标记为已断开时返回 null，避免把历史缓存当成在线设备。
+        /// </summary>
+        public static string FindBleParentNodeId(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return null;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLE", IntPtr.Zero, DigcfPresent | DigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return null;
+
+            string found = null;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                string needle = "DEV_" + mac.ToUpperInvariant();
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+
+                    string instId = idSb.ToString();
+                    if (instId.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (IsBleNodeDisconnected(devInfo, ref data)) continue;
+
+                    found = instId;
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return found;
+        }
+
+        /// <summary>读取 DEVPKEY_Device_IsConnected，判定该 BLE 节点当前是否真的连着。</summary>
+        private static bool IsBleNodeConnected(IntPtr devInfo, ref BluetoothDeviceHelper.SP_DEVINFO_DATA data)
+        {
+            try
+            {
+                byte[] connBuf = new byte[16];
+                uint pType;
+                uint req;
+                if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                        devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_IsConnected,
+                        out pType, connBuf, (uint)connBuf.Length, out req, 0))
+                {
+                    return connBuf[0] != 0;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>
+        /// 判定该 BLE 节点是否**明确**已断开。
+        /// 与 IsBleNodeConnected 的区别：属性读不到时返回 false（视为"未知，先不排除"），
+        /// 只有系统明确回了 IsConnected = 0 才算断开。这样在部分系统版本上
+        /// 该属性不可读时，不会把在线设备误判成离线而整卡消失。
+        /// </summary>
+        private static bool IsBleNodeDisconnected(IntPtr devInfo, ref BluetoothDeviceHelper.SP_DEVINFO_DATA data)
+        {
+            try
+            {
+                byte[] connBuf = new byte[16];
+                uint pType;
+                uint req;
+                if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                        devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_IsConnected,
+                        out pType, connBuf, (uint)connBuf.Length, out req, 0))
+                {
+                    return connBuf[0] == 0;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>
+        /// 从 BLE 节点的 Windows 属性缓存读取电量（GATT 电池服务 0x180F 的映射值）。
+        /// 读不到时返回 -1，绝不用缓存值冒充实时值。
+        /// </summary>
+        public static int ReadBleBattery(string instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return -1;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLE", IntPtr.Zero, DigcfPresent | DigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return -1;
+
+            int battery = -1;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+                    if (!string.Equals(idSb.ToString(), instanceId, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    byte[] battBuf = new byte[16];
+                    uint pType;
+                    if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                            devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_BatteryLevel,
+                            out pType, battBuf, (uint)battBuf.Length, out req, 0))
+                    {
+                        // 该属性是 DEVPROP_TYPE_BYTE（单字节 0-100），
+                        // 不能按 ToInt32 读——那会把相邻字节一并算进来得到荒谬数值。
+                        int value = (int)battBuf[0];
+                        if (value >= 0 && value <= 100) battery = value;
+                    }
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return battery;
+        }
+
+        /// <summary>
+        /// 查询蓝牙形态下的迈从 4D 协议族鼠标。
+        /// 只填电量与身份；DPI / 回报率保持 0，并由驱动层能力契约如实标记为不支持。
+        /// 未检测到在线 BLE 节点时返回 null。
+        /// </summary>
+        public static MouseBatteryInfo QueryMchose4DMouseBle()
+        {
+            string mac;
+            int nodePid;
+            if (!TryFindOnlineBleDevice(out mac, out nodePid)) return null;
+
+            // BTHLE 父节点（电量与 FriendlyName 都在它身上）。
+            string parentId = FindBleParentNodeId(mac);
+            if (string.IsNullOrEmpty(parentId)) return null;
+
+            int battery = ReadBleBattery(parentId);
+
+            string name = ReadBleFriendlyName(parentId);
+            if (string.IsNullOrEmpty(name))
+            {
+                name = !string.IsNullOrEmpty(CachedDeviceName) ? CachedDeviceName : "MCHOSE 无线游戏鼠标";
+            }
+
+            MouseBatteryInfo dev = new MouseBatteryInfo();
+            dev.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdMchose, nodePid);
+            dev.HardwareFingerprint = string.Format("BLE:{0:X4}:{1:X4}", VendorIdMchose, nodePid);
+            dev.HardwareId = parentId;
+            dev.Brand = "MCHOSE";
+            dev.Category = DeviceCategory.Mouse;
+            dev.DeviceName = name;
+            dev.Transport = "蓝牙 BLE";
+            dev.IsCustom = false;
+            dev.IsConnected = battery >= 0;
+            dev.IsSleeping = false;
+            // BLE 节点在线即代表接收器侧不需要，标记为无接收器。
+            dev.IsDonglePresent = false;
+            dev.BatteryPercent = battery;
+            dev.ExactBatteryPercent = battery;
+            // 标准 GATT 电池服务只给百分比，没有充电标志位；
+            // 这里恒为 false，绝不猜测充电状态。
+            dev.IsCharging = false;
+            dev.LastUpdated = (battery >= 0) ? DateTime.Now : CachedLastUpdated;
+
+            // 蓝牙形态无厂商通道：DPI 与回报率必须留空，
+            // 由 MchoseMouseDriver.PopulateCapabilities 依据 Transport 降级。
+            dev.Dpi = 0;
+            dev.DpiY = 0;
+            dev.DpiStage = 0;
+            dev.DpiStageCount = 0;
+            dev.DpiStages = null;
+            dev.DpiStagesY = null;
+            dev.IsXyIndependent = false;
+            dev.XyRatio = 1.0;
+            dev.PollingRate = 0;
+            dev.SupportedPollingRates = new int[0];
+            dev.MaxPollingRate = 0;
+
+            if (battery >= 0)
+            {
+                CachedBatteryPercent = battery;
+                CachedDeviceName = name;
+                CachedLastUpdated = dev.LastUpdated;
+                SaveCache();
+            }
+
+            return dev;
+        }
+
+        /// <summary>
+        /// 找到第一个在线的迈从 4D 协议族 BLE 设备，返回其 MAC 与服务节点上报的 PID。
+        /// PID 只能从 BTHLEDEVICE 服务节点取得（BTHLE 父节点实例 ID 不含 VID/PID）。
+        /// </summary>
+        public static bool TryFindOnlineBleDevice(out string mac, out int pid)
+        {
+            mac = null;
+            pid = 0;
+
+            List<string> macs;
+            try
+            {
+                macs = EnumerateBleDeviceMacs();
+            }
+            catch
+            {
+                return false;
+            }
+            if (macs == null) return false;
+
+            for (int i = 0; i < macs.Count; i++)
+            {
+                int foundPid;
+                if (!TryGetBlePidForMac(macs[i], out foundPid)) continue;
+                if (!FindBleParentNodeIdOnline(macs[i])) continue;
+
+                mac = macs[i];
+                pid = foundPid;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>按 MAC 从 BTHLEDEVICE 服务节点取回 PID（同一设备的多个服务节点 PID 一致）。</summary>
+        private static bool TryGetBlePidForMac(string mac, out int pid)
+        {
+            pid = 0;
+            if (string.IsNullOrEmpty(mac)) return false;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLEDEVICE", IntPtr.Zero, DigcfPresent | DigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return false;
+
+            bool ok = false;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+
+                    string instId = idSb.ToString();
+                    string nodeMac = TryParseBleMacFromServiceNode(instId);
+                    if (string.IsNullOrEmpty(nodeMac)) continue;
+                    if (!string.Equals(nodeMac, mac, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    int nodeVid, nodePid;
+                    if (!TryParseBleVidPid(instId, out nodeVid, out nodePid)) continue;
+                    if (nodeVid != VendorIdMchose) continue;
+
+                    pid = nodePid;
+                    ok = true;
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return ok;
+        }
+
+        /// <summary>该 MAC 的 BTHLE 父节点是否存在且未被明确标记为断开。</summary>
+        private static bool FindBleParentNodeIdOnline(string mac)
+        {
+            return !string.IsNullOrEmpty(FindBleParentNodeId(mac));
+        }
+
+        /// <summary>读取 BLE 节点的 FriendlyName（设备在系统里显示的名字）。</summary>
+        private static string ReadBleFriendlyName(string instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return null;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLE", IntPtr.Zero, DigcfPresent | DigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return null;
+
+            string name = null;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+                    if (!string.Equals(idSb.ToString(), instanceId, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    byte[] nameBuf = new byte[512];
+                    uint pType;
+                    if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                            devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_FriendlyName,
+                            out pType, nameBuf, (uint)nameBuf.Length, out req, 0))
+                    {
+                        name = Encoding.Unicode.GetString(nameBuf, 0, (int)req).TrimEnd('\0', ' ', '\t');
+                    }
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return name;
         }
     }
 }
