@@ -1679,7 +1679,16 @@ namespace RazerBatteryTray
             }
             else
             {
-                if (updateTimer.Interval != userSelectedInterval) updateTimer.Interval = userSelectedInterval;
+                // 省电模式：窗口可见时也不按用户设定间隔轮询，强制放宽到 2 分钟。
+                // 原因：每次查询都会把鼠标从 LP 低功耗推到 HP 高性能并打断其休眠计时，
+                // 30 秒一次的轮询等于让鼠标永远无法进入深度休眠（实测：官方驱动在跑时
+                // 鼠标能休眠，只开本程序就不行）。2 分钟是「省电」与「电量不过期太久」的折中。
+                int effectiveInterval = userSelectedInterval;
+                if (VgnDeviceHelper.EcoModeEnabled && effectiveInterval < 120000)
+                {
+                    effectiveInterval = 120000;
+                }
+                if (updateTimer.Interval != effectiveInterval) updateTimer.Interval = effectiveInterval;
                 if (!updateTimer.Enabled) updateTimer.Start();
                 EnableMouseWakeDetector(false);
                 StartWakeCheckTimer();   // 前台也常驻：移动鼠标即刻刷新（纯 API，零 USB 开销）
