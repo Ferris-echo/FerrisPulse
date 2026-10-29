@@ -203,6 +203,38 @@ namespace RazerBatteryTray
             });
         }
 
+        // 充电 → 放电切换时，若电量大幅回落，弹一次说明气泡。
+        // 原因：充电时端电压被抬高，拔线后按真实开路电压重算，数值必然下降（实测 42% → 31%）。
+        // 用户看到会以为掉电，所以解释一次。5 分钟内不重复弹，避免反复插拔刷屏。
+        private bool prevChargingState = false;
+        private int prevShownPct = -1;
+        private DateTime lastUnplugTipUtc = DateTime.MinValue;
+
+        private void DetectUnplugDrop(MouseBatteryInfo info)
+        {
+            if (info == null || info.BatteryPercent < 0)
+            {
+                return;
+            }
+            if (prevChargingState && !info.IsCharging && prevShownPct > 0)
+            {
+                int drop = prevShownPct - info.BatteryPercent;
+                if (drop >= 5 && (DateTime.UtcNow - lastUnplugTipUtc).TotalMinutes >= 5)
+                {
+                    lastUnplugTipUtc = DateTime.UtcNow;
+                    try
+                    {
+                        SafeShowBalloonTip(5000, "已切换为电池供电",
+                            string.Format("电量由 {0}% 更新为 {1}%：充电时端电压被抬高，拔线后按电池实际电压重新计算，属正常现象。", prevShownPct, info.BatteryPercent),
+                            ToolTipIcon.Info);
+                    }
+                    catch (Exception diagEx) { Diagnostics.Log("MainForm.Hardware.Device.cs: 拔线提示失败", diagEx); }
+                }
+            }
+            prevChargingState = info.IsCharging;
+            prevShownPct = info.BatteryPercent;
+        }
+
         private void ApplyDeviceStatus(List<MouseBatteryInfo> devices, bool showTipIfManual)
         {
             activeDevices = devices;
@@ -221,6 +253,7 @@ namespace RazerBatteryTray
 
                 var primary = GetPrimaryDevice();
                 lastInfo = primary;
+                DetectUnplugDrop(primary);
 
                 UpdateDeviceTabsUI();
                 UpdateUI(selectedDevice, showTipIfManual);
