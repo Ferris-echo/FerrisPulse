@@ -342,10 +342,10 @@ namespace RazerBatteryTray
             contextMenu.Items.Add(intervalMenu);
 
             // 鼠标休眠时间（皂品 Z2 / VGN：写入板载地址 0xAD，单位 10 秒）
-            var sleepMenu = new ToolStripMenuItem("鼠标休眠时间");
+            var sleepMenu = new ToolStripMenuItem("放停后鼠标休眠时间");
             ConfigureSubMenuDropDown(sleepMenu.DropDown);
             int[] sleepSeconds = new int[] { 10, 30, 60, 300, 600, 1500, 1800 };
-            string[] sleepLabels = new string[] { "10 秒", "30 秒", "1 分钟", "5 分钟", "10 分钟", "25 分钟", "30 分钟" };
+            string[] sleepLabels = new string[] { "10秒", "30秒", "1分钟", "5分钟", "10分钟", "25分钟", "30分钟" };
             ToolStripMenuItem[] sleepItems = new ToolStripMenuItem[sleepSeconds.Length];
             for (int si = 0; si < sleepSeconds.Length; si++)
             {
@@ -361,9 +361,9 @@ namespace RazerBatteryTray
                         {
                             if (sleepItems[k] != null) sleepItems[k].Checked = (k == si);
                         }
-                        SafeShowBalloonTip(1200, "鼠标休眠时间", "已设为 " + lbl + "（写入板载）", ToolTipIcon.Info);
+                        SafeShowBalloonTip(1200, "放停后鼠标休眠时间", "已设为 " + lbl + "（写入板载）", ToolTipIcon.Info);
                     }
-                    else SafeShowBalloonTip(1500, "鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
+                    else SafeShowBalloonTip(1500, "放停后鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
                 });
                 sleepItems[si] = item;
                 sleepMenu.DropDownItems.Add(item);
