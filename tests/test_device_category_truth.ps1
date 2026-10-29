@@ -53,7 +53,7 @@ $trIdx = $wizardTxt.IndexOf("return truthCat;")
 $matchIdx = $wizardTxt.IndexOf("var match = existingConfigs.Find", $wizardTxt.IndexOf("Func<string, DeviceCategory, DeviceCategory> resolveCategory"))
 Chk ($trIdx -ge 0 -and $matchIdx -gt $trIdx) "truth check precedes registry lookup"
 
-Write-Host "=== [5] 运行时：3837:1018 必须归类为 Mouse 且能力契约与传输形态一致 ===" -ForegroundColor Cyan
+Write-Host "=== [5] 运行时：3837:1018/4028/4026 必须归类为 Mouse 且能力契约与传输形态一致 ===" -ForegroundColor Cyan
 $exe = Join-Path $root "FerrisPulse.exe"
 Chk (Test-Path $exe) "FerrisPulse.exe built"
 if (Test-Path $exe) {
@@ -61,17 +61,18 @@ if (Test-Path $exe) {
     $asm = [System.Reflection.Assembly]::Load($bytes)
     $dm = $asm.GetType("RazerBatteryTray.DeviceManager")
     $devices = $dm.GetMethod("QueryAllDevices").Invoke($null, $null)
-    # 同一台 K7 V2 Ultra+ 有两种硬件身份，取决于用户当前把鼠标切到哪种形态：
-    #   2.4G / 有线 → MCHOSE:3837:1018（USB 厂商通道 0x4D，DPI 与回报率可读写）
+    # 同一台 K7 V2 Ultra+ 有三种硬件身份，取决于用户当前把鼠标切到哪种形态：
+    #   2.4G 接收器 → MCHOSE:3837:1018（USB 厂商通道 0x4D，DPI 与回报率可读写）
+    #   USB 有线直连 → MCHOSE:3837:4028（同一套 0x4D 协议，能力与 2.4G 一致）
     #   蓝牙 BLE   → MCHOSE:3837:4026（无厂商通道，只有电量，DPI/回报率必须降级）
-    # 两种形态互斥：BLE 在线时 2.4G 侧那张离线占位卡会被主动去重，避免同一台
+    # 三种形态互斥：BLE 在线时 2.4G 侧那张离线占位卡会被主动去重，避免同一台
     # 物理鼠标出现两张卡片。因此这里按"当前在线的那张卡"断言，不硬编码单一 ID。
     $mouse = $null; $kbd = $null
     foreach ($d in $devices) {
-        if ($d.DeviceId -eq "MCHOSE:3837:1018" -or $d.DeviceId -eq "MCHOSE:3837:4026") { $mouse = $d }
+        if ($d.DeviceId -eq "MCHOSE:3837:1018" -or $d.DeviceId -eq "MCHOSE:3837:4028" -or $d.DeviceId -eq "MCHOSE:3837:4026") { $mouse = $d }
         if ($d.DeviceId -eq "MCHOSE:3837:3033") { $kbd = $d }
     }
-    Chk ($mouse -ne $null) ("mouse enumerated in either transport (actual " + $(if ($mouse -ne $null) { $mouse.DeviceId } else { "none" }) + ")")
+    Chk ($mouse -ne $null) ("mouse enumerated in any transport (actual " + $(if ($mouse -ne $null) { $mouse.DeviceId } else { "none" }) + ")")
     Chk ($kbd -ne $null) "keyboard 3837:3033 enumerated"
     if ($mouse -ne $null) {
         $isBle = ($mouse.DeviceId -eq "MCHOSE:3837:4026")

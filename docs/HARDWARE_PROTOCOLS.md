@@ -73,6 +73,9 @@
     | `0x0102` | 写 | 性能配置全量回写，data 19 字节（只改回报率半字节，其余字段原样回写） |
     | `0x0901` | 读 | 固件版本，data `[0]`=鼠标 / `[1]`=接收器 |
   - **连接状态**：`[18]` 为 `0` 表示有线直连，`2` 表示 2.4G 接收器链路。
+    但**实测 `0x4028`（USB 有线直连接口）回包 `[18]` 为 `1`**，与旧固件的 `0` 不一致。
+    因此连接形态的判定**必须以实际命中的接口 PID 为主判据**（`GetTransportNameByPid`），
+    只在 PID 未知时才退回 `[18]` 的旧映射，否则会把有线形态误标成「2.4G 无线」。
   - **回报率索引**：协议内按「RATES 索引 + 1」存储，RATES = `125/500/1000/2000/4000/8000` Hz；索引 0 仍发 0。
   - **DPI 上限**：搭载 PAW3950 的 4D 机型上限 42,000 DPI、6 档板载；旧版 A5 V2 Ultra 保持 26,000 DPI / 5 档。
   - **XY 双轴能力必须以 `0x0003` 的 `[12]` (HasY) 为准，不可硬编码**：
@@ -81,6 +84,18 @@
     `BuiltInDrivers.PopulateCapabilities` 对 4D 协议族取 `dev.IsXyIndependent`（即 HasY），
     仅对真实支持双轴的旧版 A5 V2 Ultra 保持 `true`，避免向用户暴露无效开关。
   - **与旧协议隔离**：`MchoseMouseHelper.FindControlPath` 遇到上述 PID 直接跳过，避免重复卡片；四个写入入口优先委派 4D 驱动，失败自动回退旧协议。
+  - **USB 有线直连形态（PID `0x4028`）**：
+    - 鼠标插 USB 线后**不再**走 2.4G 接收器，Windows 枚举出的 USB 接口 PID 变为 `0x4028`（接收器是 `0x1018`）。
+      该 PID 必须加入 `SupportedPids` 白名单，否则有线形态完全不被识别。
+    - **协议完全一致**：`0x0900` / `0x0002` / `0x0003` / `0x0102` / `0x0103` 全部可用，
+      电量、充电状态、DPI 档位读写、回报率切换与 2.4G 形态**无任何差别**
+      （实机验证：电量 `[20]`=98、充电 `[19]`=1、DPI 2200、回报率 1000 Hz）。
+    - **关键坑：端点必须优先选 `0x4028`**。鼠标插线后 2.4G 接收器通常仍插在机器上，
+      于是 `UsagePage 0xFF01` 会**同时**枚举出两个端点：`0x1018`（已断链）与 `0x4028`（在线）。
+      若 `PickEndpoint()` 不优先返回 `0x4028`，所有写帧都会打进断链的接收器端点，
+      表现为「句柄有效、写入返回 False、读无应答」，DPI 与回报率功能全哑。
+    - **无接收器**：有线形态由线缆供电，`IsDonglePresent` 必须为 `false`；
+      `BuildStaleCard` 也不得再把传输形态硬编码成「2.4G 无线」。
   - **蓝牙 BLE 形态（HID over GATT，PID `0x4026`）**：
     - 同一台 K7 V2 Ultra+ 切到蓝牙后**不再**以 USB 厂商接口出现，而是成为 BLE HID over GATT 节点，Windows 在该节点上报的 PID 为 `0x4026`（与 USB 接口 PID `0x1018` 不同，是固件另编的身份，不是笔误）。
     - **无厂商通道**：BLE 形态只暴露标准鼠标/键盘/多媒体集合，`0x4D` 帧协议在此形态下完全不可达。因此 DPI 档位、X/Y 双轴、回报率一律**不可读写**，必须由 `MchoseMouseDriver.PopulateCapabilities` 按 `Transport` 含「蓝牙」如实降级为 `SupportsDpi = false` / `SupportsDpiStages = false` / `SupportsPollingRate = false` / `SupportsXyIndependence = false` / `SupportsHardwareDpiMonitor = false`，UI 落入 Generic Mouse 分支（与上游对「能力缺失鼠标」的既有处理一致）。

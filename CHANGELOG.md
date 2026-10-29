@@ -174,6 +174,19 @@
     - 新增 `tests/test_mchose_mouse_4d_ble_support.ps1`（91 项断言）：五文件 BOM/CRCRLF/C# 5.0 铁律与 AI 维护准则、BLE PID 白名单正反用例、真实 `BTHLEDEVICE` 实例 ID 的 VID/PID/MAC 解析与异常拒绝、读不到电量必须 `-1`、`PopulateCapabilities` 按三种传输形态（蓝牙 / 2.4G / 有线）分流的能力契约、BLE 探测先于 USB 探测且被 `!bleOnline` 守卫、去重只碰 `HID:` 前缀、跨形态物理设备键归并与聚焦记忆接线。
     - **跨形态聚焦记忆修复**：设备聚焦记忆原先按 `DeviceId` 字符串精确比对，而同一台鼠标在 2.4G 与蓝牙下 `DeviceId` 不同（`MCHOSE:3837:1018` ↔ `MCHOSE:3837:4026`）。用户在 2.4G 形态下记住的卡片，切到蓝牙后必然失配，启动时回落到键盘视图（该视图不渲染 DPI/回报率控件）。新增 `MchoseMouse4DHelper.GetPhysicalDeviceKey(deviceId)` 把已知的「同型号不同形态 PID」归并为同一个物理设备键，`FindRememberedDevice` 在精确匹配失败后按该键再匹配一次；键不可识别时原样返回，不做任何模糊匹配，跨品牌不干预。
     - 实机验证（蓝牙模式，Windows 11 26100）：`BTHLE\DEV_C19A783235F4` 在线，设备卡显示「MCHOSE K7 V2 Ultra+ · 75% · 📶 蓝牙无线」，DPI/回报率区块按 Generic Mouse 惯例隐藏；切回 2.4G 后 `MCHOSE:3837:1018` 卡片与 DPI/回报率控件全部恢复。
+
+  - **迈从 K7 V2 Ultra+ USB 有线形态支持（用户实测反馈：“有线模式下 exe 识别不到鼠标”）**：
+    - 鼠标插 USB 线后**不再**走 2.4G 接收器，Windows 枚举出的 USB 接口 PID 变为 **`0x4028`**（接收器是 `0x1018`）。该 PID 此前不在 `SupportedPids` 白名单里，导致有线形态**完全不被识别**，主界面回落到键盘卡。
+    - **协议与 2.4G 完全一致**：`0x0900` / `0x0002` / `0x0003` / `0x0102` / `0x0103` 全部可用。实机验证回包：电量 `[20]`=98、充电 `[19]`=1、DPI 档位 2200、回报率 1000 Hz，与 2.4G 形态无任何差别（用户预期「只有连接方式有变化，别的功能都与 2.4G 下一致」已满足）。
+    - **关键坑：端点必须优先选 `0x4028`**（本机踩坑，务必保留）。鼠标插线后 2.4G 接收器通常仍插在机器上，`UsagePage 0xFF01` 会**同时**枚举出两个端点：`0x1018`（已断链）与 `0x4028`（在线）。若 `PickEndpoint()` 不优先返回 `0x4028`，所有写帧都会打进断链的接收器端点，表现为「句柄有效、写入返回 `False`、读无应答」，DPI 与回报率功能全哑。修复后 `QueryMchose4DMouse()` 实测 180 ms 返回完整数据。
+    - **连接形态判定改为以接口 PID 为主判据**：新增 `GetTransportNameByPid(connectStatus, productId)`。实测 `0x4028` 回包 `[18]` 为 `1`，与旧固件「`0` 表示有线」的约定不符；只信 `[18]` 会把有线形态误标成「2.4G 无线」。
+      - 刻意**不**用 `GetTransportName` 重载：既有测试用 `GetMethod(name, flags)` 无参签名匹配，新增同名重载会抛 `AmbiguousMatchException` 让整个测试脚本崩掉。
+    - **`BuildStaleCard` 不再硬编码传输形态**：原实现无条件写 `Transport = "2.4G 无线"`，有线形态离线占位卡会显示错误形态；改为按端点 PID 判定。
+    - **`IsDonglePresent` 按形态判定**：有线形态由线缆供电，不存在 2.4G 接收器，标记为 `false`。
+    - **跨形态聚焦记忆扩展**：`PhysicalGroupK7V2UltraPlus` 加入 `0x4028`，`GetPhysicalDeviceKey` 使 `1018` / `4028` / `4026` 三种形态归并到同一物理设备键，用户在任一形态下记住的卡片切换后不再失配。
+    - 新增 `tests/test_mchose_mouse_4d_wired_support.ps1`（50 项断言）：三文件 BOM/CRCRLF/C# 5.0 铁律与 AI 维护准则、`0x4028` 常量与白名单/物理组契约、端点优先选有线 PID、传输名按 PID 映射的四组正反用例、用有线形态**真实抓取回包**验证 DPI 与回报率解析偏移、有线形态能力与 2.4G 逐项相等（DPI/档位/回报率/DPI 上下限/回报率表）、跨形态物理键三方归并。
+    - 同步更新 `tests/test_device_category_truth.ps1` 的运行时枚举断言，使 `MCHOSE:3837:4028` 也被接受为鼠标形态（原断言只认 `1018` 与 `4026`，有线形态下会误报 `actual none`）。
+    - 实机验证（有线模式，Windows 11 26100）：设备卡显示「MCHOSE K7 V2 Ultra+ · 98% · ⚡ USB 充电中」，性能区显示「● 硬件生效: 1000 Hz · 2200 DPI」，DPI 档位与四档回报率按钮全部可交互。
     - `tools/run_all_tests.ps1` 增加按用例的超时预算表（`$testTimeouts`），为需要真实硬件往返的用例放宽到 60 秒，其余仍保持 12 秒严格看门狗。
 
 

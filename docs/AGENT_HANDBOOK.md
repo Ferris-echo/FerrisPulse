@@ -58,11 +58,16 @@
 4. **8K 接收器中断端点谨慎预排空 (`DrainReports`)**：部分仅暴露 Interrupt In/Out 端点（无 Feature Report）的 8K 接收器（如 ATK F1 Ultimate 2.0 `373B:11D9`），在 `WriteFile` 前执行 `DrainReports` 会打断接收器与鼠标的无线握手状态机，此时应直接写入查询帧并按报表头过滤响应。
 5. **警惕无线链路微状态位伪装充电**：部分接收器（如宏碁 OMR331 `249A:5C2F`）响应帧中的状态字节在未插线时也会随鼠标唤醒/休眠在 `0x01/0x00` 间跳变。未证实为真实 USB 充电位前，切勿盲目绑定为 `isCharging`，以免闪电图标反复横跳。
 6. **物理事实优先，严禁盲扫异构协议或虚标能力**：严禁向同一设备盲目轮番发送多套异构 Feature Report；未实机验证 DPI/回报率写指令的设备，必须显式设置 `SupportsDpi = false`、`SupportsPollingRate = false`，宁缺毋滥。
-7. **同一台鼠标的「蓝牙 BLE 形态」是独立硬件身份，能力必须整体降级**：设备切到蓝牙后变成 HID over GATT 节点，Windows 上报的 PID 会变成另一个值（迈从 K7 V2 Ultra+ 实测 `0x1018` → **`0x4026`**），且**完全没有厂商通道**（`0x4D` 帧不可达）。此时只能读电量（Windows 原生 GATT 电池服务 `0x180F`），DPI / 回报率 / XY 双轴必须全部置 `false`，UI 落入 Generic Mouse 分支。
-   - **VID/PID 与电量分属两个不同节点**：`BTHLEDEVICE\{GATT GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...` 有 VID/PID 但无电量；`BTHLE\DEV_<MAC>\...` 有电量与 FriendlyName 但无 VID/PID。必须先枚举 `BTHLEDEVICE` 拿 MAC/PID，再回 `BTHLE` 按 MAC 读电量。
+7. **同一台鼠标的三种硬件形态是三个独立身份，能力必须按形态如实分流**：迈从 K7 V2 Ultra+ 实测有三种 PID —— `0x1018`（2.4G 接收器）、**`0x4028`（USB 有线直连）**、**`0x4026`（蓝牙 BLE）**。三者能力完全不同，绝不能只认一个 PID。
+   - **有线 `0x4028` 与 2.4G `0x1018` 协议完全一致**：`0x4D` 帧全可用，电量 / 充电 / DPI 档位 / 回报率与 2.4G 无差别。**漏掉 `0x4028` 白名单会让有线形态完全不被识别**。
+   - **有线形态的致命坑：端点必须优先选 `0x4028`**。插线后 2.4G 接收器通常仍插在机上，`UsagePage 0xFF01` 会同时枚举出 `0x1018`（已断链）与 `0x4028`（在线）两个端点；若不优先选 `0x4028`，写帧会全打进断链接收器，表现为「句柄有效、写入 False、读无应答」，功能全哑。
+   - **连接形态判定以接口 PID 为主判据**，不要只信 `0x0900` 回包的 `[18]`：实测 `0x4028` 回 `[18]=1`，与旧固件「`0` 表示有线」的约定不符；只信 `[18]` 会把有线误标成「2.4G 无线」。
+   - **蓝牙 `0x4026` 是 HID over GATT 节点，完全没有厂商通道**（`0x4D` 帧不可达）。此时只能读电量（Windows 原生 GATT 电池服务 `0x180F`），DPI / 回报率 / XY 双轴必须全部置 `false`，UI 落入 Generic Mouse 分支。
+   - **VID/PID 与电量分属两个不同节点**（仅 BLE 形态）：`BTHLEDEVICE\{GATT GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...` 有 VID/PID 但无电量；`BTHLE\DEV_<MAC>\...` 有电量与 FriendlyName 但无 VID/PID。必须先枚举 `BTHLEDEVICE` 拿 MAC/PID，再回 `BTHLE` 按 MAC 读电量。
    - **VID/PID 前两位是序号前缀**（`VID&023837` → 真实 `0x3837`），只取末 4 位；MAC 取**最后一个反斜杠之前、该段最后一个下划线之后**的 12 位（`ExtractMac` 对 BLE 格式会截错）。
    - **电量属性是 `DEVPROP_TYPE_BYTE`**，只能取 `battBuf[0]`，按 `ToInt32` 读会算进相邻字节；读不到返回 `-1`，绝不拿缓存冒充实时值。
    - **性能铁律**：BLE 在线时必须先返回、跳过厂商通道查询。断链的 2.4G 接收器仍在机上时，`0x4D` 每次查询要耗完 `BusyRetryCount(8) × BusyRetryDelayMs(90)`，单次约 4.2 秒（实测跳过后退到 55 ms）。
+   - **反射按名取方法时严禁加同名重载**：既有测试用 `GetMethod(name, flags)` 无参签名匹配，一旦新增同名重载会抛 `AmbiguousMatchException` 让整个测试脚本崩掉。需要新语义时另起方法名（如 `GetTransportNameByPid`）。
 
 ---
 
