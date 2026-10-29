@@ -367,8 +367,11 @@ namespace RazerBatteryTray
             ecoItem.Click += (s3, e3) =>
             {
                 VgnDeviceHelper.EcoModeEnabled = ecoItem.Checked;
+                // 切换后必须立刻重算间隔并刷新按钮状态，否则要等下一次可见性变化才生效
+                ApplyAdaptiveInterval();
+                ApplyPresetSelection(userSelectedInterval);
                 SafeShowBalloonTip(1600, "省电模式",
-                    ecoItem.Checked ? "已开启：启动时直接显示缓存电量，5 分钟后自动刷新" : "已关闭：启动时立即读取设备电量",
+                    ecoItem.Checked ? "已开启：刷新间隔锁定 2 分钟，隐藏窗口时完全停止查询" : "已关闭：恢复你设置的刷新间隔",
                     ToolTipIcon.Info);
             };
             contextMenu.Items.Add(ecoItem);

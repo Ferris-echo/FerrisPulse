@@ -1606,14 +1606,35 @@ namespace RazerBatteryTray
 
             int[] presets = new int[] { 10000, 30000, 60000 };
 
+            // 省电模式会强制 2 分钟间隔，预设按钮必须灰显并取消选中，
+            // 否则界面显示「1 分钟」而实际跑 2 分钟，用户无从判断。
+            bool ecoLocked = VgnDeviceHelper.EcoModeEnabled;
+
             for (int i = 0; i < btnIntPresets.Length && i < presets.Length; i++)
 
             {
 
                 if (btnIntPresets[i] == null) continue;
 
-                btnIntPresets[i].Selected = (presets[i] == ms);
+                btnIntPresets[i].Enabled = !ecoLocked;
 
+                btnIntPresets[i].Selected = !ecoLocked && (presets[i] == ms);
+
+            }
+
+            if (btnIntCustom != null) btnIntCustom.Enabled = !ecoLocked;
+
+            if (lblIntervalTitle != null)
+            {
+                lblIntervalTitle.Text = ecoLocked ? "自动刷新·省电" : "自动刷新频率";
+                lblIntervalTitle.ForeColor = ecoLocked ? Color.FromArgb(255, 183, 77) : Color.FromArgb(160, 168, 185);
+            }
+
+            if (toolTipTop != null && lblIntervalTitle != null)
+            {
+                toolTipTop.SetToolTip(lblIntervalTitle, ecoLocked
+                    ? "省电模式已开启：实际刷新间隔锁定为 2 分钟，关闭省电模式后恢复"
+                    : "");
             }
 
         }
