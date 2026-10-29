@@ -1377,7 +1377,9 @@ namespace RazerBatteryTray
                         if (useVoltageAsMain)
                         {
                             displayBattery = vPct;
-                            batteryTooltip = string.Format("电量: {0}% (电压法，与官方驱动一致)\r\n固件电量计: {1}% (中间区间会滞后)\r\n电池电压: {2}.{3:D3}V", displayBattery, coulombPct >= 0 ? coulombPct.ToString() : "--", displayVoltageMv / 1000, displayVoltageMv % 1000);
+                            // 不再写「与官方驱动一致」：2026-10-29 逆向分析确认官方用的是固件计+平滑，
+                            // 不是电压法（见 docs/官方驱动电量算法分析.md）。两者偶尔同值只是巧合。
+                            batteryTooltip = string.Format("电量: {0}% (电压法，按电池电压查表)\r\n固件电量计: {1}% (中间区间会滞后)\r\n电池电压: {2}.{3:D3}V", displayBattery, coulombPct >= 0 ? coulombPct.ToString() : "--", displayVoltageMv / 1000, displayVoltageMv % 1000);
                         }
                         else if (foundBattery >= 0)
                         {
