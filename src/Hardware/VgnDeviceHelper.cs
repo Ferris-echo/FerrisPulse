@@ -1349,12 +1349,14 @@ namespace RazerBatteryTray
                         else if (displayBattery > lastChargingShownPct)
                         {
                             // 上升限速：每 55 秒最多 +1%，与查询频率无关。
-                            // 但滞后超过 5% 时放宽到 +3%/轮，避免限速把显示压得太低——
-                            // 压太低会导致拔线切回电压法时电量反而「上涨」，比掉电更困惑。
+                            // 阈值取 15% 而不是 5%：实测固件计在充电时本身就涨得飞快
+                            // （33%→45% 只用 4 分钟，即 +3%/分钟），阈值 5% 会让追赶规则
+                            // 每分钟都触发，限速形同虚设。放到 15% 后，只有固件计明显
+                            // 跑偏时才加速追赶，正常情况按 +1%/分钟走。
                             if ((DateTime.UtcNow - lastChargingBumpUtc).TotalSeconds >= 55)
                             {
                                 int lag = displayBattery - lastChargingShownPct;
-                                lastChargingShownPct += (lag > 5) ? 3 : 1;
+                                lastChargingShownPct += (lag > 15) ? 3 : 1;
                                 if (lastChargingShownPct > displayBattery) lastChargingShownPct = displayBattery;
                                 lastChargingBumpUtc = DateTime.UtcNow;
                             }
