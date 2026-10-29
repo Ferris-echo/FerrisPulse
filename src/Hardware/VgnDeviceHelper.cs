@@ -1314,6 +1314,10 @@ namespace RazerBatteryTray
                     // 保留 charging 作为与条件，是为了兼容「Nano 接收器也用 F526」的传闻——
                     // 那种情况下不会充电，仍应显示 2.4G。
                     string transportText = (foundPid == 0xF526 && displayCharging) ? "有线连接" : "2.4G 无线";
+#if CHG_DEBUG
+                    Diagnostics.Log(string.Format("[STATE] pid=0x{0:X4} foundChg={1} dispChg={2} transport={3} batt={4} online={5}",
+                        foundPid, foundCharging, displayCharging, transportText, foundBattery, isMouseOnline));
+#endif
 
                     // 悬停提示：皂品 Z2 的固件电量计在中间区间会长时间停滞（实测 50% 卡住 100 分钟），
                     // 官方驱动用的是电压法，故放电时主显示与官方对齐用电压法，库仑计仅作参考
@@ -1370,7 +1374,13 @@ namespace RazerBatteryTray
 
                     return new MouseBatteryInfo
                     {
-                        DeviceId = brandName + ":3554:" + (foundPid > 0 ? foundPid.ToString("X4") : "3554"),
+                        // 皂品 Z2 的 DeviceId 必须**不含 PID**：同一只鼠标在「有线直连(F526)」
+                        // 与「2.4G 接收器(F527)」之间切换时 PID 会变，若 DeviceId 带 PID 就会被
+                        // 当成两台设备——持久化的「选中设备」仍指向旧 PID，界面于是显示那条
+                        // 幽灵条目（实测 2026-10-29：有线连接却显示 2.4G 无线、电量停在缓存值）。
+                        DeviceId = isZaopin
+                            ? (brandName + ":3554:Z2")
+                            : (brandName + ":3554:" + (foundPid > 0 ? foundPid.ToString("X4") : "3554")),
                         Brand = brandName,
                         DeviceName = devName,
                         Category = DeviceCategory.Mouse,

@@ -1472,7 +1472,14 @@ namespace RazerBatteryTray
                     {
                         devInfo.CustomName = null;
                     }
-                    devInfo.Transport = cfg.Transport ?? (isRazer ? "2.4G 无线" : (isRapoo ? "2.4G 无线" : (isHyperX ? "2.4G 无线" : "Bluetooth")));
+                    // 连接形态优先用设备实时上报值：皂品/VGN 会随「有线直连 / 2.4G 接收器」
+                    // 切换而改变 Transport，若用持久化配置覆盖，界面会一直显示添加设备时
+                    // 的旧值（实测 2026-10-29：有线连接仍显示「2.4G 无线」）。
+                    // 只有实时值为空时才回退到配置/默认值。
+                    if (string.IsNullOrEmpty(devInfo.Transport))
+                    {
+                        devInfo.Transport = cfg.Transport ?? (isRazer ? "2.4G 无线" : (isRapoo ? "2.4G 无线" : (isHyperX ? "2.4G 无线" : "Bluetooth")));
+                    }
                     devInfo.IsCustom = true;
                     if (devInfo.Brand == "NuPhy")
                     {
