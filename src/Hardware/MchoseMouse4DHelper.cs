@@ -65,10 +65,17 @@ namespace RazerBatteryTray
             0x1001, // K7 Ultra（旧款，同族协议）
             0x1014,
             0x1016,
-            0x1018, // K7 V2 Ultra+（本机实测）
+            0x1018, // K7 V2 Ultra+（2.4G 接收器接口，本机实测）
             0x101C,
-            0x101D
+            0x101D,
+            WiredProductIdK7V2UltraPlus // K7 V2 Ultra+（USB 有线直连接口，本机实测）
         };
+
+        // 有线直连形态的硬件身份：鼠标插 USB 线后不再走 2.4G 接收器，
+        // Windows 枚举出的 USB 接口 PID 为 0x4028（与接收器 PID 0x1018 不同），
+        // 但两者共用同一套 0x4D 帧协议，电量 / DPI / 回报率全部可读写。
+        // 实测该形态 0x0900 回包 [18]=1（连接状态）、[19]=1（充电中）、[20]=电量。
+        public const int WiredProductIdK7V2UltraPlus = 0x4028;
 
         // 蓝牙 BLE 形态的硬件身份：BLE HID over GATT 节点上 Windows 报告的
         // PID 与 USB 接口 PID 不同（本机实测 K7 V2 Ultra+ 走 BLE 时为 0x4026）。
@@ -88,6 +95,7 @@ namespace RazerBatteryTray
         private static readonly int[] PhysicalGroupK7V2UltraPlus = new int[]
         {
             0x1018, // USB / 2.4G 接收器接口
+            WiredProductIdK7V2UltraPlus, // 0x4028，USB 有线直连接口
             BleProductIdK7V2UltraPlus // 0x4026，蓝牙 BLE 节点
         };
 
@@ -238,6 +246,22 @@ namespace RazerBatteryTray
             return "2.4G 无线";
         }
 
+        /// <summary>
+        /// 依据「实际命中的接口 PID」判定连接形态，比只信 0x0900 回包的 [18] 更可靠。
+        /// 实测：有线直连接口 0x4028 回包 [18]=1；2.4G 接收器接口 0x1018 回包 [18]=2。
+        /// 由于 [18] 的取值会随固件版本漂移（旧固件用 0 表示有线），
+        /// 这里以接口 PID 为主判据，仅在 PID 未知时才退回 [18] 的旧映射。
+        ///
+        /// 注意：这里刻意另起方法名而不用 GetTransportName 重载，
+        /// 否则既有测试按名反射取方法会抛 AmbiguousMatchException。
+        /// </summary>
+        public static string GetTransportNameByPid(int connectStatus, int productId)
+        {
+            if (productId == WiredProductIdK7V2UltraPlus) return "USB 有线";
+            if (productId == 0x1018) return "2.4G 无线";
+            return GetTransportName(connectStatus);
+        }
+
         /// <summary>把协议内的回报率原始索引（+1 存储）还原成 RATES 索引。</summary>
         public static int DecodeRateIndex(int raw)
         {
@@ -386,6 +410,15 @@ namespace RazerBatteryTray
         {
             List<HidDeviceDescriptor> list = EnumerateControlEndpoints();
             if (list.Count == 0) return null;
+
+            // 有线直连接口优先：该 PID 只在 USB 线插上时才存在，
+            // 此时 2.4G 接收器往往仍插在机器上但已与鼠标断链，
+            // 若先选中接收器端点，所有写帧都会打进黑洞。
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].ProductId == WiredProductIdK7V2UltraPlus) return list[i];
+            }
+
             // 优先选带产品字符串的接口，便于取到型号名。
             for (int i = 0; i < list.Count; i++)
             {
@@ -655,11 +688,12 @@ namespace RazerBatteryTray
                     dev.Brand = "MCHOSE";
                     dev.Category = DeviceCategory.Mouse;
                     dev.DeviceName = name;
-                    dev.Transport = GetTransportName(info.ConnectStatus);
+                    dev.Transport = GetTransportNameByPid(info.ConnectStatus, descriptor.ProductId);
                     dev.IsCustom = false;
                     dev.IsConnected = linked;
                     dev.IsSleeping = !linked;
-                    dev.IsDonglePresent = true;
+                    // 有线直连形态由线缆供电，不存在 2.4G 接收器。
+                    dev.IsDonglePresent = (descriptor.ProductId != WiredProductIdK7V2UltraPlus);
                     dev.BatteryPercent = battery;
                     dev.ExactBatteryPercent = battery;
                     dev.IsCharging = charging;
@@ -721,11 +755,12 @@ namespace RazerBatteryTray
             dev.DeviceName = !string.IsNullOrEmpty(descriptor.ProductString)
                 ? descriptor.ProductString.Trim()
                 : (string.IsNullOrEmpty(CachedDeviceName) ? "MCHOSE 无线游戏鼠标" : CachedDeviceName);
-            dev.Transport = "2.4G 无线";
+            dev.Transport = GetTransportNameByPid(-1, descriptor.ProductId);
             dev.IsCustom = false;
             dev.IsConnected = false;
             dev.IsSleeping = true;
-            dev.IsDonglePresent = true;
+            // 有线直连形态不存在接收器；只有接收器形态才标记 Dongle 在场。
+            dev.IsDonglePresent = (descriptor.ProductId != WiredProductIdK7V2UltraPlus);
             dev.BatteryPercent = CachedBatteryPercent;
             dev.ExactBatteryPercent = CachedBatteryPercent;
             dev.IsCharging = CachedIsCharging;
