@@ -1631,9 +1631,11 @@ namespace RazerBatteryTray
             // （如 MCHOSE K7 V2 Ultra+：0x1018 ↔ 0x4026）。
             // 仅按字符串比对会让用户切到蓝牙后丢失聚焦，启动时回落到键盘视图。
             // 这里再按「物理设备键」匹配一次，仅在键可识别时生效，绝不模糊匹配。
+            // 注意：组键取的是 USB 形态 PID，因此当记忆值本身就是 0x1018 时
+            // GetPhysicalDeviceKey 会原样返回（rememberedKey == lastSelectedDeviceId）。
+            // 此时仍需继续做键比对，否则「先记住 2.4G、后以蓝牙启动」会直接放弃匹配。
             string rememberedKey = MchoseMouse4DHelper.GetPhysicalDeviceKey(lastSelectedDeviceId);
-            if (string.IsNullOrEmpty(rememberedKey) ||
-                string.Equals(rememberedKey, lastSelectedDeviceId, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(rememberedKey))
             {
                 return null;
             }
