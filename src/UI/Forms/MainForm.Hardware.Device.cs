@@ -276,10 +276,6 @@ namespace RazerBatteryTray
         private void UpdateStatusDisplay()
         {
             if (lastInfo == null || !lastInfo.IsConnected) return;
-#if CHG_DEBUG
-            Diagnostics.Log(string.Format("[UI] transport={0} isCharging={1} sleeping={2} batt={3} devId={4}",
-                lastInfo.Transport, lastInfo.IsCharging, lastInfo.IsSleeping, lastInfo.BatteryPercent, lastInfo.DeviceId));
-#endif
 
             string brandTag = lastInfo.Brand == "Rapoo" ? "雷柏" : (lastInfo.Brand == "VGN" ? "VGN" : (lastInfo.Brand == "Razer" ? "雷蛇" : (lastInfo.Brand == "NuPhy" ? "NuPhy" : (lastInfo.Category == DeviceCategory.Headset ? "耳机" : (lastInfo.Category == DeviceCategory.Gamepad ? "手柄" : (lastInfo.Category == DeviceCategory.Keyboard ? "键盘" : "外设"))))));
             string dpiPart = (lastInfo.Category != DeviceCategory.Keyboard && lastInfo.Dpi > 0) ? (" · " + lastInfo.Dpi + " DPI") : "";

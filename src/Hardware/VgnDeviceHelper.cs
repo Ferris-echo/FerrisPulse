@@ -1095,10 +1095,6 @@ namespace RazerBatteryTray
                                                             }
                                                             if (rxBat != null && rxBat.Length > 8)
                                                             {
-#if CHG_DEBUG
-                                                                // 临时诊断：确认充电标志位到底在第几字节、取值是什么
-                                                                Diagnostics.Log("[CHG] len=" + rxBat.Length + " raw=" + BitConverter.ToString(rxBat));
-#endif
                                                                 int bVal = rxBat[6];
                                                                 if (bVal >= 0 && bVal <= 100)
                                                                 {
@@ -1320,10 +1316,6 @@ namespace RazerBatteryTray
                     // 保留 charging 作为与条件，是为了兼容「Nano 接收器也用 F526」的传闻——
                     // 那种情况下不会充电，仍应显示 2.4G。
                     string transportText = (foundPid == 0xF526 && displayCharging) ? "有线连接" : "2.4G 无线";
-#if CHG_DEBUG
-                    Diagnostics.Log(string.Format("[STATE] pid=0x{0:X4} foundChg={1} dispChg={2} transport={3} batt={4} online={5}",
-                        foundPid, foundCharging, displayCharging, transportText, foundBattery, isMouseOnline));
-#endif
 
                     // 悬停提示：皂品 Z2 的固件电量计在中间区间会长时间停滞（实测 50% 卡住 100 分钟），
                     // 官方驱动用的是电压法，故放电时主显示与官方对齐用电压法，库仑计仅作参考
