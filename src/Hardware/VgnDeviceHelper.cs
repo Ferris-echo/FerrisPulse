@@ -115,6 +115,9 @@ namespace RazerBatteryTray
         // 滞回可能已被锁死（历史故障：一次脏读数把基准置为 100%，之后电压恢复正常
         // 也永远返回 100%）。累计超过阈值即强制采纳当前读数，保证最坏情况能自愈。
         private static int stuckCount = 0;
+        // 充电时显示的限速值：固件电量计在充电时按电压快速重估（实测 8 秒跳 5%），
+        // 直接显示会虚高，拔线切回电压法时大幅回落（实测 40% → 25%）。-1 表示未进入充电。
+        private static int lastChargingShownPct = -1;
 
         private static int PercentWithHysteresis(int mv)
         {
@@ -1328,6 +1331,30 @@ namespace RazerBatteryTray
                     int vPct = displayVoltageMv > 0 ? PercentWithHysteresis(calibratedMv) : -1;
                     bool useVoltageAsMain = isZaopin && !displayCharging && vPct >= 0 && vPct <= 100;
                     int coulombPct = displayBattery;
+
+                    // 充电时对固件电量计限速：每次刷新最多 +1%，下降则立即跟随。
+                    // 只对「皂品 Z2 + 正在充电」生效；放电走上面的 useVoltageAsMain 分支，
+                    // 完全不经过这里。目的：避免充电时数字虚高，拔线后出现大幅回落。
+                    if (isZaopin && displayCharging && displayBattery >= 0)
+                    {
+                        if (lastChargingShownPct < 0 || displayBattery < lastChargingShownPct)
+                        {
+                            lastChargingShownPct = displayBattery;   // 首次进入充电 / 读数回落：直接接受
+                        }
+                        else if (displayBattery > lastChargingShownPct + 1)
+                        {
+                            lastChargingShownPct += 1;               // 上升限速
+                            displayBattery = lastChargingShownPct;
+                        }
+                        else
+                        {
+                            lastChargingShownPct = displayBattery;
+                        }
+                    }
+                    else if (!displayCharging)
+                    {
+                        lastChargingShownPct = -1;   // 退出充电后重置，下次插线重新起步
+                    }
 
                     string batteryTooltip = null;
                     if (displayVoltageMv > 0)
