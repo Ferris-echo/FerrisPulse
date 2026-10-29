@@ -98,6 +98,50 @@ if ($found -eq $null) {
 }
 Write-Host "  [PASS] remembered asleep device is found while its dongle is present" -ForegroundColor Green
 
+# ---- 2b. 跨形态：记忆是 2.4G(1018)，当前只插着蓝牙(4026)，仍应聚焦同一台鼠标 ----
+# 组键取 USB 形态 PID，因此 1018 归一化后仍是自己（key == 记忆值）。
+# 早期实现把“key 与记忆值相同”误判为“键不可识别”而提前 return null，
+# 导致切到蓝牙后启动会丢失聚焦、回落到键盘视图。此处锁死该回归。
+$ble = [System.Activator]::CreateInstance($tDev)
+$ble.DeviceId = "MCHOSE:3837:4026"
+$ble.Brand = "MCHOSE"
+$ble.DeviceName = "MCHOSE K7 V2 Ultra+"
+$ble.Category = [RazerBatteryTray.DeviceCategory]::Mouse
+$ble.IsConnected = $true
+$ble.IsDonglePresent = $false
+$ble.IsPrimary = $false
+$ble.BatteryPercent = 75
+$ble.Transport = "蓝牙 BLE"
+$ble.Capabilities = [System.Activator]::CreateInstance($tCaps)
+
+$bleList = [System.Activator]::CreateInstance($tList)
+$bleList.Add($kb)
+$bleList.Add($ble)
+
+$fActive.SetValue($form, $bleList)
+$fRemember.SetValue($form, "MCHOSE:3837:1018")
+$cross = $mFind.Invoke($form, (,$bleList))
+if ($cross -eq $null -or $cross.DeviceId -ne "MCHOSE:3837:4026") {
+    throw "FAIL: cross-transport focus memory lost (2.4G 1018 -> BLE 4026)."
+}
+Write-Host "  [PASS] cross-transport memory maps 2.4G 1018 to BLE 4026 (same physical mouse)" -ForegroundColor Green
+
+$fRemember.SetValue($form, "MCHOSE:3837:4026")
+$back = $mFind.Invoke($form, (,$devList))
+if ($back -eq $null -or $back.DeviceId -ne "MCHOSE:3837:1018") {
+    throw "FAIL: cross-transport focus memory lost (BLE 4026 -> 2.4G 1018)."
+}
+Write-Host "  [PASS] cross-transport memory maps BLE 4026 back to 2.4G 1018" -ForegroundColor Green
+
+# 跨形态归一化不得把其它型号（如键盘 3033）并入同一台设备
+if ([RazerBatteryTray.MchoseMouse4DHelper]::GetPhysicalDeviceKey("MCHOSE:3837:3033") -ne "MCHOSE:3837:3033") {
+    throw "FAIL: physical key normalization must not merge the keyboard into the mouse group."
+}
+Write-Host "  [PASS] normalization leaves keyboard 3033 untouched" -ForegroundColor Green
+
+$fActive.SetValue($form, $devList)
+$fRemember.SetValue($form, "MCHOSE:3837:1018")
+
 # ---- 3. 记忆指向键盘：应恢复键盘 ----
 $fRemember.SetValue($form, "MCHOSE:3837:3033")
 $r2 = $mPref.Invoke($form, $null)
