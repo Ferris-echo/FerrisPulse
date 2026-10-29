@@ -1348,10 +1348,14 @@ namespace RazerBatteryTray
                         }
                         else if (displayBattery > lastChargingShownPct)
                         {
-                            // 上升限速：每 55 秒最多 +1%，与查询频率无关
+                            // 上升限速：每 55 秒最多 +1%，与查询频率无关。
+                            // 但滞后超过 5% 时放宽到 +3%/轮，避免限速把显示压得太低——
+                            // 压太低会导致拔线切回电压法时电量反而「上涨」，比掉电更困惑。
                             if ((DateTime.UtcNow - lastChargingBumpUtc).TotalSeconds >= 55)
                             {
-                                lastChargingShownPct += 1;
+                                int lag = displayBattery - lastChargingShownPct;
+                                lastChargingShownPct += (lag > 5) ? 3 : 1;
+                                if (lastChargingShownPct > displayBattery) lastChargingShownPct = displayBattery;
                                 lastChargingBumpUtc = DateTime.UtcNow;
                             }
                             displayBattery = lastChargingShownPct;
@@ -1377,7 +1381,12 @@ namespace RazerBatteryTray
                         }
                         else if (foundBattery >= 0)
                         {
-                            batteryTooltip = string.Format("电量: {0}% (固件电量计)\r\n电池电压: {1}.{2:D3}V · 电压换算参考 {3}%", displayBattery, displayVoltageMv / 1000, displayVoltageMv % 1000, vPct);
+                            // 充电时限速，displayBattery 已不是原始固件计，所以这里显示 coulombPct（限速前捕获的原始值）
+                            batteryTooltip = string.Format("电量: {0}%{1}\r\n固件电量计: {2}%\r\n电池电压: {3}.{4:D3}V · 电压换算参考 {5}%",
+                                displayBattery,
+                                (displayCharging && coulombPct >= 0 && coulombPct != displayBattery) ? " (充电限速中)" : "",
+                                coulombPct >= 0 ? coulombPct.ToString() : "--",
+                                displayVoltageMv / 1000, displayVoltageMv % 1000, vPct);
                         }
                         else
                         {
