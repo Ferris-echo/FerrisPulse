@@ -51,13 +51,18 @@
 1. **严禁 `AnimateWindow` 与 `Minimized` 隐藏**：`AnimateWindow` 会在深色模式下闪现白框；`Minimized` 会导致还原时从底栏飞出。
 2. **标准唤醒范式 (`this.RecreateHandle()`)**：主窗体从托盘唤醒时调用 `this.RecreateHandle()` 重置 DWM 呈现状态机，随后 `RestoreWindowPosition()` 锁定原位坐标并 `this.Show()`，配合拦截 `WM_ERASEBKGND` 返回 `(IntPtr)1`，实现零白框、原生 DWM 居中微光展开。
 
-### 3.4 硬件 HID 通信六大共性避坑准则（血泪沉淀）
+### 3.4 硬件 HID 通信七大共性避坑准则（血泪沉淀）
 1. **键盘 0 权限握手**：Windows 内核对键盘集合 (`\kbd` 或 `UsagePage 0x01 / Usage 0x06`) 实施防监听独占锁，传 `GENERIC_READ` 必报 `Access Denied (5)`。打开键盘或特征查询句柄必须优先传 **`0` 权限 (`FILE_READ_ATTRIBUTES`)**。
 2. **内置设备过滤 (`IsInternalHidDevice`)**：笔记本内置 `HIDI2C Device` / `I2C HID` / `ACPI\HTIX` 触控板在通用 HID 扫描与自定义配置加载时必须双重过滤，防止误判为无线键盘。
 3. **同厂公版 VID 必须用精确端点四元组隔离**：多个品牌/品类常共享公版 VID（如 CompX `0x3554` 同时用于 17 字节 VGN 鼠标与 20 字节迈从 G75 PRO 键盘）。严禁仅凭 `VID` 或宽松的 `ReportLength >= 17` 匹配，必须联合校验 **`VID + PID + UsagePage/Usage + 精确 Input/OutputReportLength`**。
 4. **8K 接收器中断端点谨慎预排空 (`DrainReports`)**：部分仅暴露 Interrupt In/Out 端点（无 Feature Report）的 8K 接收器（如 ATK F1 Ultimate 2.0 `373B:11D9`），在 `WriteFile` 前执行 `DrainReports` 会打断接收器与鼠标的无线握手状态机，此时应直接写入查询帧并按报表头过滤响应。
 5. **警惕无线链路微状态位伪装充电**：部分接收器（如宏碁 OMR331 `249A:5C2F`）响应帧中的状态字节在未插线时也会随鼠标唤醒/休眠在 `0x01/0x00` 间跳变。未证实为真实 USB 充电位前，切勿盲目绑定为 `isCharging`，以免闪电图标反复横跳。
 6. **物理事实优先，严禁盲扫异构协议或虚标能力**：严禁向同一设备盲目轮番发送多套异构 Feature Report；未实机验证 DPI/回报率写指令的设备，必须显式设置 `SupportsDpi = false`、`SupportsPollingRate = false`，宁缺毋滥。
+7. **同一台鼠标的「蓝牙 BLE 形态」是独立硬件身份，能力必须整体降级**：设备切到蓝牙后变成 HID over GATT 节点，Windows 上报的 PID 会变成另一个值（迈从 K7 V2 Ultra+ 实测 `0x1018` → **`0x4026`**），且**完全没有厂商通道**（`0x4D` 帧不可达）。此时只能读电量（Windows 原生 GATT 电池服务 `0x180F`），DPI / 回报率 / XY 双轴必须全部置 `false`，UI 落入 Generic Mouse 分支。
+   - **VID/PID 与电量分属两个不同节点**：`BTHLEDEVICE\{GATT GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...` 有 VID/PID 但无电量；`BTHLE\DEV_<MAC>\...` 有电量与 FriendlyName 但无 VID/PID。必须先枚举 `BTHLEDEVICE` 拿 MAC/PID，再回 `BTHLE` 按 MAC 读电量。
+   - **VID/PID 前两位是序号前缀**（`VID&023837` → 真实 `0x3837`），只取末 4 位；MAC 取**最后一个反斜杠之前、该段最后一个下划线之后**的 12 位（`ExtractMac` 对 BLE 格式会截错）。
+   - **电量属性是 `DEVPROP_TYPE_BYTE`**，只能取 `battBuf[0]`，按 `ToInt32` 读会算进相邻字节；读不到返回 `-1`，绝不拿缓存冒充实时值。
+   - **性能铁律**：BLE 在线时必须先返回、跳过厂商通道查询。断链的 2.4G 接收器仍在机上时，`0x4D` 每次查询要耗完 `BusyRetryCount(8) × BusyRetryDelayMs(90)`，单次约 4.2 秒（实测跳过后退到 55 ms）。
 
 ---
 

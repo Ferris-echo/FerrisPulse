@@ -517,15 +517,40 @@ namespace RazerBatteryTray
 
             // 新一代 4D 帧协议族（K7 V2 Ultra+ / A5 V3 Ultra+ 等）走独立驱动，
             // 旧版 0x11/0x12 帧在 FindControlPath 中已按 PID 物理隔离。
+            //
+            // 蓝牙形态优先：设备切到 BLE 后，2.4G 接收器通常仍插在机器上，
+            // 但已与鼠标断链，此时 0x4D 通道只会回忙标志或无效数据。
+            // 若同一台鼠标的 BLE 节点在线，就只保留 BLE 实时卡，
+            // 避免一台物理鼠标在列表里出现两张卡片。
+            //
+            // 性能要点（本机实测，务必保留）：鼠标切到蓝牙后，0x4D 通道每次查询
+            // 都要把 BusyRetryCount(8) × BusyRetryDelayMs(90) 的重试全部耗完才放弃，
+            // 单次耗时约 4.2 秒。若 BLE 已经在线，这里必须直接跳过 2.4G 查询，
+            // 否则每轮 UI 刷新都会白白卡住 4 秒以上。
+            bool bleOnline = false;
             try
             {
-                MouseBatteryInfo dev4d = MchoseMouse4DHelper.QueryMchose4DMouse();
-                if (dev4d != null && (dev4d.IsConnected || dev4d.IsDonglePresent))
+                MouseBatteryInfo devBle = MchoseMouse4DHelper.QueryMchose4DMouseBle();
+                if (devBle != null && devBle.IsConnected)
                 {
-                    list.Add(dev4d);
+                    list.Add(devBle);
+                    bleOnline = true;
                 }
             }
             catch { }
+
+            if (!bleOnline)
+            {
+                try
+                {
+                    MouseBatteryInfo dev4d = MchoseMouse4DHelper.QueryMchose4DMouse();
+                    if (dev4d != null && (dev4d.IsConnected || dev4d.IsDonglePresent))
+                    {
+                        list.Add(dev4d);
+                    }
+                }
+                catch { }
+            }
 
             return list;
         }

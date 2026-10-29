@@ -1623,8 +1623,24 @@ namespace RazerBatteryTray
             if (devices == null || string.IsNullOrEmpty(lastSelectedDeviceId)) return null;
             // 无线设备休眠时 IsConnected 为 false，但接收器仍在场，
             // 因此只要接收器存在就应当认为该设备仍属于可选集合。
-            return devices.Find(d => d != null && (d.IsConnected || d.IsDonglePresent) &&
+            var exact = devices.Find(d => d != null && (d.IsConnected || d.IsDonglePresent) &&
                 string.Equals(d.DeviceId, lastSelectedDeviceId, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+
+            // [跨形态聚焦记忆] 同一台鼠标在 2.4G / 蓝牙下 DeviceId 不同
+            // （如 MCHOSE K7 V2 Ultra+：0x1018 ↔ 0x4026）。
+            // 仅按字符串比对会让用户切到蓝牙后丢失聚焦，启动时回落到键盘视图。
+            // 这里再按「物理设备键」匹配一次，仅在键可识别时生效，绝不模糊匹配。
+            string rememberedKey = MchoseMouse4DHelper.GetPhysicalDeviceKey(lastSelectedDeviceId);
+            if (string.IsNullOrEmpty(rememberedKey) ||
+                string.Equals(rememberedKey, lastSelectedDeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return devices.Find(d => d != null && (d.IsConnected || d.IsDonglePresent) &&
+                string.Equals(MchoseMouse4DHelper.GetPhysicalDeviceKey(d.DeviceId), rememberedKey,
+                    StringComparison.OrdinalIgnoreCase));
         }
 
         // 启动/唤醒主窗口时决定展示哪台设备。优先级：
@@ -2257,8 +2273,18 @@ namespace RazerBatteryTray
             // 迈从 MCHOSE（含 4D 帧协议族 K7 V2 Ultra+ / A5 V3 Ultra+）走独立私有协议，
             // 具备完整的 DPI 档位读写与回报率写入能力，必须进入可交互控制台分支；
             // 否则会落入下方 Generic Mouse 分支，DPI/回报率按钮被整块隐藏。
-            bool isMchoseMouse = ((info.Brand == "MCHOSE" || info.Brand == "Mchose" || info.Brand == "迈从")
+            bool isMchoseBrandMouse = ((info.Brand == "MCHOSE" || info.Brand == "Mchose" || info.Brand == "迈从")
                 && info.Category == DeviceCategory.Mouse);
+
+            // 蓝牙 BLE 形态（HID over GATT）只暴露标准鼠标集合，没有 0x4D 厂商通道，
+            // DPI 与回报率在物理上不可读写（驱动层已在 PopulateCapabilities 中如实降级）。
+            // 此时必须与上游对「能力缺失鼠标」的既有处理保持一致：落入 Generic Mouse 分支，
+            // 只保留电量、供电与回报率测速，而不是亮出一整块空标题加零个按钮。
+            bool isMchoseMouseBle = isMchoseBrandMouse
+                && info.Transport != null
+                && info.Transport.IndexOf("蓝牙", StringComparison.Ordinal) >= 0;
+
+            bool isMchoseMouse = isMchoseBrandMouse && !isMchoseMouseBle;
 
             int secW = cardPerformance.ClientSize.Width - (int)(32 * dpiScale);
 

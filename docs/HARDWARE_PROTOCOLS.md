@@ -81,6 +81,21 @@
     `BuiltInDrivers.PopulateCapabilities` 对 4D 协议族取 `dev.IsXyIndependent`（即 HasY），
     仅对真实支持双轴的旧版 A5 V2 Ultra 保持 `true`，避免向用户暴露无效开关。
   - **与旧协议隔离**：`MchoseMouseHelper.FindControlPath` 遇到上述 PID 直接跳过，避免重复卡片；四个写入入口优先委派 4D 驱动，失败自动回退旧协议。
+  - **蓝牙 BLE 形态（HID over GATT，PID `0x4026`）**：
+    - 同一台 K7 V2 Ultra+ 切到蓝牙后**不再**以 USB 厂商接口出现，而是成为 BLE HID over GATT 节点，Windows 在该节点上报的 PID 为 `0x4026`（与 USB 接口 PID `0x1018` 不同，是固件另编的身份，不是笔误）。
+    - **无厂商通道**：BLE 形态只暴露标准鼠标/键盘/多媒体集合，`0x4D` 帧协议在此形态下完全不可达。因此 DPI 档位、X/Y 双轴、回报率一律**不可读写**，必须由 `MchoseMouseDriver.PopulateCapabilities` 按 `Transport` 含「蓝牙」如实降级为 `SupportsDpi = false` / `SupportsDpiStages = false` / `SupportsPollingRate = false` / `SupportsXyIndependence = false` / `SupportsHardwareDpiMonitor = false`，UI 落入 Generic Mouse 分支（与上游对「能力缺失鼠标」的既有处理一致）。
+    - **电量走 Windows 原生 GATT 电池服务**：读 `DEVPKEY_Device_BatteryLevel`（`DEVPROP_TYPE_BYTE`，单字节 0-100）。**不能**按 `ToInt32` 读，否则会把相邻字节一并算进来得到荒谬数值。
+    - **关键坑：VID/PID 与电量分属两个不同节点**，两步缺一不可：
+      ```
+      BTHLEDEVICE\{GATT 服务 GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...   ← 有 VID/PID，无电量
+      BTHLE\DEV_<MAC>\...                                                      ← 有电量与 FriendlyName，无 VID/PID
+      ```
+      必须先枚举 `BTHLEDEVICE`（`SetupDiGetClassDevs(..., "BTHLEDEVICE", ...)`）拿到 MAC 与 PID，再回到 `BTHLE` 按 MAC 找父节点读电量。
+    - **VID/PID 前缀约定**：实例 ID 里写作 `VID&023837` / `PID&4026`，前两位是 Windows 的序号前缀，解析时必须只取**末 4 位**作为真实 VID/PID。
+    - **MAC 解析不能用 `BluetoothDeviceHelper.ExtractMac`**：它按 `DEV_` 后取 12 位，对带 `VID&/PID&` 前缀的 BLE 格式会截成 `VID&023837_P`。正确做法是取**最后一个反斜杠之前**、且该段中**最后一个下划线之后**的 12 位十六进制（不能取第一个反斜杠，`BTHLEDEVICE` 之后就有一个）。
+    - **充电状态不可读**：标准 GATT 电池服务只给百分比，没有充电标志位，`IsCharging` 恒为 `false`，**绝不猜测**。
+    - **性能铁律**：BLE 在线时必须**先**返回并跳过 `0x4D` 查询。鼠标切蓝牙后 2.4G 接收器通常仍插在机上但已断链，此时 0x4D 通道每次查询都要把 `BusyRetryCount(8) × BusyRetryDelayMs(90)` 全部耗完才放弃，**单次约 4.2 秒**；若不跳过，每轮 UI 刷新都会白卡 4 秒以上（实测由 4.2 s 降至 55 ms）。
+    - **卡片去重**：旧版通用 HID 扫描曾在 `HKCU\Software\RazerBatteryTray\CustomDevices` 下写入 `HID:3837:1018` 通用记录，与原生 `MCHOSE:` 记录并存会让主界面出现两张卡（通用卡永远 `-1%`）。`DeviceManager.CleanupDuplicateMchoseDevices()` 只删 `HID:3837:` 前缀且 PID 命中 4D 白名单的记录，原生记录保持不动。
 - **G87 V2 (`3837:3033`, `MchoseDeviceHelper.cs`)**：
   - 优先选 `UsagePage 1 / Usage 0` 的 65 字节集合（MI_01），发送未编号性能配置查询帧 `00 55 05 00 38 38 ...`（65 字节），回复 `AA 05 ...` 中 `offset 40` 为电量，`offset 41` 为充电标志。
 - **Z75S 三模机械键盘 (`258A:01BB`, `MchoseDeviceHelper.cs`)**（社区贡献者 `@WaterGauge` 贡献）：

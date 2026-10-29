@@ -73,7 +73,9 @@ if (-not (Test-Path $binPath)) {
     cmd /c "$ProjectDir\build.bat" | Out-Null
 }
 
-$asm = [System.Reflection.Assembly]::LoadFrom($binPath)
+# ⚠️ 铁律 10：严禁 Add-Type -Path / LoadFrom 锁死 exe 文件句柄（会导致后续编译 CS0016）。
+# 必须全内存反射装载。
+$asm = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($binPath))
 $helperType = $asm.GetType("RazerBatteryTray.HyperXDeviceHelper")
 if ($null -eq $helperType) {
     Write-Host "FAILED: 未能通过反射获取 RazerBatteryTray.HyperXDeviceHelper 类型" -ForegroundColor Red

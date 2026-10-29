@@ -584,6 +584,41 @@ namespace RazerBatteryTray
             catch { }
         }
 
+        /// <summary>
+        /// 清理迈从鼠标的历史通用记录。
+        ///
+        /// 背景：旧版通用 HID 扫描曾把 K7 V2 Ultra+（3837:1018）当成"无主 HID 鼠标"，
+        /// 在 HKCU\...\CustomDevices 下写下 "HID:3837:1018" 的通用配置。如今该型号已由
+        /// MchoseMouse4DHelper 原生接管（DeviceId 为 "MCHOSE:3837:1018"），两条记录并存
+        /// 会让主界面出现"同一台鼠标两张卡片"，其中通用卡永远读不到电量（-1%）。
+        /// 这里只删除通用前缀的记录，原生 "MCHOSE:" 记录保持不动。
+        /// </summary>
+        public static void CleanupDuplicateMchoseDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c.DeviceId == null) continue;
+                    if (!c.DeviceId.StartsWith("HID:3837:", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    int pid = 0;
+                    string pidHex = c.DeviceId.Substring("HID:3837:".Length).Trim();
+                    bool pidOk = int.TryParse(pidHex, System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture, out pid);
+
+                    // 仅当该 PID 已被 4D 原生驱动接管时才删除通用记录，
+                    // 否则会误删尚未适配的迈从设备的用户自定义配置。
+                    if (pidOk && MchoseMouse4DHelper.IsSupportedPid(pid))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void UpdateCustomDeviceBattery(string deviceId, int battery, DateTime lastSeen)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
@@ -769,6 +804,7 @@ namespace RazerBatteryTray
             CleanupDuplicateValkyrieDevices();
             CleanupDuplicateRapooDevices();
             CleanupDuplicateHyperXDevices();
+            CleanupDuplicateMchoseDevices();
 
             CleanupDuplicateSteelSeriesDevices();
             CleanupPhantomAppleDevices();

@@ -160,6 +160,22 @@
     - 实机验证：`lblW` 由 82px 变为 97px，`chkAutoGameRate` 文字占据 `X = 39..107`、控件右边缘 111，首个回报率按钮左边缘 111，完全不再重叠；屏幕截图像素分析确认文字最后亮列与按钮首列不相交。
     - 新增 `tests/test_perf_label_layout.ps1`（27 项）：源码层禁止写死 82px、要求 4 处均使用实测宽度；运行时在 1.0/1.25/1.5/1.75/2.0 五个缩放比下逐档断言文字不溢出自身控件且不越过首个回报率按钮左边缘。
 
+  - **迈从 K7 V2 Ultra+ 蓝牙 BLE 形态支持（用户实测反馈：“切到蓝牙后电量读不到、还多出一张卡”）**：
+    - 同一台鼠标有三种硬件身份，能力完全不同，此前只覆盖了 USB 侧两种：`3837:1018`（2.4G 接收器 / 有线，有 `0x4D` 厂商通道）与 `3837:3033`（K99 V3 键盘）。切到蓝牙后设备变为 BLE HID over GATT 节点，Windows 上报的 PID 为 **`0x4026`**（固件另编身份，与 USB 接口 PID 不同），上游此前完全不认识，于是既不读电量、又在通用 HID 扫描里留下 `HID:3837:1018` 的陈旧卡（永远 `-1%`）。
+    - `MchoseMouse4DHelper` 新增 BLE 形态识别与电量读取：`IsSupportedBlePid` / `TryParseBleVidPid` / `TryParseBleMacFromServiceNode` / `EnumerateBleDeviceMacs` / `TryFindOnlineBleDevice` / `ReadBleBattery` / `QueryMchose4DMouseBle`。
+    - **VID/PID 与电量分属两个不同节点**（实机踩坑，务必保留）：`BTHLEDEVICE\{GATT GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...` 上才有 VID/PID 但**没有**电量；`BTHLE\DEV_<MAC>\...` 上才有 `DEVPKEY_Device_BatteryLevel` 与 FriendlyName 但**不含** VID/PID。必须先枚举 `BTHLEDEVICE` 拿 MAC/PID，再回 `BTHLE` 按 MAC 找父节点读电量，两步缺一不可。
+    - **VID/PID 前缀约定**：实例 ID 写作 `VID&023837` / `PID&4026`，前两位是 Windows 的序号前缀，必须只取末 4 位作为真实值，否则会解析出 `0x3837` 之外的脏数据。
+    - **MAC 解析不能用 `BluetoothDeviceHelper.ExtractMac`**：它按 `DEV_` 后取 12 位，对 BLE 格式会截成 `VID&023837_P`。新增 `TryParseBleMacFromServiceNode`，取最后一个反斜杠之前、该段最后一个下划线之后的 12 位十六进制（不能取首个反斜杠，`BTHLEDEVICE` 之后即有一个）。
+    - **电量属性是 `DEVPROP_TYPE_BYTE`**：只能取单字节 `battBuf[0]`，按 `ToInt32` 读会把相邻字节算进来得到荒谬数值；读不到时返回 `-1`，绝不拿缓存冒充实时值。
+    - **能力如实降级**：BLE 形态无厂商通道，`0x4D` 帧完全不可达，`MchoseMouseDriver.PopulateCapabilities` 按 `Transport` 含「蓝牙」置 `SupportsDpi / SupportsDpiStages / SupportsPollingRate / SupportsXyIndependence / SupportsHardwareDpiMonitor = false`，`SupportedPollingRates` 置空，并在传感器描述里注明「需切回 2.4G/有线调整」。UI 侧 `isMchoseMouseBle` 使该形态落入 Generic Mouse 分支，只保留电量与回报率测速，与上游对「能力缺失鼠标」的既有处理一致，不亮出永远写不进去的按钮。
+    - **充电状态诚实缺省**：标准 GATT 电池服务只给百分比、没有充电标志位，`IsCharging` 恒为 `false`，不猜测。
+    - **性能修复（4.2 s → 55 ms）**：鼠标切蓝牙后 2.4G 接收器通常仍插在机上但已断链，此时 `0x4D` 通道每次查询都要把 `BusyRetryCount(8) × BusyRetryDelayMs(90)` 全部耗完才放弃，单次约 4.2 秒；`QueryDevices` 改为 BLE 在线时直接返回、跳过 2.4G 查询，每轮 UI 刷新不再白卡 4 秒以上。
+    - **重复卡片清理**：新增 `DeviceManager.CleanupDuplicateMchoseDevices()`，只删除 `HKCU\Software\RazerBatteryTray\CustomDevices` 下 `HID:3837:` 前缀且 PID 命中 4D 白名单的通用记录，原生 `MCHOSE:` 记录保持不动，避免同一台鼠标两张卡。
+    - 新增 `tests/test_mchose_mouse_4d_ble_support.ps1`（91 项断言）：五文件 BOM/CRCRLF/C# 5.0 铁律与 AI 维护准则、BLE PID 白名单正反用例、真实 `BTHLEDEVICE` 实例 ID 的 VID/PID/MAC 解析与异常拒绝、读不到电量必须 `-1`、`PopulateCapabilities` 按三种传输形态（蓝牙 / 2.4G / 有线）分流的能力契约、BLE 探测先于 USB 探测且被 `!bleOnline` 守卫、去重只碰 `HID:` 前缀、跨形态物理设备键归并与聚焦记忆接线。
+    - **跨形态聚焦记忆修复**：设备聚焦记忆原先按 `DeviceId` 字符串精确比对，而同一台鼠标在 2.4G 与蓝牙下 `DeviceId` 不同（`MCHOSE:3837:1018` ↔ `MCHOSE:3837:4026`）。用户在 2.4G 形态下记住的卡片，切到蓝牙后必然失配，启动时回落到键盘视图（该视图不渲染 DPI/回报率控件）。新增 `MchoseMouse4DHelper.GetPhysicalDeviceKey(deviceId)` 把已知的「同型号不同形态 PID」归并为同一个物理设备键，`FindRememberedDevice` 在精确匹配失败后按该键再匹配一次；键不可识别时原样返回，不做任何模糊匹配，跨品牌不干预。
+    - 实机验证（蓝牙模式，Windows 11 26100）：`BTHLE\DEV_C19A783235F4` 在线，设备卡显示「MCHOSE K7 V2 Ultra+ · 75% · 📶 蓝牙无线」，DPI/回报率区块按 Generic Mouse 惯例隐藏；切回 2.4G 后 `MCHOSE:3837:1018` 卡片与 DPI/回报率控件全部恢复。
+    - `tools/run_all_tests.ps1` 增加按用例的超时预算表（`$testTimeouts`），为需要真实硬件往返的用例放宽到 60 秒，其余仍保持 12 秒严格看门狗。
+
 
 ### 🎮 手柄与键盘设备接入
 - **飞智 (Flydigi) APEX 6 / APEX 6 Pro / Vader 5 Pro** (#24)：
