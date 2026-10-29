@@ -118,6 +118,10 @@ namespace RazerBatteryTray
         // 充电时显示的限速值：固件电量计在充电时按电压快速重估（实测 8 秒跳 5%），
         // 直接显示会虚高，拔线切回电压法时大幅回落（实测 40% → 25%）。-1 表示未进入充电。
         private static int lastChargingShownPct = -1;
+        // 上次「允许 +1%」的时间点。限速必须按墙钟时间算，不能按查询次数——
+        // 程序有多个查询路径（定时器 + 物理态同步等），实测约每 10 秒就会查一次，
+        // 按次数限速会变成 +6%/分钟，仍然太快。
+        private static DateTime lastChargingBumpUtc = DateTime.MinValue;
 
         private static int PercentWithHysteresis(int mv)
         {
@@ -1340,10 +1344,16 @@ namespace RazerBatteryTray
                         if (lastChargingShownPct < 0 || displayBattery < lastChargingShownPct)
                         {
                             lastChargingShownPct = displayBattery;   // 首次进入充电 / 读数回落：直接接受
+                            lastChargingBumpUtc = DateTime.UtcNow;
                         }
-                        else if (displayBattery > lastChargingShownPct + 1)
+                        else if (displayBattery > lastChargingShownPct)
                         {
-                            lastChargingShownPct += 1;               // 上升限速
+                            // 上升限速：每 55 秒最多 +1%，与查询频率无关
+                            if ((DateTime.UtcNow - lastChargingBumpUtc).TotalSeconds >= 55)
+                            {
+                                lastChargingShownPct += 1;
+                                lastChargingBumpUtc = DateTime.UtcNow;
+                            }
                             displayBattery = lastChargingShownPct;
                         }
                         else
@@ -1354,6 +1364,7 @@ namespace RazerBatteryTray
                     else if (!displayCharging)
                     {
                         lastChargingShownPct = -1;   // 退出充电后重置，下次插线重新起步
+                        lastChargingBumpUtc = DateTime.MinValue;
                     }
 
                     string batteryTooltip = null;
