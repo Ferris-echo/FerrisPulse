@@ -1303,8 +1303,14 @@ namespace RazerBatteryTray
                     // 当前 DPI = 激活档位的真实值
                     int currentDpi = (foundStage >= 1 && foundStage <= dpiStages.Length) ? dpiStages[foundStage - 1] : 1600;
 
+                    // 回报率上限取决于连接方式：
+                    //   F526 有线直连 —— 官方驱动只提供 125/250/500/1000（实测 2026-10-29）
+                    //   F527 4K 底座接收器 —— 支持到 4000Hz
+                    // 原来不分连接方式一律给 125~4000，有线时会列出硬件做不到的档位。
                     int[] pollRates = isZaopin
-                        ? new int[] { 125, 250, 500, 1000, 2000, 4000 }
+                        ? (foundPid == 0xF526
+                            ? new int[] { 125, 250, 500, 1000 }
+                            : new int[] { 125, 250, 500, 1000, 2000, 4000 })
                         : GetSupportedPollingRatesForModel(foundPid, devName);
 
                     // 连接形态判断：**不能只看是否充电**。
