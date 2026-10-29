@@ -115,13 +115,6 @@ namespace RazerBatteryTray
         // 滞回可能已被锁死（历史故障：一次脏读数把基准置为 100%，之后电压恢复正常
         // 也永远返回 100%）。累计超过阈值即强制采纳当前读数，保证最坏情况能自愈。
         private static int stuckCount = 0;
-        // 充电时显示的限速值：固件电量计在充电时按电压快速重估（实测 8 秒跳 5%），
-        // 直接显示会虚高，拔线切回电压法时大幅回落（实测 40% → 25%）。-1 表示未进入充电。
-        private static int lastChargingShownPct = -1;
-        // 上次「允许 +1%」的时间点。限速必须按墙钟时间算，不能按查询次数——
-        // 程序有多个查询路径（定时器 + 物理态同步等），实测约每 10 秒就会查一次，
-        // 按次数限速会变成 +6%/分钟，仍然太快。
-        private static DateTime lastChargingBumpUtc = DateTime.MinValue;
 
         private static int PercentWithHysteresis(int mv)
         {
@@ -1336,42 +1329,6 @@ namespace RazerBatteryTray
                     bool useVoltageAsMain = isZaopin && !displayCharging && vPct >= 0 && vPct <= 100;
                     int coulombPct = displayBattery;
 
-                    // 充电时对固件电量计限速：每次刷新最多 +1%，下降则立即跟随。
-                    // 只对「皂品 Z2 + 正在充电」生效；放电走上面的 useVoltageAsMain 分支，
-                    // 完全不经过这里。目的：避免充电时数字虚高，拔线后出现大幅回落。
-                    if (isZaopin && displayCharging && displayBattery >= 0)
-                    {
-                        if (lastChargingShownPct < 0 || displayBattery < lastChargingShownPct)
-                        {
-                            lastChargingShownPct = displayBattery;   // 首次进入充电 / 读数回落：直接接受
-                            lastChargingBumpUtc = DateTime.UtcNow;
-                        }
-                        else if (displayBattery > lastChargingShownPct)
-                        {
-                            // 上升限速：每 55 秒最多 +1%，与查询频率无关。
-                            // 阈值取 15% 而不是 5%：实测固件计在充电时本身就涨得飞快
-                            // （33%→45% 只用 4 分钟，即 +3%/分钟），阈值 5% 会让追赶规则
-                            // 每分钟都触发，限速形同虚设。放到 15% 后，只有固件计明显
-                            // 跑偏时才加速追赶，正常情况按 +1%/分钟走。
-                            if ((DateTime.UtcNow - lastChargingBumpUtc).TotalSeconds >= 55)
-                            {
-                                int lag = displayBattery - lastChargingShownPct;
-                                lastChargingShownPct += (lag > 15) ? 3 : 1;
-                                if (lastChargingShownPct > displayBattery) lastChargingShownPct = displayBattery;
-                                lastChargingBumpUtc = DateTime.UtcNow;
-                            }
-                            displayBattery = lastChargingShownPct;
-                        }
-                        else
-                        {
-                            lastChargingShownPct = displayBattery;
-                        }
-                    }
-                    else if (!displayCharging)
-                    {
-                        lastChargingShownPct = -1;   // 退出充电后重置，下次插线重新起步
-                        lastChargingBumpUtc = DateTime.MinValue;
-                    }
 
                     string batteryTooltip = null;
                     if (displayVoltageMv > 0)
