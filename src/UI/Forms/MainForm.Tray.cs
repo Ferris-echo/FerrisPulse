@@ -346,6 +346,7 @@ namespace RazerBatteryTray
             ConfigureSubMenuDropDown(sleepMenu.DropDown);
             int[] sleepSeconds = new int[] { 10, 30, 60, 300, 600, 1500, 1800 };
             string[] sleepLabels = new string[] { "10 秒", "30 秒", "1 分钟", "5 分钟", "10 分钟", "25 分钟", "30 分钟" };
+            ToolStripMenuItem[] sleepItems = new ToolStripMenuItem[sleepSeconds.Length];
             for (int si = 0; si < sleepSeconds.Length; si++)
             {
                 int sec = sleepSeconds[si];
@@ -353,11 +354,39 @@ namespace RazerBatteryTray
                 var item = new ToolStripMenuItem(lbl, null, (s2, e2) =>
                 {
                     bool ok = VgnDeviceHelper.SetVgnSleepTime(sec);
-                    if (ok) SafeShowBalloonTip(1200, "鼠标休眠时间", "已设为 " + lbl + "（写入板载）", ToolTipIcon.Info);
+                    if (ok)
+                    {
+                        // 写入成功后立即更新勾选，用户能立刻看到当前生效值
+                        for (int k = 0; k < sleepItems.Length; k++)
+                        {
+                            if (sleepItems[k] != null) sleepItems[k].Checked = (k == si);
+                        }
+                        SafeShowBalloonTip(1200, "鼠标休眠时间", "已设为 " + lbl + "（写入板载）", ToolTipIcon.Info);
+                    }
                     else SafeShowBalloonTip(1500, "鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
                 });
+                sleepItems[si] = item;
                 sleepMenu.DropDownItems.Add(item);
             }
+
+            // 展开子菜单时读一次板载当前值并打勾——原来没有任何选中标记，
+            // 用户看不出鼠标当前用的是哪个休眠档位。
+            sleepMenu.DropDownOpening += (s5, e5) =>
+            {
+                try
+                {
+                    int cur = VgnDeviceHelper.GetVgnSleepTime();
+                    for (int k = 0; k < sleepItems.Length; k++)
+                    {
+                        if (sleepItems[k] != null) sleepItems[k].Checked = (cur > 0 && sleepSeconds[k] == cur);
+                    }
+                }
+                catch (Exception sleepEx)
+                {
+                    Diagnostics.Log("MainForm.Tray.cs: 读取休眠时间失败", sleepEx);
+                }
+            };
+
             contextMenu.Items.Add(sleepMenu);
 
             // 省电模式（启动不立即查询设备）
