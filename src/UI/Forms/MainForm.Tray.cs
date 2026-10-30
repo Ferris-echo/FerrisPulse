@@ -342,22 +342,25 @@ namespace RazerBatteryTray
             contextMenu.Items.Add(intervalMenu);
 
             // 鼠标休眠时间（皂品 Z2 / VGN：写入板载地址 0xAD，单位 10 秒）
-            var sleepMenu = new ToolStripMenuItem("放停后鼠标休眠时间");
-            ConfigureSubMenuDropDown(sleepMenu.DropDown);
+            // 做成主菜单顶级项而非子菜单：子菜单点击后整条菜单链会关闭，
+            // 拦不住 Closing，用户看不到勾选变化。顶级项配合
+            // ShouldKeepTrayMenuOpen 可以让菜单保持展开、勾选就地移动。
             int[] sleepSeconds = new int[] { 10, 30, 60, 300, 600, 1500, 1800 };
             string[] sleepLabels = new string[] { "10秒", "30秒", "1分钟", "5分钟", "10分钟", "25分钟", "30分钟" };
+            ToolStripMenuItem sleepHeader = new ToolStripMenuItem("放停后鼠标休眠时间");
+            sleepHeader.Enabled = false;
+            contextMenu.Items.Add(sleepHeader);
+
             ToolStripMenuItem[] sleepItems = new ToolStripMenuItem[sleepSeconds.Length];
             for (int si = 0; si < sleepSeconds.Length; si++)
             {
                 int sec = sleepSeconds[si];
                 string lbl = sleepLabels[si];
-                var item = new ToolStripMenuItem(lbl, null, (s2, e2) =>
+                var item = new ToolStripMenuItem("    " + lbl, null, (s2, e2) =>
                 {
                     bool ok = VgnDeviceHelper.SetVgnSleepTime(sec);
                     if (ok)
                     {
-                        // 写入成功后立即更新勾选，并记下本次写入，
-                        // 供 DropDownOpening 在设备回读滞后时优先采信本地值。
                         lastSleepSeconds = sec;
                         lastSleepWriteUtc = DateTime.UtcNow;
                         for (int k = 0; k < sleepItems.Length; k++)
@@ -368,21 +371,17 @@ namespace RazerBatteryTray
                     }
                     else SafeShowBalloonTip(1500, "放停后鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
                 });
-                // 打 Tag 让 ShouldKeepTrayMenuOpen 识别：点击后菜单不关闭，
-                // 勾选能实时移动，用户可以连续对比不同档位。
+                // 打 Tag：点击后菜单不关闭，勾选实时移动
                 item.Tag = "sleep-rate";
                 sleepItems[si] = item;
-                sleepMenu.DropDownItems.Add(item);
+                contextMenu.Items.Add(item);
             }
 
-            // 展开子菜单时读一次板载当前值并打勾——原来没有任何选中标记，
-            // 用户看不出鼠标当前用的是哪个休眠档位。
-            sleepMenu.DropDownOpening += (s5, e5) =>
+            // 展开主菜单时同步一次勾选（优先本地刚写入的值，避免回读滞后）
+            contextMenu.Opening += (s5, e5) =>
             {
                 try
                 {
-                    // 刚写入的 10 秒内以本地值为准：设备回读可能还没更新，
-                    // 直接采信会显示成「点了没生效」，用户就会反复点。
                     int cur = ((DateTime.UtcNow - lastSleepWriteUtc).TotalSeconds < 10 && lastSleepSeconds > 0)
                         ? lastSleepSeconds
                         : VgnDeviceHelper.GetVgnSleepTime();
@@ -397,7 +396,6 @@ namespace RazerBatteryTray
                 }
             };
 
-            contextMenu.Items.Add(sleepMenu);
 
             // 省电模式（启动不立即查询设备）
             var ecoItem = new ToolStripMenuItem("省电模式（减少设备查询）");
