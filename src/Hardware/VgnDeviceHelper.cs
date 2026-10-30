@@ -1282,7 +1282,12 @@ namespace RazerBatteryTray
                     // 因此用「曾经确认过是皂品」作为兜底，避免休眠期间判据失效。
                     bool isZaopinNow = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
                     if (isZaopinNow) lastKnownIsZaopin = true;
-                    bool isZaopin = isZaopinNow || lastKnownIsZaopin;
+                    // 第三重兜底：持久化的设备名。程序刚启动时鼠标往往已在休眠，
+                    // 本次探测与 lastKnownIsZaopin 都不可用，只能靠上次存下的名字判断
+                    //（否则重启后仍会把上限误判成 8000）。
+                    bool isZaopinByName = !string.IsNullOrEmpty(CachedDeviceName)
+                        && CachedDeviceName.IndexOf("Z2", StringComparison.Ordinal) >= 0;
+                    bool isZaopin = isZaopinNow || lastKnownIsZaopin || isZaopinByName;
                     string brandName = isZaopin ? "Zaopin" : "VGN";
                     int[] defaultStages = isZaopin
                         ? new int[] { 400, 800, 1600, 2400, 3200, 6400 }
