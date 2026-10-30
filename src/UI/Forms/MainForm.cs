@@ -509,6 +509,9 @@ namespace RazerBatteryTray
 
         // 托盘「放停后鼠标休眠时间」的本地写入记录：设备回读可能滞后，
         // 10 秒内以本地值为准，避免勾选状态回跳。
+        // 最近一次「窗口显示触发的自动查询」时间，省电模式下用于节流
+        private DateTime lastShowQueryUtc = DateTime.MinValue;
+
         private int lastSleepSeconds = -1;
         private DateTime lastSleepWriteUtc = DateTime.MinValue;
 
@@ -1247,10 +1250,15 @@ namespace RazerBatteryTray
                 // 窗口重新可见：隐藏期间完全不查询（省电策略），此刻需立即补一次，
                 // 否则要等下一个 tick（最长一个刷新间隔）才更新，用户会看到旧电量。
                 // 例外：省电模式下**首次显示**不查询——那正是「启动即把鼠标从 LP 推到 HP」的元凶（仅 ≤1000Hz 无线成立）。
-                bool skipFirstQuery = VgnDeviceHelper.EcoModeEnabled && !hasShownOnce;
+                // 省电模式下窗口显隐也要节流：实测 30 秒内显隐 4 次，
+                // 每次都触发一次设备查询，等于把 2 分钟轮询上限架空了。
+                // 首次显示不查（避免启动即唤醒），之后 2 分钟内重复显示也不查。
+                bool skipFirstQuery = VgnDeviceHelper.EcoModeEnabled
+                    && (!hasShownOnce || (DateTime.UtcNow - lastShowQueryUtc).TotalSeconds < 120);
                 hasShownOnce = true;
                 if (!skipFirstQuery)
                 {
+                    lastShowQueryUtc = DateTime.UtcNow;
                     RefreshBatteryStatus(false);
                     // SyncAllDevicesPhysicalState 内部也会 RefreshBatteryStatus，必须一起跳过
                     SyncAllDevicesPhysicalState();
