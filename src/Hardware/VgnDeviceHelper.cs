@@ -92,6 +92,10 @@ namespace RazerBatteryTray
         // 上次成功读到的回报率。鼠标休眠时读不到（返回 -1），
         // 原来会回退成 1000，导致界面在休眠期间显示一个错误的档位。
         private static int lastKnownPollingRate = -1;
+
+        // 是否曾确认过当前设备是皂品 Z2。休眠时 PID 探测不到，
+        // 单看本次探测会把上限误判成 8000，故用历史结论兜底。
+        private static bool lastKnownIsZaopin = false;
         public static bool CachedIsCharging = false;
         public static string CachedDeviceName = "";
         public static DateTime CachedLastUpdated = DateTime.MinValue;
@@ -1272,7 +1276,13 @@ namespace RazerBatteryTray
                     int displayVoltageMv = (foundVoltageMv > 0) ? foundVoltageMv : CachedBatteryVoltageMv;
 
                     // 品牌与能力动态派生：皂品 Z2 (cid=7 / pid 0xF526 / 0xF527，接收器多 PID 变体) 与 VGN 蜻蜓同属 CompX 方案
-                    bool isZaopin = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    // 鼠标休眠时本次探测拿不到 PID/CID，isZaopin 会退化成 false，
+                    // 导致 MaxPollingRate 从 4000 变成 8000、界面冒出 8000Hz 档位
+                    //（实测 2026-10-30：待机界面出现 8000）。
+                    // 因此用「曾经确认过是皂品」作为兜底，避免休眠期间判据失效。
+                    bool isZaopinNow = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    if (isZaopinNow) lastKnownIsZaopin = true;
+                    bool isZaopin = isZaopinNow || lastKnownIsZaopin;
                     string brandName = isZaopin ? "Zaopin" : "VGN";
                     int[] defaultStages = isZaopin
                         ? new int[] { 400, 800, 1600, 2400, 3200, 6400 }
