@@ -212,7 +212,7 @@ namespace RazerBatteryTray
             return 8.0;
         }
 
-        // 省电模式：启动后不回立即查询设备（避免把鼠标从 LP 低功耗推到 HP 高性能），
+        // 省电模式：启动后不回立即查询设备（避免把鼠标从 LP 低功耗推到 HP 高性能（仅 ≤1000Hz 无线成立；≥2000Hz 恒为 Corded，无 LP/HP 切换）），
         // 首屏显示上次缓存值，延迟一段时间才首次真正读取。
         private const string EcoModeValueName = "EcoMode";
 

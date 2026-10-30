@@ -1233,7 +1233,7 @@ namespace RazerBatteryTray
 
                 // 窗口重新可见：隐藏期间完全不查询（省电策略），此刻需立即补一次，
                 // 否则要等下一个 tick（最长一个刷新间隔）才更新，用户会看到旧电量。
-                // 例外：省电模式下**首次显示**不查询——那正是「启动即把鼠标从 LP 推到 HP」的元凶。
+                // 例外：省电模式下**首次显示**不查询——那正是「启动即把鼠标从 LP 推到 HP」的元凶（仅 ≤1000Hz 无线成立）。
                 bool skipFirstQuery = VgnDeviceHelper.EcoModeEnabled && !hasShownOnce;
                 hasShownOnce = true;
                 if (!skipFirstQuery)
@@ -1694,14 +1694,15 @@ namespace RazerBatteryTray
             {
                 if (updateTimer.Enabled) updateTimer.Stop();
                 EnableMouseWakeDetector(false);
-                // 方案 A：隐藏期**不做唤醒刷新**——任何查询都会把鼠标从 LP 推到 HP 且不会
+                // 方案 A：隐藏期**不做唤醒刷新**——任何查询都会把鼠标从 LP 推到 HP（≤1000Hz 无线场景）且不会
                 // 自动恢复，与省电目标冲突。隐藏期保持零 I/O，仅在窗口可见时刷新。
                 StopWakeCheckTimer();
             }
             else
             {
                 // 省电模式：窗口可见时也不按用户设定间隔轮询，强制放宽到 2 分钟。
-                // 原因：每次查询都会把鼠标从 LP 低功耗推到 HP 高性能并打断其休眠计时，
+                // 原因：每次查询都会把鼠标从 LP 低功耗推到 HP 高性能并打断其休眠计时
+                //（仅 ≤1000Hz 无线成立；≥2000Hz 恒为 Corded 高性能态，无此影响），
                 // 30 秒一次的轮询等于让鼠标永远无法进入深度休眠（实测：官方驱动在跑时
                 // 鼠标能休眠，只开本程序就不行）。2 分钟是「省电」与「电量不过期太久」的折中。
                 int effectiveInterval = userSelectedInterval;
