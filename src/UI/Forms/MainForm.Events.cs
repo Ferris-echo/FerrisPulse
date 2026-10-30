@@ -278,6 +278,16 @@ namespace RazerBatteryTray
 
 
 
+            // Logitech identity contains the receiver PID. Another Logitech receiver is not this target.
+            string identity = targetMouse.DeviceId ?? "";
+            if (identity.StartsWith("Logitech:", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] tokens = identity.Split(':');
+                if (tokens.Length >= 3 && tokens[1].Length == 4 && tokens[2].Length == 4)
+                    return path.IndexOf("VID_" + tokens[1], StringComparison.OrdinalIgnoreCase) >= 0 &&
+                           path.IndexOf("PID_" + tokens[2], StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+
             // Match by mouse brand or vendor ID
 
             string brand = targetMouse.Brand ?? "";
@@ -378,6 +388,8 @@ namespace RazerBatteryTray
 
 
 
+        private string mouseWakeCacheDeviceId;
+
         private void HandleMouseWakeInput(IntPtr hRawInput)
 
         {
@@ -387,6 +399,12 @@ namespace RazerBatteryTray
             {
 
                 var cur = lastInfo ?? selectedDevice;
+                string wakeTargetId = cur == null ? null : cur.DeviceId;
+                if (!string.Equals(mouseWakeCacheDeviceId, wakeTargetId, StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (mouseDeviceWakeMatchCache) { mouseDeviceWakeMatchCache.Clear(); }
+                    mouseWakeCacheDeviceId = wakeTargetId;
+                }
 
                 if (cur == null || !cur.IsConnected) return;
 
@@ -488,7 +506,10 @@ namespace RazerBatteryTray
 
                                 UpdateTrayIcon(cur.BatteryPercent, cur.IsCharging, cur.IsConnected, false);
 
-                                try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch { }
+                                try { this.BeginInvoke(new Action(() => {
+                                    if (selectedDevice == null || !string.Equals(selectedDevice.DeviceId, cur.DeviceId, StringComparison.OrdinalIgnoreCase)) return;
+                                    UpdateUI(selectedDevice, false);
+                                })); } catch { }
 
 
 
