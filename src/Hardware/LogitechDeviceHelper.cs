@@ -271,6 +271,8 @@ public static class LogitechDeviceHelper
     public static int CachedPollingRate = 1000;
     public static DateTime CachedLastUpdated = DateTime.MinValue;
     public static bool HasValidHardwareReading = false;
+    private static readonly Dictionary<string, string> deviceNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, bool> deviceChargingCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
     private static Dictionary<string, int> deviceBatteryCache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     public static void LoadHardwareCache()
@@ -373,86 +375,22 @@ public static class LogitechDeviceHelper
             Array.Copy(tx, txBuffer, Math.Min(tx.Length, outLen));
         }
 
-        // Drain pending reports
-        byte[] drain = new byte[inLen];
-        for (int i = 0; i < 5; i++)
-        {
-            OVERLAPPED dOl = new OVERLAPPED();
-            dOl.hEvent = hEvent;
-            uint readBytes;
-            bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
-            if (!ok && Marshal.GetLastWin32Error() == 997)
-            {
-                if (WaitForSingleObject(hEvent, 10) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref dOl, out readBytes, false);
-                    continue;
-                }
-                CancelIo(handle);
-            }
-            break;
-        }
-
-        // Write command
-        OVERLAPPED wOl = new OVERLAPPED();
-        wOl.hEvent = hEvent;
-        uint written;
-        bool wOk = WriteFile(handle, txBuffer, (uint)txBuffer.Length, out written, ref wOl);
-        if (!wOk && Marshal.GetLastWin32Error() == 997)
-        {
-            if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
-            {
-                GetOverlappedResult(handle, ref wOl, out written, false);
-            }
-            else
-            {
-                CancelIo(handle);
-                return null;
-            }
-        }
-
-        // Read response with deadline
+        // Use the shared transport: each operation owns its event and waits for cancellation.
+        HidTransport.DrainReports(handle, inLen, 3);
+        if (!HidTransport.WriteReport(handle, txBuffer, txBuffer.Length, 500)) return null;
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)
         {
-            int remainingMs = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
-            if (remainingMs <= 0) break;
-
-            byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
-            uint rxRead = 0;
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
-            if (!rOk && Marshal.GetLastWin32Error() == 997)
-            {
-                if (WaitForSingleObject(hEvent, (uint)remainingMs) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
-                }
-                else
-                {
-                    CancelIo(handle);
-                    return null;
-                }
-            }
-
-            if (rxRead > 0)
-            {
-                if (matchDevIdx != 0xFF)
-                {
-                    if (rx.Length > 1 && rx[1] == matchDevIdx)
-                    {
-                        if (rx.Length > 2 && rx[2] == 0xFF) return null; // Error frame
-                        if (matchFeatIdx != 0xFF && rx.Length > 2 && rx[2] != matchFeatIdx) continue;
-                        if (matchSwid != 0xFF && rx.Length > 3 && (rx[3] & 0x0F) != (matchSwid & 0x0F)) continue;
-                        return rx;
-                    }
-                    continue;
-                }
-                return rx;
-            }
+            byte[] rx;
+            int remaining = Math.Max(1, (int)(deadline - DateTime.UtcNow).TotalMilliseconds);
+            if (!HidTransport.ReadReport(handle, inLen, remaining, out rx)) return null;
+            if (rx == null || rx.Length < 4) continue;
+            if (matchDevIdx != 0xFF && rx[1] != matchDevIdx) continue;
+            if (matchDevIdx != 0xFF && rx[2] == 0xFF) return null;
+            if (matchFeatIdx != 0xFF && rx[2] != matchFeatIdx) continue;
+            if (matchSwid != 0xFF && (rx[3] & 0x0F) != (matchSwid & 0x0F)) continue;
+            return rx;
         }
-
         return null;
     }
 
@@ -1102,21 +1040,17 @@ public static class LogitechDeviceHelper
                                             txGetName[2] = nameFeatIdx;
                                             txGetName[3] = 0x18; // Func 1: getName, swid 8
                                             txGetName[4] = 0x00;
-                                            byte[] rxGetName = SendAndReceive(handle, hEvent, txGetName, bestEndpoint.InputReportByteLength, 250, bestEndpoint.OutputReportByteLength, devIdx, nameFeatIdx, 0x08);
-                                            if (rxGetName != null && rxGetName.Length > 4)
+                                            StringBuilder nsb = new StringBuilder();
+                                            for (int offset = 0; offset < nameLen; offset += 16)
                                             {
-                                                StringBuilder nsb = new StringBuilder();
-                                                for (int c = 4; c < rxGetName.Length && (c - 4) < nameLen; c++)
-                                                {
-                                                    if (rxGetName[c] == 0) break;
-                                                    if (rxGetName[c] >= 32 && rxGetName[c] <= 126)
-                                                    {
-                                                        nsb.Append((char)rxGetName[c]);
-                                                    }
-                                                }
-                                                string str = nsb.ToString().Trim();
-                                                if (str.Length > 2) detectedName = str;
+                                                txGetName[4] = (byte)offset;
+                                                byte[] rxGetName = SendAndReceive(handle, hEvent, txGetName, bestEndpoint.InputReportByteLength, 250, bestEndpoint.OutputReportByteLength, devIdx, nameFeatIdx, 0x08);
+                                                if (rxGetName == null || rxGetName.Length <= 4) break;
+                                                for (int c = 4; c < rxGetName.Length && offset + c - 4 < nameLen; c++)
+                                                    if (rxGetName[c] >= 32 && rxGetName[c] <= 126) nsb.Append((char)rxGetName[c]);
                                             }
+                                            string str = nsb.ToString().Trim();
+                                            if (str.Length > 2) detectedName = str;
                                         }
                                     }
 
@@ -1384,6 +1318,13 @@ public static class LogitechDeviceHelper
                                 DeviceCategory cat = DetectCategory(detectedPid, finalName);
                                 string deviceId = "Logitech:" + foundVid.ToString("X4") + ":" + detectedPid.ToString("X4") + (devIdx != 0xFF ? (":" + devIdx) : "");
 
+                                if (!string.IsNullOrEmpty(detectedName)) deviceNameCache[deviceId] = detectedName;
+                                else
+                                {
+                                    string cachedName;
+                                    if (deviceNameCache.TryGetValue(deviceId, out cachedName)) finalName = cachedName;
+                                }
+
                                 if (deviceOnline)
                                 {
                                     LogitechEndpoint ep = new LogitechEndpoint
@@ -1414,11 +1355,14 @@ public static class LogitechDeviceHelper
                                     CachedDeviceName = finalName;
                                     HasValidHardwareReading = true;
                                     deviceBatteryCache[deviceId] = batteryPercent;
+                                    deviceChargingCache[deviceId] = isCharging;
                                     SaveHardwareCache();
                                 }
 
                                 int displayBattery = (batteryPercent >= 0) ? batteryPercent : GetCachedBatteryForDevice(deviceId);
-                                bool displayCharging = (batteryPercent >= 0) ? isCharging : CachedIsCharging;
+                                bool cachedCharging;
+                                bool displayCharging = (batteryPercent >= 0) ? isCharging :
+                                    (deviceChargingCache.TryGetValue(deviceId, out cachedCharging) && cachedCharging);
 
                                 if (deviceOnline || isDongle)
                                 {
@@ -1468,7 +1412,7 @@ public static class LogitechDeviceHelper
                                         results.Add(info);
                                         if (!isDongle) break;
                                     }
-                                    else if (isDongle && devIdx == 0x01 && results.Count == 0)
+                                    else if (isDongle && devIdx == 0x01)
                                     {
                                         results.Add(info);
                                     }
