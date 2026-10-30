@@ -893,6 +893,40 @@ namespace RazerBatteryTray
             }
             catch (Exception diagEx) { Diagnostics.Log("QueryAllDevices 分支失败（该品牌设备可能因此不显示）", diagEx); }
 
+            // 2.96 Query Sony DualShock 4 (PS4 手柄)
+            try
+            {
+                var ds4Devices = SonyDs4Helper.QueryAllDs4Devices();
+                if (ds4Devices != null && ds4Devices.Count > 0)
+                {
+                    for (int di = 0; di < ds4Devices.Count; di++)
+                    {
+                        MouseBatteryInfo ds4 = ds4Devices[di];
+                        if (ds4 == null || !ds4.IsConnected)
+                        {
+                            continue;
+                        }
+                        bool ds4Exists = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(ds4.DeviceId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                ds4Exists = true;
+                                break;
+                            }
+                        }
+                        if (!ds4Exists)
+                        {
+                            list.Add(ds4);
+                        }
+                    }
+                }
+            }
+            catch (Exception ds4Ex)
+            {
+                Diagnostics.Log("Hardware/DeviceManager.cs: 查询 PS4 手柄失败", ds4Ex);
+            }
+
             // 2.97 Query Sony (INZONE Buds WF-G700N wireless earbuds)
             try
             {
