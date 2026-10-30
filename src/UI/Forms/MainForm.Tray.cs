@@ -390,7 +390,7 @@ namespace RazerBatteryTray
             contextMenu.Items.Add(sleepMenu);
 
             // 省电模式（启动不立即查询设备）
-            var ecoItem = new ToolStripMenuItem("省电模式（启动不唤醒鼠标）");
+            var ecoItem = new ToolStripMenuItem("省电模式（减少设备查询）");
             ecoItem.CheckOnClick = true;
             ecoItem.Checked = VgnDeviceHelper.EcoModeEnabled;
             ecoItem.Click += (s3, e3) =>
@@ -400,7 +400,9 @@ namespace RazerBatteryTray
                 ApplyAdaptiveInterval();
                 ApplyPresetSelection(userSelectedInterval);
                 SafeShowBalloonTip(1600, "省电模式",
-                    ecoItem.Checked ? "已开启：刷新间隔锁定 2 分钟，隐藏窗口时完全停止查询" : "已关闭：恢复你设置的刷新间隔",
+                    ecoItem.Checked
+                        ? "已开启：刷新间隔 2 分钟，窗口隐藏时完全不查询。≤1000Hz 无线时可让鼠标真正休眠；2000Hz 以上鼠标恒为 Corded 高性能态，省电主要体现在减少查询次数"
+                        : "已关闭：恢复你设置的刷新间隔",
                     ToolTipIcon.Info);
             };
             contextMenu.Items.Add(ecoItem);
