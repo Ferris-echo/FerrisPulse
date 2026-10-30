@@ -1784,7 +1784,11 @@ namespace RazerBatteryTray
                         lastInputTick = info.dwTime;
 
                         DateTime now = DateTime.UtcNow;
-                        if ((now - lastWakeRefreshUtc).TotalSeconds < 60) return;
+                        // 唤醒刷新节流：普通模式 15 秒（回报率等状态跟手），
+                        // 省电模式保持 60 秒——否则鼠标一动就 15 秒刷一次，
+                        // 会把省电模式 2 分钟的轮询上限架空。
+                        int wakeThrottleSec = VgnDeviceHelper.EcoModeEnabled ? 60 : 15;
+                        if ((now - lastWakeRefreshUtc).TotalSeconds < wakeThrottleSec) return;
                         lastWakeRefreshUtc = now;
 
                         wakeRefreshPending = true;   // 唤醒触发的刷新（启动静默窗口内仍会被守卫拦下）
