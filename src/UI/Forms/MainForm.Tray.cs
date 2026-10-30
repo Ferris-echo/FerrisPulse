@@ -1518,7 +1518,7 @@ namespace RazerBatteryTray
                 }
                 curX += 3; // 2 + 1
                 // '0' (4px 宽紧凑数码管)
-                for (int r = 0; r < fontH; r++)
+                for (int r = 0; r < fontH && r < DigitalDigit0_Compact16.Length; r++)
                 {
                     ushort row = DigitalDigit0_Compact16[r];
                     for (int c = 0; c < 4; c++)
@@ -1526,7 +1526,7 @@ namespace RazerBatteryTray
                 }
                 curX += 5; // 4 + 1
                 // '0' (4px 宽紧凑数码管)
-                for (int r = 0; r < fontH; r++)
+                for (int r = 0; r < fontH && r < DigitalDigit0_Compact16.Length; r++)
                 {
                     ushort row = DigitalDigit0_Compact16[r];
                     for (int c = 0; c < 4; c++)
@@ -1537,7 +1537,7 @@ namespace RazerBatteryTray
             {
                 // 仅单数字 1 (电量为 1%): 稳重带底座款 (3px 宽, 居中 (16 - 3) / 2 = 6)
                 int curX = (16 - 3) / 2;
-                for (int r = 0; r < fontH; r++)
+                for (int r = 0; r < fontH && r < DigitalDigit1_Standalone16.Length; r++)
                 {
                     ushort row = DigitalDigit1_Standalone16[r];
                     for (int c = 0; c < 3; c++)
@@ -1562,9 +1562,14 @@ namespace RazerBatteryTray
                 for (int i = 0; i < s.Length; i++)
                 {
                     int d = s[i] - '0';
+                    // 防御：d 越界或字形表缺行时直接跳过该位，不让托盘绘制抛异常。
+                    // 2026-10-30 实测到一次「索引超出了数组界限」弹窗，栈顶在本函数，
+                    // 但静态看三张字形表长度都正常，故在此加边界闸门兜底。
+                    if (d < 0 || d >= DigitalDigits5x11.Length) continue;
                     int w = widths[i];
                     ushort[] rows = DigitalDigits5x11[d];
-                    for (int r = 0; r < fontH; r++)
+                    if (rows == null) continue;
+                    for (int r = 0; r < fontH && r < rows.Length; r++)
                     {
                         ushort row = rows[r];
                         for (int c = 0; c < w; c++)
