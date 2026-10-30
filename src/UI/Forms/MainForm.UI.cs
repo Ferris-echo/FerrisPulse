@@ -524,13 +524,7 @@ namespace RazerBatteryTray
             btnGamepadVibrate.Cursor = Cursors.Hand;
             btnGamepadVibrate.Visible = false;
             btnGamepadVibrate.Click += (s, e) => {
-                // 原生 DS4 不是 XInput 设备，XInput 调不起来，必须走 HID 输出报告。
-                // 优先尝试 DS4；没有 DS4（或蓝牙连接）时回落到 XInput，不影响其他手柄。
-                bool ds4Handled = SonyDs4Helper.TryVibrateAsync(400, 0x60, 0xE0, 0x00, 0xE0, 0x60);
-                if (!ds4Handled)
-                {
-                    XInputHelper.TriggerGamepadVibration(400);
-                }
+                XInputHelper.TriggerGamepadVibration(400);
             };
             cardPerformance.Controls.Add(btnGamepadVibrate);
 
