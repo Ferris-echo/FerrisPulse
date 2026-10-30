@@ -2886,6 +2886,9 @@ namespace RazerBatteryTray
 
         private void UpdateUI(MouseBatteryInfo info, bool showTipIfManual)
         {
+            // Reject queued telemetry for another view; device selection belongs to its existing handlers.
+            if (info != null && selectedDevice != null &&
+                !string.Equals(info.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase)) return;
             if (info == null)
             {
                 isMouseSleeping = false;
