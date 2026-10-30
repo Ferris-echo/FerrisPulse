@@ -67,9 +67,34 @@
 
 ### 1.8 OpenMouse / All-in-One 通用电竞协议引擎 (`UniversalGamingDeviceHelper.cs`)
 - **引擎一 (CompX / PixArt 64B Feature `0x83`)**: 发送 `00 00 00 02 02 00 83...`，轮询 `GetFeature` 跳过 `0xA0` 等待帧，匹配 `A1 00 02 02 00 83 [chg] [pct]`（覆盖 Lamzu, Pulsar, WLmouse, Attack Shark, Ajazz, Darmoshark, Glorious, Ninjutso, RAWM, Incott, Finalmouse, Keychron, Dareu 等）。
-- **引擎二 (Beken / ATK / Endgame Gear 16/17B `0x08 0x04`)**: `0x55` 互补校验和，解析电量、充电与毫伏电压。
+- **引擎二 (Beken / ATK 16/17B `0x08 0x04`)**: `0x55` 互补校验和，解析电量、充电与毫伏电压。
 - **引擎三 (Vaxee 64B Feature `0x0E 0xA5`)**: Page `0x0B` 电量（`raw * 5%`）、Page `0x10` 充电状态。
 - **引擎四 (怒喵 Angry Miao 62B RACE Feature `0x14`)**: 指令 `0x30CF` 读取 `AM Infinity .97` 电量与充放电状态。
+
+### 1.9 Endgame Gear XM2we / OP1we 无线鼠标 (`EndgameGearDeviceHelper.cs`)
+- **VID/PID**: `3367:1961`（XM2we 2.4G 接收器，本机实机验证）/ `3367:1960`（OP1we 同族）。
+- **双端点分离结构（本协议族最大陷阱）**：
+  - 命令：`UsagePage 0xFF02 / Usage 0x0002`，17 字节 **Feature** Report，Report ID `0x08`；
+  - 应答：`UsagePage 0xFF01 / Usage 0x0000`，17 字节 **Interrupt IN**，Report ID `0x09`。
+  - 严禁在同一句柄 `SetFeature(0x08)` 后原地 `GetFeature(0x09)`：该应答并不在 Feature 集合中，恒返回全零；必须另开输入集合，用重叠 I/O 异步回收。
+- **电量查询**: TX `08 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 49`。
+- **实机应答（65% 未充电）**: `09 04 00 00 00 02 41 00 00 00 00 00 00 00 00 00 05`
+  - `[0]=0x09` 应答 Report ID、`[1]=0x04` 命令回显、`[5]=len`、`[6]=电量(0..100)`、`[7]==0x01` 充电、`[8..9]=毫伏大端`（`len>=4` 时有效）、`[16]=校验和`。
+- **校验和**: `(0x55 - ((reportId + sum(payload[0..14])) & 0xFF)) & 0xFF`，请求与应答同式。
+- **物理事实优先**: 充电位严格 `== 0x01` 才点亮（规避无线链路伪充电抖动位）；DPI / 回报率写指令未实机验证，保持 `SupportsDpi = false`、`SupportsPollingRate = false`。
+- **休眠回退**: 鼠标关机或休眠、600ms 内无应答时，回退 `DriverStateStore`（键 `EGG:3367:1961`）缓存并展示「休眠」，绝不伪造 0%。
+- **隔离要求**: `UniversalGamingDeviceHelper.IsSupportedGamingDevice` 对 `0x3367` 直接返回 `false`，由 `BuiltIn:EndgameGear` 专属驱动接管，避免通用引擎单句柄误判与重复识别。
+
+### 1.10 ATK V75X / VGN V98 PRO 共用接收器 (`AtkDeviceHelper.cs`)
+- **共用 VID/PID**: `320F:5088`（2.4G，Telink 接收器）同时被 **ATK V75X** 与 **VGN V98 PRO** 使用，二者协议完全一致，必须靠产品串精确区分，严禁仅凭 VID/PID 泛化。
+- **通道**: `UsagePage 0xFF1C / Usage 0x0092`，输入/输出严格 64/64 字节 Interrupt，无 Feature Report。
+- **查询帧**: `04 <seq_lo> <seq_hi> 1A 00 ...`（Report ID `0x04` + 非零自增序号 + 魔数 `0x1A`）。
+- **实机应答（VGN V98 PRO 51%）**: `04 03 00 1A 00 00 00 00 33 00 ...`
+  - `[0]=0x04` 回显 Report ID、`[1..2]=序号回显`、`[3]=0x1A`、`[8]=电量(0..100)`、`[9]==1` 充电。
+- **隔离规则**:
+  - 放行产品串含 `ATK V75X`，或同时含 `VGN` 与 `V98`；
+  - `VGN S99` 等其它同 VID 型号必须继续拒绝；
+  - `VgnMouseDriver.CanHandle` 必须限定 `Category == Mouse`，否则 VGN 键盘会被误挂 DPI / 回报率写能力。
 
 ---
 

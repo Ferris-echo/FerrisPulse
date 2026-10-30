@@ -24,6 +24,12 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **Endgame Gear XM2we 无线电竞鼠标 (`3367:1961` 2.4G 接收器)**（本机实机逆向适配，全新品牌接入）：
+  - 新增 `EndgameGearDeviceHelper` 与内置驱动 `BuiltIn:EndgameGear`，首次原生支持 Endgame Gear 品牌；
+  - 逆向确认该接收器为**双端点分离**结构：命令走 `0xFF02/0x0002` 的 17 字节 Feature Report `0x08`，应答走 `0xFF01/0x0000` 的 17 字节 Interrupt IN `0x09`；单句柄 `SetFeature` + `GetFeature` 恒读到全零，必须另开输入集合并以重叠 I/O 异步回收；
+  - 解析 `09 04 00 00 00 02 41 00 ... 05` 应答帧（`0x55` 互补校验和），本机实读 65% 电量；充电位严格 `== 0x01` 才点亮，规避无线伪充电抖动；
+  - 鼠标休眠时回退 `DriverStateStore` 缓存并展示「休眠」；DPI / 回报率写指令未实机验证，按物理事实原则保持关闭；
+  - 新增 `tests/test_endgamegear_xm2we.ps1` 实机帧全内存回放测试，并将 `0x3367` 从通用引擎隔离，杜绝重复识别与单句柄误判。
 - **雷柏 (Rapoo) VT3 系列双模电竞鼠标 (`24AE:1412` 等)**（感谢 [@lbyisme](https://github.com/lbyisme) 协议逆向与实机适配贡献 #38，底层协议参考/移植自 Iris `rapoo-tray` MIT 许可项目）：
   - 新增 `RapooProtocol` 纯协议解析与 `RapooDeviceHelper.Status.cs` 实时遥测管道；
   - 严谨解析 19 字节遥测报文（Report ID 0x07），支持 6 档自定义 DPI 阶段（上限由 5 档扩至 6 档）、独立 XY 轴 DPI 调节与硬件端点实时同步；
@@ -96,6 +102,12 @@
   - 原生接入 0x11/0x41 档位指令，覆盖 125Hz、500Hz、1000Hz、2000Hz、4000Hz（2.4G）与 8000Hz（有线）超高回报率切换，全面打通主界面交互与全屏游戏自动优化。
 
 ### 🎮 手柄与键盘设备接入
+- **VGN V98 PRO 三模机械键盘 (`320F:5088` 2.4G)**（本机实机逆向适配）：
+  - 该接收器与 ATK V75X 共用 VID/PID，协议完全一致（`0xFF1C/0x0092` 64 字节、Report `0x04`、魔数 `0x1A`、`byte[8]` 电量 / `byte[9]` 充电），仅产品串不同；
+  - `AtkDeviceHelper` 由“仅 `ATK V75X`”扩展为“`ATK V75X` 或 `VGN` + `V98`”，并用产品串精确隔离，`VGN S99` 等其它同 VID 型号继续拒绝；
+  - 实机抓包 `04 03 00 1A 00 00 00 00 33 00` → 51%，界面原生显示 `VGN V98 PRO`；
+  - 修正 `VgnMouseDriver.CanHandle` 仅按品牌匹配的缺陷：增加 `Category == Mouse` 限制，避免 VGN 键盘被误挂 DPI / 回报率能力；
+  - 新增 `tests/test_vgn_v98_pro_battery.ps1`，覆盖产品串隔离、实机帧回放、充电位、越界与驱动能力断言。
 - **飞智 (Flydigi) APEX 6 / APEX 6 Pro / Vader 5 Pro** (#24)：
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：

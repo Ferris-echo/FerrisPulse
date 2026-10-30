@@ -54,7 +54,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK", "EGG" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -903,6 +903,42 @@ namespace RazerBatteryTray
                 if (gamingDevices != null && gamingDevices.Count > 0)
                 {
                     foreach (var dev in gamingDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.92 Query Endgame Gear (XM2we / OP1we 2.4G 双端点 Beken 引擎)
+            try
+            {
+                var eggDevices = EndgameGearDeviceHelper.QueryAllEndgameGearDevices();
+                if (eggDevices != null && eggDevices.Count > 0)
+                {
+                    foreach (var dev in eggDevices)
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                         {
