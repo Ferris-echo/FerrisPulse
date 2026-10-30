@@ -52,9 +52,6 @@ namespace RazerBatteryTray
         // 长期存在的 OVERLAPPED：调用方串行访问，可安全复用。
         // 放静态字段而非栈上——超时放弃时内核稍后仍会写入这块内存，栈上会变成悬垂指针。
         private static OVERLAPPED htWriteOl;
-        // htWriteOl 是静态字段，两个线程同时写会踩踏同一块 OVERLAPPED，
-        // 表现为 WriteFile 永不完成、调用方无限等待（实测 DS4 振动与常规刷新并发时卡死）。
-        private static readonly object htWriteLock = new object();
         private static OVERLAPPED htReadOl;
 
         private static void PrepareOverlapped(ref OVERLAPPED ol, IntPtr hEvent)
@@ -335,8 +332,6 @@ namespace RazerBatteryTray
         public static bool WriteReport(IntPtr handle, byte[] buffer, int length, int timeoutMs)
         {
             if (!IsValidHandle(handle) || buffer == null || length <= 0 || length > buffer.Length) return false;
-            lock (htWriteLock)
-            {
             IntPtr evt = CreateEvent(IntPtr.Zero, true, false, null);
             if (evt == IntPtr.Zero) return false;
             PrepareOverlapped(ref htWriteOl, evt);
@@ -367,7 +362,6 @@ namespace RazerBatteryTray
             finally
             {
                 CloseHandle(evt);
-            }
             }
         }
 

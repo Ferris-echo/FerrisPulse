@@ -18,7 +18,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Threading;
 
 namespace RazerBatteryTray
 {
@@ -34,91 +33,6 @@ namespace RazerBatteryTray
         public static bool IsDs4(int vid, int pid)
         {
             return vid == VendorIdSony && (pid == ProductIdDs4V1 || pid == ProductIdDs4V2);
-        }
-
-        // USB 接口路径缓存：由周期查询（QueryOne）在读到电量时写入。
-        // 振动按钮绝不能自己去枚举——SetupAPI 在 UI 线程上跑会卡死界面（实测）。
-        private static volatile string cachedUsbPath;
-        private static volatile int cachedUsbOutLen = 32;
-
-        // 仅在工作线程调用：缓存未命中时补一次枚举
-        private static HidDeviceDescriptor FindUsbDs4()
-        {
-            for (int p = 0; p < 2; p++)
-            {
-                int pid = (p == 0) ? ProductIdDs4V2 : ProductIdDs4V1;
-                List<HidDeviceDescriptor> descs = null;
-                try { descs = HidTransport.Enumerate(VendorIdSony, pid); }
-                catch (Exception ex) { Diagnostics.Log("Hardware/SonyDs4Helper.cs: 枚举失败", ex); continue; }
-                if (descs == null || descs.Count == 0) continue;
-
-                HidDeviceDescriptor target = PickGamepadInterface(descs);
-                if (target == null) continue;
-                if (target.InputReportLength > 100) continue;   // 蓝牙，跳过
-                return target;
-            }
-            return null;
-        }
-
-        // 振动 + 灯条：DS4 的输出报告 0x05 同时携带两个马达强度与灯条 RGB。
-        // 原生 DS4 不是 XInput 设备，XInputHelper 对它无效，必须走这条 HID 路径。
-        // 只写 VID_054C 设备，不触碰任何鼠标设备。
-        public static void TryVibrateAsync(int durationMs, byte smallMotor, byte largeMotor, byte r, byte g, byte b)
-        {
-            string path = cachedUsbPath;
-            int outLen = cachedUsbOutLen;
-
-            ThreadPool.QueueUserWorkItem(delegate(object state)
-            {
-                IntPtr handle = IntPtr.Zero;
-                try
-                {
-                    // 缓存未命中（如省电模式启动静默期内还没查过设备）就在工作线程补枚举，
-                    // 绝不能在 UI 线程做 SetupAPI 调用——实测会卡死界面。
-                    if (string.IsNullOrEmpty(path))
-                    {
-                        HidDeviceDescriptor found = FindUsbDs4();
-                        if (found == null) return;
-                        path = found.DevicePath;
-                        outLen = found.OutputReportLength > 0 ? found.OutputReportLength : 32;
-                    }
-                    if (outLen < 8) outLen = 32;
-                    if (outLen > 64) outLen = 64;
-
-                    handle = HidTransport.Open(path);
-                    if (!HidTransport.IsValidHandle(handle)) return;
-
-                    byte[] buf = new byte[outLen];
-                    buf[0] = 0x05;              // 输出报告 ID（USB）
-                    buf[1] = 0x01;              // 启用标志（Linux hid-sony 同值；0x00 时设备不响应）
-                    buf[2] = 0xFF;              // 启用灯条
-                    buf[3] = smallMotor;        // 小马达（右）
-                    buf[4] = largeMotor;        // 大马达（左）
-                    if (outLen > 7) { buf[5] = r; buf[6] = g; buf[7] = b; }
-
-                    if (!HidTransport.WriteReport(handle, buf, outLen, 500))
-                    {
-                        Diagnostics.Log("Hardware/SonyDs4Helper.cs: DS4 振动写入失败");
-                    }
-                    Thread.Sleep(durationMs);
-
-                    // 停止振动，灯条保持
-                    buf[3] = 0;
-                    buf[4] = 0;
-                    HidTransport.WriteReport(handle, buf, outLen, 500);
-                }
-                catch (Exception ex)
-                {
-                    Diagnostics.Log("Hardware/SonyDs4Helper.cs: 振动写入失败", ex);
-                }
-                finally
-                {
-                    if (handle != IntPtr.Zero && HidTransport.IsValidHandle(handle))
-                    {
-                        try { HidTransport.Close(handle); } catch (Exception) { }
-                    }
-                }
-            });
         }
 
         public static List<MouseBatteryInfo> QueryAllDs4Devices()
@@ -226,10 +140,6 @@ namespace RazerBatteryTray
                 {
                     return null;
                 }
-
-                // 读到有效报文，说明这个 USB 接口可用：缓存路径供振动按钮复用
-                cachedUsbPath = desc.DevicePath;
-                cachedUsbOutLen = desc.OutputReportLength > 0 ? desc.OutputReportLength : 32;
 
                 int raw = data[BatteryByteIndex];
                 int level = raw & 0x0F;
