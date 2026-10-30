@@ -925,8 +925,11 @@ namespace RazerBatteryTray
                 // 充电状态取两端点并集：插着 USB 线充电时只有有线端点会报充电位。
                 bool charging = (wirelessOnline && wireless.Charging) || (wiredOnline && wired.Charging);
 
-                // 0x80 = 充电中但电量低 7 位为 0（固件尚未初始化电量）→ 按约定显示为电量未知。
-                if (charging && battery == 0) battery = -1;
+                // 充电期间固件上报的百分比不可信：实测 2.4G+USB 充电时 [41] 连续 13 分钟恒定 0xCA(74%)，
+                // 拔掉 USB 线的瞬间立刻跳到 0x64(100%)。说明充电时固件冻结在某个假值上（与官方 MCHOSE HUB
+                // 充电时只显示「充电中」不显示数字的行为一致）。因此充电中一律不采用该数值，
+                // 按「电量未知」处理，避免把假 74% 当成真实电量展示。
+                if (charging) battery = -1;
 
                 string name = null;
                 if (wirelessOnline && !string.IsNullOrEmpty(wireless.Name)) name = wireless.Name;
@@ -971,6 +974,7 @@ namespace RazerBatteryTray
                     info.IsCharging = charging;
                     info.BatteryPercent = battery;
                     info.ExactBatteryPercent = battery;
+                    // 只在拿到可信电量时写缓存；充电中的冻结值不写，避免污染下次启动的兜底显示。
                     if (battery >= 0) SaveHardwareCache(battery, charging, name);
                 }
                 else
