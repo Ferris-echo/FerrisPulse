@@ -356,7 +356,10 @@ namespace RazerBatteryTray
                     bool ok = VgnDeviceHelper.SetVgnSleepTime(sec);
                     if (ok)
                     {
-                        // 写入成功后立即更新勾选，用户能立刻看到当前生效值
+                        // 写入成功后立即更新勾选，并记下本次写入，
+                        // 供 DropDownOpening 在设备回读滞后时优先采信本地值。
+                        lastSleepSeconds = sec;
+                        lastSleepWriteUtc = DateTime.UtcNow;
                         for (int k = 0; k < sleepItems.Length; k++)
                         {
                             if (sleepItems[k] != null) sleepItems[k].Checked = (k == si);
@@ -375,7 +378,11 @@ namespace RazerBatteryTray
             {
                 try
                 {
-                    int cur = VgnDeviceHelper.GetVgnSleepTime();
+                    // 刚写入的 10 秒内以本地值为准：设备回读可能还没更新，
+                    // 直接采信会显示成「点了没生效」，用户就会反复点。
+                    int cur = ((DateTime.UtcNow - lastSleepWriteUtc).TotalSeconds < 10 && lastSleepSeconds > 0)
+                        ? lastSleepSeconds
+                        : VgnDeviceHelper.GetVgnSleepTime();
                     for (int k = 0; k < sleepItems.Length; k++)
                     {
                         if (sleepItems[k] != null) sleepItems[k].Checked = (cur > 0 && sleepSeconds[k] == cur);

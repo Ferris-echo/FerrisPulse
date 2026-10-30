@@ -631,7 +631,7 @@ namespace RazerBatteryTray
 
                 int[] baseSupported = (info.SupportedPollingRates != null && info.SupportedPollingRates.Length > 0)
                     ? info.SupportedPollingRates
-                    : (info.MaxPollingRate == 1000 ? new int[] { 125, 250, 500, 1000 } : new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 });
+                    : (info.MaxPollingRate == 1000 ? new int[] { 125, 250, 500, 1000 } : new int[] { 125, 250, 500, 1000, 2000, 4000 });
 
                 int[] defaultActive = GetDefaultActivePollingRates(baseSupported);
                 pollingRateValues = LoadCustomPollingRates(info.DeviceId, defaultActive);

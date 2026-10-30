@@ -497,12 +497,20 @@ namespace RazerBatteryTray
 
         private ModernButton btnRateManage;
 
-        private int[] pollingRateValues = new int[] { 1000, 2000, 4000, 8000 };
+        // 默认档位刻意不含 8000：这是「设备数据尚未到达」时的占位值，
+        // 用 8000 会让只支持 4K 的鼠标（如皂品 Z2）在启动阶段显示出不存在的档位。
+        // 真实档位由设备查询结果经 RelayoutPerformanceControls 重建。
+        private int[] pollingRateValues = new int[] { 125, 250, 500, 1000 };
 
         // 上一次渲染到界面的档位签名。只有变化时才重排按钮：
         // 启动时会先按上面的默认值排一次版，真实数据到达后若不重排，
         // 8000Hz 会一直留在界面上（实测 2026-10-30）。
         private string lastRenderedRateSig = "";
+
+        // 托盘「放停后鼠标休眠时间」的本地写入记录：设备回读可能滞后，
+        // 10 秒内以本地值为准，避免勾选状态回跳。
+        private int lastSleepSeconds = -1;
+        private DateTime lastSleepWriteUtc = DateTime.MinValue;
 
         private bool autoGameRateEnabled = false;
 
