@@ -100,6 +100,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new EndgameGearDriver());
+
             }
 
         }
@@ -1367,6 +1369,10 @@ namespace RazerBatteryTray
 
             if (FdasRuntimeHelper.IsFdasDevice(dev.DeviceId)) return false;
 
+            // VGN 品牌同时覆盖键盘与鼠标；本驱动只负责鼠标，键盘必须走电量-only 路径，
+            // 严禁把 DPI / 回报率写能力误挂到键盘上。
+            if (dev.Category != DeviceCategory.Mouse) return false;
+
             return string.Equals(dev.Brand, "VGN", StringComparison.OrdinalIgnoreCase) ||
 
                    string.Equals(dev.Brand, "Zaopin", StringComparison.OrdinalIgnoreCase) ||
@@ -1928,6 +1934,87 @@ namespace RazerBatteryTray
         {
 
             List<MouseBatteryInfo> list = UniversalGamingDeviceHelper.QueryAllGamingDevices();
+
+            if (list != null)
+
+            {
+
+                for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+
+            }
+
+            return list ?? new List<MouseBatteryInfo>();
+
+        }
+
+    }
+
+
+
+    /// <summary>
+    /// Endgame Gear (3367:1961 XM2we / 3367:1960 OP1we) 双端点 Beken 电量驱动。
+    /// 命令走 0xFF02/0x0002 的 17 字节 Feature(0x08)，应答走 0xFF01/0x0000 的 17 字节 Interrupt IN(0x09)。
+    /// 仅声明实机验证过的电量能力；DPI / 回报率写指令尚未验证，保持关闭。
+    /// </summary>
+    public sealed class EndgameGearDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:EndgameGear"; } }
+
+        public override string Brand { get { return "Endgame Gear"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return false;
+
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return dev.DeviceId != null && dev.DeviceId.StartsWith("EGG:", StringComparison.OrdinalIgnoreCase);
+
+        }
+
+
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = false;
+
+            dev.Capabilities.SupportsDpiStages = false;
+
+            dev.Capabilities.SupportsXyIndependence = false;
+
+            dev.Capabilities.SupportsPollingRate = false;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+
+        }
+
+
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = EndgameGearDeviceHelper.QueryAllEndgameGearDevices();
 
             if (list != null)
 

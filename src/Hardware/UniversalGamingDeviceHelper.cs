@@ -5,7 +5,8 @@
 //   OpenMouse 与 All-in-One-Mouse-Driver (Mouse Hub) 全量外设协议引擎
 //   涵盖 20+ 个品牌、数百款主流电竞/客制化/原相方案鼠标及键盘：
 //   1. CompX / PixArt 64字节 Feature 引擎 (Lamzu, Pulsar, WLmouse, Attack Shark, Ajazz, Darmoshark, Glorious, Ninjutso, RAWM, Incott, Delux, Vancer, Fantech, Finalmouse)
-//   2. Beken / ATK / Endgame Gear 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系, Endgame Gear OP1we/XM2we)
+//   2. Beken / ATK 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系)；Endgame Gear 已迁移至
+//      EndgameGearDeviceHelper 双端点专属驱动 (Feature 0x08 下发 / Interrupt IN 0x09 回收)
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
@@ -217,9 +218,9 @@ namespace RazerBatteryTray
             AddProduct(VID_PULSAR, 0x0009, "Pulsar", "Xlite V3 eS 8K", DeviceCategory.Mouse, 8000);
 
             // --- ENDGAME GEAR ---
-            AddProduct(VID_ENDGAME_GEAR, 0x0001, "Endgame Gear", "OP1we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0002, "Endgame Gear", "XM2we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0003, "Endgame Gear", "OP1 8K 有线", DeviceCategory.Mouse, 8000);
+            // 3367:1960 (OP1we) / 3367:1961 (XM2we) 由 EndgameGearDeviceHelper 专属双端点引擎接管，
+            // 本通用引擎不再登记其型号，避免单句柄 GetFeature 永远读到全零而漏判。
+
 
             // --- ATK / VXE ---
             AddProduct(VID_ATK, 0x1085, "VXE", "VXE Dragonfly R1 SE / SE+", DeviceCategory.Mouse, 2000);
@@ -370,9 +371,6 @@ namespace RazerBatteryTray
                 case VID_WLMOUSE:
                     brand = "WLmouse";
                     poll = 8000;
-                    break;
-                case VID_ENDGAME_GEAR:
-                    brand = "Endgame Gear";
                     break;
                 case VID_ATK:
                     brand = "ATK";
@@ -830,6 +828,10 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // Endgame Gear (3367) 使用 Feature 0x08 下发 + Interrupt IN 0x09 回收的双端点协议，
+            // 单句柄 GetFeature 恒为全零；统一交由 EndgameGearDeviceHelper 专属驱动接管。
+            if (vid == VID_ENDGAME_GEAR) return false;
+
             // ASUS PELTA, wired Scope II RX, and ROG OMNI Receiver have dedicated classification. Never send mouse probes.
             if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
             {
@@ -856,7 +858,6 @@ namespace RazerBatteryTray
                 case VID_COMPX_LAMZU:
                 case VID_PULSAR:
                 case VID_WLMOUSE:
-                case VID_ENDGAME_GEAR:
                 case VID_ATK:
                 case VID_ANGRY_MIAO_1:
                 case VID_ANGRY_MIAO_2:
@@ -1017,7 +1018,7 @@ namespace RazerBatteryTray
                                                 {
                                                     ok = QueryVaxeeBattery(handle, out batt, out isChg);
                                                 }
-                                                else if (attr.VendorID == VID_ATK || attr.VendorID == VID_ENDGAME_GEAR)
+                                                else if (attr.VendorID == VID_ATK)
                                                 {
                                                     ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
                                                 }
