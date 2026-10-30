@@ -265,6 +265,24 @@ namespace RazerBatteryTray
                 {
                     if (key != null)
                     {
+                        // 缓存里的设备名是持久化的，程序启动时鼠标通常已在休眠、
+                        // 探测拿不到 PID，只能靠它判断机型（否则上限会误判成 8000）。
+                        var dnObj = key.GetValue("DeviceName");
+                        string dnStr = dnObj != null ? Convert.ToString(dnObj) : null;
+                        if (!string.IsNullOrEmpty(dnStr))
+                        {
+                            CachedDeviceName = dnStr;
+                            if (dnStr.IndexOf("Z2", StringComparison.Ordinal) >= 0)
+                            {
+                                lastKnownIsZaopin = true;
+                            }
+                        }
+                        var izObj = key.GetValue("IsZaopin");
+                        if (izObj != null && Convert.ToInt32(izObj) == 1)
+                        {
+                            lastKnownIsZaopin = true;
+                        }
+
                         var bp = key.GetValue("BatteryPercent");
                         var isValidObj = key.GetValue("IsValid");
                         bool isValid = (isValidObj != null && Convert.ToInt32(isValidObj) == 1);
@@ -316,6 +334,7 @@ namespace RazerBatteryTray
                             key.SetValue("IsValid", HasValidHardwareReading ? 1 : 0);
                         }
                         if (!string.IsNullOrEmpty(CachedDeviceName)) key.SetValue("DeviceName", CachedDeviceName);
+                        key.SetValue("IsZaopin", lastKnownIsZaopin ? 1 : 0, RegistryValueKind.DWord);
                         key.SetValue("IsCharging", CachedIsCharging ? 1 : 0);
                         if (CachedLastUpdated != DateTime.MinValue) key.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                     }
