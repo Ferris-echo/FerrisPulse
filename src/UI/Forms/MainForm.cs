@@ -499,6 +499,11 @@ namespace RazerBatteryTray
 
         private int[] pollingRateValues = new int[] { 1000, 2000, 4000, 8000 };
 
+        // 上一次渲染到界面的档位签名。只有变化时才重排按钮：
+        // 启动时会先按上面的默认值排一次版，真实数据到达后若不重排，
+        // 8000Hz 会一直留在界面上（实测 2026-10-30）。
+        private string lastRenderedRateSig = "";
+
         private bool autoGameRateEnabled = false;
 
         private int gamePollingRate = 4000;

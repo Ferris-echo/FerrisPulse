@@ -636,6 +636,26 @@ namespace RazerBatteryTray
                 int[] defaultActive = GetDefaultActivePollingRates(baseSupported);
                 pollingRateValues = LoadCustomPollingRates(info.DeviceId, defaultActive);
 
+                // 档位集合变了就重排按钮（文案与数量都在 RelayoutPerformanceControls 里重建）。
+                string rateSig = string.Join("/", Array.ConvertAll(pollingRateValues, x => x.ToString()));
+                if (rateSig != lastRenderedRateSig)
+                {
+                    lastRenderedRateSig = rateSig;
+                    try
+                    {
+                        this.BeginInvoke((MethodInvoker)delegate
+                        {
+                            RelayoutPerformanceControls();
+                            UpdatePollingRateDisplayStates();
+                        });
+                    }
+                    catch (Exception sigEx)
+                    {
+                        Diagnostics.Log("MainForm.Hardware.Performance.cs: 重排回报率按钮失败", sigEx);
+                    }
+                }
+
+
                 if (info.PollingRate > 0 && Array.IndexOf(pollingRateValues, info.PollingRate) == -1)
                 {
                     List<int> list = new List<int>(pollingRateValues);
@@ -714,7 +734,14 @@ namespace RazerBatteryTray
                     // 「索引超出了数组界限」弹窗（栈顶在托盘数字绘制）。
                     try
                     {
-                        this.BeginInvoke((MethodInvoker)delegate { UpdatePollingRateDisplayStates(); });
+                        this.BeginInvoke((MethodInvoker)delegate
+                        {
+                            // 只刷选中态不够：按钮的文案和数量是在 RelayoutPerformanceControls
+                            // 里按 pollingRateValues 重建的。启动时先按默认值 {1000,2000,4000,8000}
+                            // 排过一次版，数据到达后若不重排，8000 会一直留在界面上。
+                            RelayoutPerformanceControls();
+                            UpdatePollingRateDisplayStates();
+                        });
                     }
                     catch (Exception rateEx)
                     {
