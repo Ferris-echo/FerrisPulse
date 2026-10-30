@@ -699,7 +699,11 @@ namespace RazerBatteryTray
                 RelayoutPerformanceControls();
                 SetGameRateControlsVisibility(isOptExpanded);
 
-                if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate == 0)
+                // 设备值优先：原来条件写成 desktopPollingRate == 0，只在首次初始化时同步，
+                // 之后用官方驱动改了回报率，界面永远显示旧值（实测 2026-10-30）。
+                // 改为「与设备读回值不一致就同步」，保证界面反映设备真实状态。
+                // 电竞回报率激活时不同步——那期间设备是电竞档位，不是桌面档位。
+                if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate != info.PollingRate)
                 {
                     desktopPollingRate = info.PollingRate;
                 }
