@@ -305,7 +305,9 @@ namespace RazerBatteryTray
             int hi = rates[rates.Count - 1];
             string loText = (lo >= 1000) ? (lo / 1000) + "K" : lo.ToString();
             string hiText = (hi >= 1000) ? (hi / 1000) + "K" : hi.ToString();
-            return string.Format(prefix + " ({0}~{1})", rates.Count, loText, hiText);
+            // 注意：prefix 里已经有一个 {0}（档位数量），区间起点必须用 {1}。
+            // 原来写成 " ({0}~{1})"，导致「常规 4 档 (4~125)」——区间起点显示成了档位数量。
+            return string.Format(prefix + " ({1}~{2})", rates.Count, loText, hiText);
         }
 
         private Button CreatePresetButton(string text, int x, int width, int[] rates)
