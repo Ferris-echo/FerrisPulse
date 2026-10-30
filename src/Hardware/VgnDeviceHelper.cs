@@ -84,6 +84,10 @@ namespace RazerBatteryTray
         private const uint WAIT_OBJECT_0 = 0;
 
         public static int CachedBatteryPercent = -1;
+
+        // 上一次记录的在线状态（null = 尚未记录）。只在状态翻转时落盘，
+        // 用于判断鼠标是否真正进入休眠——接收器灯与官方驱动的显示都不可靠。
+        private static bool? lastOnlineLogged = null;
         public static bool CachedIsCharging = false;
         public static string CachedDeviceName = "";
         public static DateTime CachedLastUpdated = DateTime.MinValue;
@@ -1376,6 +1380,15 @@ namespace RazerBatteryTray
                     {
                         CachedBatteryPercent = displayBattery;
                         SaveHardwareCache();
+                    }
+
+                    // 在线状态翻转时落盘：这是判断「鼠标是否休眠」的唯一可靠信号。
+                    // isMouseOnline = 本次在线探测（cmd3）有应答；无应答即休眠。
+                    if (!lastOnlineLogged.HasValue || lastOnlineLogged.Value != isMouseOnline)
+                    {
+                        lastOnlineLogged = isMouseOnline;
+                        Diagnostics.Log("VGN: 鼠标" + (isMouseOnline ? "在线（唤醒）" : "离线（休眠）")
+                            + " · 回报率=" + foundPollingRate + "Hz · 电量=" + displayBattery + "%");
                     }
 
                     return new MouseBatteryInfo
