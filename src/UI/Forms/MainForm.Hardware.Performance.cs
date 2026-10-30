@@ -703,9 +703,23 @@ namespace RazerBatteryTray
                 // 之后用官方驱动改了回报率，界面永远显示旧值（实测 2026-10-30）。
                 // 改为「与设备读回值不一致就同步」，保证界面反映设备真实状态。
                 // 电竞回报率激活时不同步——那期间设备是电竞档位，不是桌面档位。
-                if (supportsAutoGameRate && !autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate != info.PollingRate)
+                // 不再用 supportsAutoGameRate 作前置条件：该判定为 false 时，
+                // 同步与后面的 UpdatePollingRateDisplayStates 会被一起跳过，
+                // 界面就永远停在旧值（实测 2026-10-30 用官方驱动改回报率后界面不动）。
+                if (!autoGameRateEnabled && info.PollingRate > 0 && desktopPollingRate != info.PollingRate)
                 {
                     desktopPollingRate = info.PollingRate;
+                    // 必须延后执行：本方法由 ApplyDeviceStatus 调用，紧接着还要更新托盘图标。
+                    // 直接在这里刷 UI 会在托盘绘制之前插入一次重排，2026-10-30 实测触发过
+                    // 「索引超出了数组界限」弹窗（栈顶在托盘数字绘制）。
+                    try
+                    {
+                        this.BeginInvoke((MethodInvoker)delegate { UpdatePollingRateDisplayStates(); });
+                    }
+                    catch (Exception rateEx)
+                    {
+                        Diagnostics.Log("MainForm.Hardware.Performance.cs: 延后刷新回报率失败", rateEx);
+                    }
                 }
 
                 if (supportsAutoGameRate)
