@@ -203,7 +203,9 @@ if ($helperFull.Contains($deviceIdNeedle)) { $deviceIdHits = 1 }
 Check "键盘 DeviceId 固定用 PidG87V2（不随形态变化）" ($deviceIdHits.Count -ge 1) "DeviceId 可能随形态变化"
 Check "存在双端点并集充电逻辑" ($helperFull.Contains("wireless.Charging") -and $helperFull.Contains("wired.Charging")) "缺少充电并集"
 Check "存在 0x2020 端点查询" ($helperFull.Contains("CollectCandidates(PidK99V3Wired)")) "未查询有线端点"
-Check "存在充电中电量为 0 的保护" ($helperFull.Contains("charging && battery == 0")) "缺少 0x80 保护逻辑"
+Check "设备层充电时不采用冻结电量" ($helperFull.Contains("if (charging) battery = -1;")) "充电时未丢弃冻结电量"
+Check "设备层充电冻结有实测注释" ($helperFull.Contains("拔掉 USB 线的瞬间立刻跳到")) "缺少充电冻结实测依据注释"
+Check "设备层不把冻结值写入硬件缓存" ($helperFull.Contains("if (battery >= 0)")) "未对缓存写入做可信电量守卫"
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host " [6/6] UI 层形态与充电文案" -ForegroundColor Cyan
@@ -216,7 +218,9 @@ Check "UI 支持 2.4G+USB 充电状态标" ($uiSrc.Contains("2.4G · USB 充电�
 Check "设备层产出 USB 有线+充电传输态" ($helperFull.Contains("USB 有线 + 充电")) "缺少有线充电传输态"
 Check "UI 支持 USB 有线充电状态标" ($uiSrc.Contains("USB 有线 · 充电中")) "缺少有线充电状态标"
 Check "UI 有线带电量时不藏百分比" ($uiSrc.Contains("wiredWithBattery")) "缺少 wiredWithBattery 分支"
-Check "UI 2.4G 充电状态区分 USB 充电" ($uiSrc.Contains("usbChargingInWireless")) "缺少 usbChargingInWireless 分支"
+Check "UI 2.4G 充电无电量时区分 USB 充电" ($uiSrc.Contains("usbChargingNoBattery")) "缺少 usbChargingNoBattery 分支"
+Check "UI 迈从键盘有线用官方口径" ($uiSrc.Contains("USB 有线充电中")) "缺少迈从键盘有线官方口径文案"
+Check "UI 迈从键盘区分纯有线与充电" ($uiSrc.Contains("isMchoseKb")) "缺少 isMchoseKb 品牌分支"
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 if ($fail -eq 0) {
