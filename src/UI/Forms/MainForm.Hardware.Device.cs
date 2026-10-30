@@ -235,6 +235,15 @@ namespace RazerBatteryTray
             prevShownPct = info.BatteryPercent;
         }
 
+        // 电压变化量带符号：vDropMv 为正表示电压下降，为负表示上升。
+        // 原来直接写「下降 {vDropMv}mV」，电压上升时会显示成「下降 -4mV」，双重否定。
+        private static string FormatVoltageDelta(int vDropMv)
+        {
+            if (vDropMv > 0) return "下降 " + vDropMv + "mV";
+            if (vDropMv < 0) return "上升 " + (-vDropMv) + "mV";
+            return "持平";
+        }
+
         private void ApplyDeviceStatus(List<MouseBatteryInfo> devices, bool showTipIfManual)
         {
             activeDevices = devices;
@@ -940,7 +949,7 @@ namespace RazerBatteryTray
                         double vSpanH; int vDropMv;
                         if (BatteryRuntimeEstimator.TryGetVoltageProgress(out vSpanH, out vDropMv))
                         {
-                            runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · 下降 {1}mV\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, vDropMv);
+                            runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · {1}\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, FormatVoltageDelta(vDropMv));
                         }
                         // 电量计长时间不动：多半是鼠标空闲休眠/极低放电，避免用户误以为卡住
                         if (dropPct == 0 && spanH >= 0.5)
@@ -948,7 +957,7 @@ namespace RazerBatteryTray
                             runtimeTip = string.Format("\r\n续航测算待机: 已采集 {0:0} 分钟，电量计未变化\r\n鼠标可能处于休眠/低功耗状态，活跃使用掉 1% 后即出估值", spanH * 60);
                             if (BatteryRuntimeEstimator.TryGetVoltageProgress(out vSpanH, out vDropMv))
                             {
-                                runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · 下降 {1}mV\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, vDropMv);
+                                runtimeTip += string.Format("\r\n电压趋势: 已采集 {0:0} 分钟 · {1}\r\n满 30 分钟且降 15mV 后出电压估算", vSpanH * 60, FormatVoltageDelta(vDropMv));
                             }
                         }
                     }
