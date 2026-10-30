@@ -88,6 +88,10 @@ namespace RazerBatteryTray
         // 上一次记录的在线状态（null = 尚未记录）。只在状态翻转时落盘，
         // 用于判断鼠标是否真正进入休眠——接收器灯与官方驱动的显示都不可靠。
         private static bool? lastOnlineLogged = null;
+
+        // 上次成功读到的回报率。鼠标休眠时读不到（返回 -1），
+        // 原来会回退成 1000，导致界面在休眠期间显示一个错误的档位。
+        private static int lastKnownPollingRate = -1;
         public static bool CachedIsCharging = false;
         public static string CachedDeviceName = "";
         public static DateTime CachedLastUpdated = DateTime.MinValue;
@@ -1382,8 +1386,14 @@ namespace RazerBatteryTray
                         SaveHardwareCache();
                     }
 
-                    // 在线状态翻转时落盘：这是判断「鼠标是否休眠」的唯一可靠信号。
-                    // isMouseOnline = 本次在线探测（cmd3）有应答；无应答即休眠。
+                    if (foundPollingRate > 0)
+                    {
+                        lastKnownPollingRate = foundPollingRate;
+                    }
+
+                    // 在线状态翻转时落盘。isMouseOnline = 本次在线探测（cmd3）有应答，无应答即休眠。
+                    // 判据说明（2026-10-30 用户实测）：接收器指示灯熄灭同样可作为休眠依据；
+                    // 但灯亮不能反推「没休眠」——曾有灯亮而鼠标已休眠的情况。
                     if (!lastOnlineLogged.HasValue || lastOnlineLogged.Value != isMouseOnline)
                     {
                         lastOnlineLogged = isMouseOnline;
@@ -1419,7 +1429,9 @@ namespace RazerBatteryTray
                         DpiStage = (foundStage >= 1 && foundStage <= dpiStages.Length) ? foundStage : 2,
                         DpiStageCount = dpiStages.Length,
                         DpiStages = dpiStages,
-                        PollingRate = (foundPollingRate > 0) ? foundPollingRate : 1000,
+                        PollingRate = (foundPollingRate > 0)
+                            ? foundPollingRate
+                            : (lastKnownPollingRate > 0 ? lastKnownPollingRate : 1000),
                         MaxPollingRate = isZaopin ? 4000 : 8000,
                         SupportedPollingRates = pollRates
                     };
