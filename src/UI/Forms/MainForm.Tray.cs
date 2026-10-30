@@ -368,6 +368,9 @@ namespace RazerBatteryTray
                     }
                     else SafeShowBalloonTip(1500, "放停后鼠标休眠时间", "当前设备不支持写入，或写入失败", ToolTipIcon.Warning);
                 });
+                // 打 Tag 让 ShouldKeepTrayMenuOpen 识别：点击后菜单不关闭，
+                // 勾选能实时移动，用户可以连续对比不同档位。
+                item.Tag = "sleep-rate";
                 sleepItems[si] = item;
                 sleepMenu.DropDownItems.Add(item);
             }
