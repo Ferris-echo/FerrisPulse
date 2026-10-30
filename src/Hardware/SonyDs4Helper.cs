@@ -18,6 +18,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace RazerBatteryTray
 {
@@ -33,6 +34,80 @@ namespace RazerBatteryTray
         public static bool IsDs4(int vid, int pid)
         {
             return vid == VendorIdSony && (pid == ProductIdDs4V1 || pid == ProductIdDs4V2);
+        }
+
+        // 找到 USB 连接的 DS4 手柄（蓝牙接口报告长度 547，不支持）
+        private static HidDeviceDescriptor FindUsbDs4()
+        {
+            for (int p = 0; p < 2; p++)
+            {
+                int pid = (p == 0) ? ProductIdDs4V2 : ProductIdDs4V1;
+                List<HidDeviceDescriptor> descs = null;
+                try { descs = HidTransport.Enumerate(VendorIdSony, pid); }
+                catch (Exception ex) { Diagnostics.Log("Hardware/SonyDs4Helper.cs: 枚举失败", ex); continue; }
+                if (descs == null || descs.Count == 0) continue;
+
+                HidDeviceDescriptor target = PickGamepadInterface(descs);
+                if (target == null) continue;
+                if (target.InputReportLength > 100) continue;   // 蓝牙，跳过
+                return target;
+            }
+            return null;
+        }
+
+        // 振动 + 灯条：DS4 的输出报告 0x05 同时携带两个马达强度与灯条 RGB。
+        // 原生 DS4 不是 XInput 设备，XInputHelper 对它无效，必须走这条 HID 路径。
+        // 只写 VID_054C 设备，不触碰任何鼠标设备。
+        public static bool TryVibrateAsync(int durationMs, byte smallMotor, byte largeMotor, byte r, byte g, byte b)
+        {
+            HidDeviceDescriptor target = FindUsbDs4();
+            if (target == null || string.IsNullOrEmpty(target.DevicePath))
+            {
+                return false;
+            }
+
+            string path = target.DevicePath;
+            int outLen = target.OutputReportLength > 0 ? target.OutputReportLength : 32;
+            if (outLen > 64) outLen = 64;
+
+            ThreadPool.QueueUserWorkItem(delegate(object state)
+            {
+                IntPtr handle = IntPtr.Zero;
+                try
+                {
+                    handle = HidTransport.Open(path);
+                    if (!HidTransport.IsValidHandle(handle)) return;
+
+                    byte[] buf = new byte[outLen];
+                    buf[0] = 0x05;              // 输出报告 ID
+                    buf[1] = 0x00;              // flags
+                    buf[2] = 0xFF;              // 启用灯条
+                    buf[3] = smallMotor;        // 小马达（右）
+                    buf[4] = largeMotor;        // 大马达（左）
+                    if (outLen > 7) { buf[5] = r; buf[6] = g; buf[7] = b; }
+
+                    HidTransport.WriteReport(handle, buf, outLen, 500);
+                    Thread.Sleep(durationMs);
+
+                    // 停止振动，灯条保持
+                    buf[3] = 0;
+                    buf[4] = 0;
+                    HidTransport.WriteReport(handle, buf, outLen, 500);
+                }
+                catch (Exception ex)
+                {
+                    Diagnostics.Log("Hardware/SonyDs4Helper.cs: 振动写入失败", ex);
+                }
+                finally
+                {
+                    if (handle != IntPtr.Zero && HidTransport.IsValidHandle(handle))
+                    {
+                        try { HidTransport.Close(handle); } catch (Exception) { }
+                    }
+                }
+            });
+
+            return true;
         }
 
         public static List<MouseBatteryInfo> QueryAllDs4Devices()
