@@ -1134,7 +1134,12 @@ namespace RazerBatteryTray
                 int detectedMid = 0;
                 int foundStage = -1;
                 int foundVoltageMv = -1;
-                int[] readStages = new int[] { -1, -1, -1, -1, -1, -1 };
+                // ⚠️ 数组容量修复：下方取值循环上界为 st < 8，且硬件可回报档位数上限亦为 8，
+                //    原本此处只分配 6 个槽位（索引 0..5），当设备回报 7 或 8 档时
+                //    readStages[6] / readStages[7] 直接越界抛出 IndexOutOfRangeException，
+                //    导致整台鼠标完全无法识别（玄熊猫 P1 4K 实测即命中此路径）。
+                //    扩容至 8 槽，与 stageCount 上限严格对齐。
+                int[] readStages = new int[] { -1, -1, -1, -1, -1, -1, -1, -1 };
                 int foundPollingRate = -1;
                 int foundStageCount = -1;
 
@@ -1232,7 +1237,9 @@ namespace RazerBatteryTray
                                                                 }
                                                                 rxBat = null;
                                                             }
-                                                            if (rxBat != null && rxBat.Length > 8)
+                                                            // ⚠️ 边界修复：下方会访问 rxBat[9]（电压高字节），要求 Length >= 10，
+                                                            //    原判定 Length > 8 仅保证 >= 9，短包时会越界崩溃。
+                                                            if (rxBat != null && rxBat.Length > 9)
                                                             {
                                                                 int bVal = rxBat[6];
                                                                 if (bVal >= 0 && bVal <= 100)
@@ -1282,7 +1289,8 @@ namespace RazerBatteryTray
 
                                                             // 6. 读取各档位的真实 DPI 值（地址 0x0c 起每档 4 字节 [low, low, flags, ck]），档位数取自硬件而非硬编码
                                                             int hwStageCount = (foundStageCount > 0) ? foundStageCount : 6;
-                                                            for (int st = 0; st < hwStageCount && st < 8; st++)
+                                                            // 上界绑定数组容量而非硬编码 8，杜绝二者再次脱节
+                                                            for (int st = 0; st < hwStageCount && st < readStages.Length; st++)
                                                             {
                                                                 byte[] rxSt = null;
                                                                 for (int stRetry = 0; stRetry < 2; stRetry++)
