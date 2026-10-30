@@ -280,9 +280,6 @@ namespace RazerBatteryTray
 
 
 
-            // 休眠档位：点击后保持菜单展开，勾选实时移动
-            if ((item.Tag as string) == "sleep-rate") return true;
-
             if (item == statusMenuItem ||
 
                 item == showItem ||
