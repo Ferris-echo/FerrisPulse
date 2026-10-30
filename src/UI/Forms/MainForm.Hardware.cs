@@ -2985,6 +2985,11 @@ namespace RazerBatteryTray
 
                 bool isGanssWired = isPureWired && info.Brand == "GANSS";
                 bool kbCharging = isPureWired || info.IsCharging;
+
+                // 纯 USB 有线但固件仍能报出真实电量（如迈从 K99 V3 有线形态）：
+                // 此时不该把百分比藏掉只显示「供电中」，而要如实显示电量 + 充电中。
+                // 仅当读不到电量（info.BatteryPercent < 0）时才退回「已连接 · 供电中」。
+                bool wiredWithBattery = isPureWired && info.BatteryPercent >= 0;
                 if (isGanssWired)
                 {
                     lblDeviceName.Text = "GS3108T-PRO";
@@ -2997,6 +3002,22 @@ namespace RazerBatteryTray
 
                     barBattery.StartChargingFill(100, brandAccent, Color.FromArgb(200, 255, 230));
                     lblUpdateTime.Text = GanssDeviceHelper.FormatWiredFootnote(GanssDeviceHelper.LastKnownBatteryPercent, info.LastUpdated);
+                }
+                else if (wiredWithBattery)
+                {
+                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                    lblBatteryBig.Text = info.BatteryPercent.ToString();
+                    lblBatteryBig.ForeColor = brandAccent;
+
+                    pillStatus.SetStatus(info.IsCharging ? "⚡ USB 有线 · 充电中" : "🔌 USB 有线", brandAccent);
+                    pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
+
+                    if (info.IsCharging)
+                        barBattery.StartChargingFill(info.BatteryPercent, brandAccent, Color.FromArgb(200, 255, 230));
+                    else
+                        barBattery.StopFlow(info.BatteryPercent, brandAccent);
+                    lblUpdateTime.Text = "最后同步: " + info.LastUpdated.ToString("HH:mm:ss") +
+                        (info.IsCharging ? " · USB 有线连接 · 充电中" : " · USB 有线连接");
                 }
                 else if (isPureWired)
                 {
@@ -3061,7 +3082,16 @@ namespace RazerBatteryTray
                             lblBatteryBig.Text = realBatt + "%";
                             lblBatteryBig.ForeColor = brandAccent;
 
-                            pillStatus.SetStatus(info.IsCharging ? "⚡ 充电中" : "2.4G 无线", brandAccent);
+                            // 2.4G 档位下又插着 USB 线充电时，运输形态仍是 2.4G，
+                            // 但供电来自 USB —— 状态标必须同时体现这两件事，否则用户会以为还在耗电。
+                            bool usbChargingInWireless = info.IsCharging &&
+                                info.Transport != null &&
+                                info.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                            if (usbChargingInWireless)
+                                pillStatus.SetStatus("⚡ 2.4G · USB 充电中", brandAccent);
+                            else
+                                pillStatus.SetStatus(info.IsCharging ? "⚡ 充电中" : "2.4G 无线", brandAccent);
                             pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
 
                             if (info.IsCharging)
@@ -3069,7 +3099,10 @@ namespace RazerBatteryTray
                             else
                                 barBattery.StopFlow(realBatt, brandAccent);
 
-                            lblUpdateTime.Text = "最后同步: " + info.LastUpdated.ToString("HH:mm:ss") + " · 2.4G 无线连接";
+                            if (usbChargingInWireless)
+                                lblUpdateTime.Text = "最后同步: " + info.LastUpdated.ToString("HH:mm:ss") + " · 2.4G 无线 · USB 充电中";
+                            else
+                                lblUpdateTime.Text = "最后同步: " + info.LastUpdated.ToString("HH:mm:ss") + " · 2.4G 无线连接";
                         }
                     }
                 }
