@@ -104,6 +104,9 @@ namespace RazerBatteryTray
             }
         }
 
+        // 适配包声明的传感器描述（FDAS metadata.sensorDescription），为空表示未声明。
+        public string SensorDescription;
+
         // 适配包声明的品牌色（FDAS metadata.brandColor）。
         // 有值时优先于下方按品牌名硬编码的配色，内置设备保持 null 不受影响。
         public Color? OverrideBrandColor;

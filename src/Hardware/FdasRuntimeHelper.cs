@@ -37,6 +37,12 @@ namespace RazerBatteryTray
         // FDAS metadata.brandColor（#RRGGBB）。为空时沿用内置的品牌配色表。
         public string BrandColorHex;
 
+        // 以下三项仅做声明式承载，不参与报文构造：
+        // description 供人工查阅，sensorDescription 供 UI 展示，sampleTxHex 供样本校验。
+        public string Description;
+        public string SensorDescription;
+        public string SampleTxHex;
+
         // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
         // 因此所有既有 1.0 适配包的行为完全不变。
         public int ReportId;
@@ -146,6 +152,9 @@ namespace RazerBatteryTray
                 def.Model = ExtractJsonString(jsonText, "model");
                 def.Author = ExtractJsonString(jsonText, "author");
                 def.BrandColorHex = ExtractJsonString(jsonText, "brandColor");
+                def.Description = ExtractJsonString(jsonText, "description");
+                def.SensorDescription = ExtractJsonString(jsonText, "sensorDescription");
+                def.SampleTxHex = ExtractJsonString(jsonText, "sampleTxHex");
                 def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
 
                 // 多 PID 矩阵：同一型号的有线/无线 PID 归并为一个设备身份
@@ -514,6 +523,7 @@ namespace RazerBatteryTray
                         dev.Brand = def.Brand;
                         dev.Category = def.Category;
                         dev.OverrideBrandColor = ParseHexColor(def.BrandColorHex);
+                        dev.SensorDescription = def.SensorDescription;
                         string matchedModel = null;
                         if (hasPidMatrix && def.DeviceModels != null)
                         {
