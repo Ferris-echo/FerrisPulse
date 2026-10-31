@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -32,6 +33,9 @@ namespace RazerBatteryTray
         public int UsagePage;
         public int Usage;
         public int ReportLength;
+
+        // FDAS metadata.brandColor（#RRGGBB）。为空时沿用内置的品牌配色表。
+        public string BrandColorHex;
         public int BatteryOffset;
         public int ChargingOffset;
         public byte ChargingMask;
@@ -122,13 +126,17 @@ namespace RazerBatteryTray
             try
             {
                 string ver = ExtractJsonString(jsonText, "fdasVersion");
-                if (ver != "1.0") return null;
+                // 同时接受 1.0 与 2.0：原来只认 "1.0"，导致 v2.0 适配包被整包丢弃。
+                // 2.0 的新增字段（devices / customActions 等）由后续解析按需读取，
+                // 未识别的键一律忽略，不影响 1.0 包的行为。
+                if (ver != "1.0" && ver != "2.0") return null;
 
                 FdasAdapterDefinition def = new FdasAdapterDefinition();
                 def.FilePath = filePath;
                 def.Brand = ExtractJsonString(jsonText, "brand");
                 def.Model = ExtractJsonString(jsonText, "model");
                 def.Author = ExtractJsonString(jsonText, "author");
+                def.BrandColorHex = ExtractJsonString(jsonText, "brandColor");
 
                 string catStr = ExtractJsonString(jsonText, "category");
                 def.Category = DeviceCategory.Mouse;
@@ -472,6 +480,7 @@ namespace RazerBatteryTray
                         dev.DeviceId = string.Format("FDAS:{0:X4}:{1:X4}", def.VendorId, def.ProductId);
                         dev.Brand = def.Brand;
                         dev.Category = def.Category;
+                        dev.OverrideBrandColor = ParseHexColor(def.BrandColorHex);
                         dev.DeviceName = def.Brand + " " + def.Model;
                                                 dev.IsConnected = (batt >= 0);
                         dev.BatteryPercent = batt >= 0 ? batt : 0;
@@ -952,6 +961,26 @@ namespace RazerBatteryTray
             }
             catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
+        }
+
+        // 解析 #RRGGBB / RRGGBB 形式的品牌色；无法解析时返回 null，
+        // 调用方会回退到内置的品牌配色表，不会把颜色画成黑色。
+        private static Color? ParseHexColor(string hexStr)
+        {
+            if (string.IsNullOrEmpty(hexStr)) return null;
+            string clean = hexStr.Trim().TrimStart('#');
+            if (clean.Length != 6) return null;
+            try
+            {
+                int r = Convert.ToInt32(clean.Substring(0, 2), 16);
+                int g = Convert.ToInt32(clean.Substring(2, 2), 16);
+                int b = Convert.ToInt32(clean.Substring(4, 2), 16);
+                return Color.FromArgb(r, g, b);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static int ConvertHexToInt(string hexStr)

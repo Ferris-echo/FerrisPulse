@@ -104,10 +104,15 @@ namespace RazerBatteryTray
             }
         }
 
+        // 适配包声明的品牌色（FDAS metadata.brandColor）。
+        // 有值时优先于下方按品牌名硬编码的配色，内置设备保持 null 不受影响。
+        public Color? OverrideBrandColor;
+
         public Color BrandColor
         {
             get
             {
+                if (OverrideBrandColor.HasValue) return OverrideBrandColor.Value;
                 if (Brand == "HyperX" || Brand == "极度未知") return Color.FromArgb(226, 0, 43);
                 if (Category == DeviceCategory.Headset) return Color.FromArgb(90, 160, 255);
                 if (Category == DeviceCategory.Earbuds) return Color.FromArgb(179, 136, 255);
