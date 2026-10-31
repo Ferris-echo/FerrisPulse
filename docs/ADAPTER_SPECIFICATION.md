@@ -140,6 +140,9 @@
 | `txHex` | string, Button 必填 | 固定报文 |
 | `txTemplate` | string, Slider 必填 | 含 `{value}` 的报文模板 |
 | `min` / `max` | int, Slider 可选 | 取值范围，默认 0 ~ 100 |
+| `queryStateTxHex` | string, 可选 | 状态回读报文。声明后每次 Toggle 执行完会读回真实状态 |
+| `stateByteOffset` | int, 可选 | 状态字节在响应中的偏移（0-based），缺省 -1 表示不回读 |
+| `stateActiveMask` | string, 可选 | 状态位掩码，默认 `"0x01"` |
 
 ```json
 "customActions": [
@@ -153,7 +156,8 @@
 ]
 ```
 
-> **限制**：Toggle 的状态仅在本会话内记忆，不回读设备；重启后从「关」开始。
+> **状态回读**：声明了 `queryStateTxHex` + `stateByteOffset` 后，Toggle 每次执行完会读回设备真实状态；
+> 未声明时退化为「会话内记忆」，重启后从「关」开始。
 > 报文同样会经过 `reportId` 前插与 `checksumType` 校验。
 
 ### 2.4 指令字典与报文模板 (`protocol`)
@@ -235,7 +239,6 @@
 
 | 项 | 状态 |
 |---|---|
-| `capabilities.customActions` 状态回读 | 未实现（Toggle 状态仅会话内记忆） |
 | `protocol.setStagesTxTemplate` | 不引入——硬件为逐档下发，已用批量写入语义替代 |
 | `.fp-driver.cs` 动态 C# 驱动 | 未实现（无热加载机制） |
 | `capabilities.battery.sampleTxHex` | 仅解析 `sampleRxHex` |

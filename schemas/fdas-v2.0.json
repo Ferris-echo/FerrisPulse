@@ -129,7 +129,10 @@
               "txHex": { "type": "string" },
               "txTemplate": { "type": "string" },
               "min": { "type": "integer" },
-              "max": { "type": "integer" }
+              "max": { "type": "integer" },
+              "queryStateTxHex": { "type": "string", "description": "状态回读报文" },
+              "stateByteOffset": { "type": "integer", "minimum": 0 },
+              "stateActiveMask": { "type": "string" }
             }
           }
         }

@@ -36,6 +36,10 @@ namespace RazerBatteryTray
         public string OffTxHex;        // Toggle: 关闭
         public string TxHex;           // Button: 固定报文
         public string TxTemplate;      // Slider / 通用：含 {value}
+        // 状态回读（可选）：声明后可读回设备真实状态，而不是只靠会话内记忆
+        public string QueryStateTxHex;
+        public int StateByteOffset = -1;   // -1 = 未声明
+        public int StateActiveMask = 1;
         // 运行时状态（不持久化，仅本次会话内记忆）
         public bool CurrentOn;
     }
@@ -911,6 +915,96 @@ namespace RazerBatteryTray
             }
         }
 
+        // 回读自定义动作的真实状态。未声明 queryStateTxHex 或 stateByteOffset 时直接返回。
+        private static void RefreshActionState(FdasAdapterDefinition def, FdasCustomAction act)
+        {
+            try
+            {
+                if (def == null || act == null) return;
+                if (string.IsNullOrEmpty(act.QueryStateTxHex) || act.StateByteOffset < 0) return;
+
+                byte[] q = ApplyReportId(ParseHexBytes(act.QueryStateTxHex), def.ReportId);
+                if (q == null || q.Length == 0) return;
+
+                int reqLen = def.ReportLength > 0 ? def.ReportLength : q.Length;
+                if (q.Length < reqLen)
+                {
+                    byte[] padded = new byte[reqLen];
+                    Array.Copy(q, padded, q.Length);
+                    q = padded;
+                }
+                else if (q.Length > reqLen)
+                {
+                    byte[] trimmed = new byte[reqLen];
+                    Array.Copy(q, trimmed, reqLen);
+                    q = trimmed;
+                }
+                ApplyChecksum(q, def.ChecksumType, def.VendorId, def.ReportId);
+
+                byte[] rx = SendAndReadFromDevice(def, q, def.ReadTimeoutMs > 0 ? def.ReadTimeoutMs : 400);
+                if (rx == null || rx.Length <= act.StateByteOffset) return;
+
+                act.CurrentOn = (rx[act.StateByteOffset] & act.StateActiveMask) != 0;
+            }
+            catch (Exception stateEx)
+            {
+                Diagnostics.Log("FdasRuntimeHelper: 自定义动作状态回读失败", stateEx);
+            }
+        }
+
+        // 发送一条查询报文并读回响应。仅服务状态回读，与电量查询路径独立。
+        private static byte[] SendAndReadFromDevice(FdasAdapterDefinition def, byte[] tx, int timeoutMs)
+        {
+            if (def == null || tx == null || tx.Length == 0) return null;
+            try
+            {
+                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(def.VendorId, def.ProductId);
+                if (descriptors == null || descriptors.Count == 0) return null;
+
+                HidDeviceDescriptor target = descriptors[0];
+                if (def.UsagePage != 0 && def.Usage != 0)
+                {
+                    for (int di = 0; di < descriptors.Count; di++)
+                    {
+                        if (descriptors[di].UsagePage == def.UsagePage && descriptors[di].Usage == def.Usage)
+                        {
+                            target = descriptors[di];
+                            break;
+                        }
+                    }
+                }
+
+                IntPtr handle = HidTransport.Open(target.DevicePath);
+                if (!HidTransport.IsValidHandle(handle)) return null;
+                try
+                {
+                    int len = def.ReportLength > 0 ? def.ReportLength : tx.Length;
+                    HidTransport.DrainReports(handle, len, 2);
+
+                    if (def.ReportType.Equals("Feature", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!HidTransport.SetFeature(handle, tx)) return null;
+                    }
+                    else
+                    {
+                        if (!HidTransport.WriteReport(handle, tx, tx.Length, 300)) return null;
+                    }
+
+                    byte[] rx;
+                    if (HidTransport.ReadReport(handle, len, timeoutMs > 0 ? timeoutMs : 400, out rx)) return rx;
+                    return null;
+                }
+                finally
+                {
+                    HidTransport.Close(handle);
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static void ApplyChecksum(byte[] buf, string checksumType, int vendorId, int reportId)
         {
             if (buf == null || buf.Length <= 1) return;
@@ -1131,6 +1225,10 @@ namespace RazerBatteryTray
                 a.OffTxHex = ExtractJsonString(obj, "offTxHex");
                 a.TxHex = ExtractJsonString(obj, "txHex");
                 a.TxTemplate = ExtractJsonString(obj, "txTemplate");
+                a.QueryStateTxHex = ExtractJsonString(obj, "queryStateTxHex");
+                a.StateByteOffset = ExtractJsonInt(obj, "stateByteOffset", -1);
+                a.StateActiveMask = ConvertHexToInt(ExtractJsonString(obj, "stateActiveMask"));
+                if (a.StateActiveMask <= 0) a.StateActiveMask = 1;
                 list.Add(a);
             }
             if (list.Count > 0)
@@ -1242,6 +1340,8 @@ namespace RazerBatteryTray
                 if (sent && string.Equals(act.Type, "Toggle", StringComparison.OrdinalIgnoreCase))
                 {
                     act.CurrentOn = willBeOn;
+                    // 声明了回读报文就以设备实际状态为准，避免只靠会话内记忆
+                    RefreshActionState(def, act);
                 }
                 return sent;
             }
