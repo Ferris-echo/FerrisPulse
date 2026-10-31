@@ -1367,6 +1367,10 @@ namespace RazerBatteryTray
 
             if (FdasRuntimeHelper.IsFdasDevice(dev.DeviceId)) return false;
 
+            // VGN 键盘（Neon75 / N75 PRO）没有实测可写的 DPI/回报率通道，
+            // 严禁被鼠标驱动接管而虚标 SupportsDpi / SupportsPollingRate。
+            if (dev.Category == DeviceCategory.Keyboard) return false;
+
             return string.Equals(dev.Brand, "VGN", StringComparison.OrdinalIgnoreCase) ||
 
                    string.Equals(dev.Brand, "Zaopin", StringComparison.OrdinalIgnoreCase) ||
