@@ -86,8 +86,11 @@ Check 'BLE probe precedes USB 4D probe' (($bleIdx -ge 0) -and ($usbIdx -gt $bleI
 Check 'USB 4D probe guarded by !bleOnline' ($legacySrc.Contains('if (!bleOnline)')) 'missing guard'
 
 # UI：BLE 形态必须落入 Generic Mouse 分支（与上游对能力缺失鼠标的既有处理一致）。
-Check 'UI declares BLE transport flag' ($uiSrc.Contains('isMchoseMouseBle')) 'missing flag'
-Check 'UI excludes BLE from rich console' ($uiSrc.Contains('bool isMchoseMouse = isMchoseBrandMouse && !isMchoseMouseBle;')) 'missing exclusion'
+# 铁律 12：UI 层零品牌硬编码，门禁必须读取能力契约，不得写 Brand == "xxx"。
+Check 'UI gates console by capability contract' ($uiSrc.Contains('supportsMouseTuning')) 'missing capability gate'
+Check 'UI capability gate reads DPI/stage/rate flags' ($uiSrc.Contains('SupportsDpi || info.Capabilities.SupportsDpiStages || info.Capabilities.SupportsPollingRate')) 'gate must read capability flags'
+Check 'UI has no MCHOSE brand hardcode' (-not $uiSrc.Contains('isMchoseBrandMouse')) 'brand hardcode should be removed'
+Check 'UI has no BLE transport string gate' (-not $uiSrc.Contains('isMchoseMouseBle')) 'transport-string gate should be removed'
 
 # ------------------------------------------------------- C. 运行时契约
 $binPath = Join-Path $root 'FerrisPulse.exe'

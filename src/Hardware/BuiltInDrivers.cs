@@ -963,6 +963,9 @@ namespace RazerBatteryTray
             int xyProbeVid = 0;
             bool xyPidOk = HardwareDriverBase.TryExtractDeviceVidPid(dev, out xyProbeVid, out xyProbePid);
             bool is4DFamily = xyPidOk && MchoseMouse4DHelper.IsSupportedPid(xyProbePid);
+            // 非 4D 家族（旧版 A5 V2 Ultra 等 0x11/0x12 报文协议）沿用上游既有声明 true：
+            // 上游 b1a730b 对迈从鼠标一律 SupportsXyIndependence = isMouse，本次不做收紧，
+            // 以免无实测依据地削减旧机型既有 UI 能力。4D 家族则按回包 [12] HasY 如实判定。
             dev.Capabilities.SupportsXyIndependence = is4DFamily ? dev.IsXyIndependent : true;
 
             dev.Capabilities.SupportsHardwareDpiMonitor = false;
