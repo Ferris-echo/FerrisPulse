@@ -309,12 +309,16 @@ namespace RazerBatteryTray
                                             bool isMouse = (caps.UsagePage == 0x01 && caps.Usage == 0x02) ||
                                                            (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("mouse") || prod.Contains("鼠标")));
 
-                                            if (isGamepad || isHeadset || isDongle || isKeyboard || isMouse)
-                                            {
-                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                                attr.Size = Marshal.SizeOf(attr);
-                                                RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
 
+                                            // 水月雨 GM-01 PRO 由专属 MoondropDeviceHelper 负责注册，
+                                            // 通用扫描不再泛化它，避免同一条耳机出现两条设备记录。
+                                            bool managedByDedicatedDriver = MoondropDeviceHelper.IsManagedDevice(attr.VendorID, attr.ProductID);
+
+                                            if (!managedByDedicatedDriver && (isGamepad || isHeadset || isDongle || isKeyboard || isMouse))
+                                            {
                                                 string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
                                                 string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 

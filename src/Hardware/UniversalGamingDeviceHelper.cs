@@ -836,9 +836,14 @@ namespace RazerBatteryTray
                 string asusPath = path.ToLowerInvariant();
                 if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1ab5") || asusPath.Contains("pid_1ace")) return false;
             }
-            // 258A:01BB 的 Z75/Z75S 为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
+            // 258A:01BB 的 Z75/Z75S、41E4:2004 的 G98V2 均为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
             if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
                 path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (vid == MchoseDeviceHelper.VendorIdG98V2 && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2004", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            // A8A5:2255 为 MCHOSE G 系列鼠标 2.4G 接收器，由 MchoseGMouseHelper 专属接管。
+            if (vid == MchoseGMouseHelper.VendorIdMchoseG && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2255", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
