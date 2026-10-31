@@ -1040,6 +1040,74 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.966 Query MCHOSE G series mouse (G7 2.4G receiver, A8A5:2255)
+            try
+            {
+                var mchoseGMice = MchoseGMouseHelper.QueryAllMchoseGMice();
+                if (mchoseGMice != null && mchoseGMice.Count > 0)
+                {
+                    foreach (var dev in mchoseGMice)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.967 Query MOONDROP headset (GM-01 PRO, 35D8:0133)
+            // USB 直连模式下该机型全部 HID 集合都没有电量通道，这里只做准确识别与状态标注。
+            try
+            {
+                var moondropDevices = MoondropDeviceHelper.QueryAllMoondropDevices();
+                if (moondropDevices != null && moondropDevices.Count > 0)
+                {
+                    foreach (var dev in moondropDevices)
+                    {
+                        if (dev == null || !dev.IsConnected) continue;
+
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 2.97 Query Sony (INZONE Buds WF-G700N wireless earbuds)
             try
             {

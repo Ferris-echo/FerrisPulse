@@ -2,9 +2,11 @@
 // 模块名称: MchoseDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   迈从 (MCHOSE) G87 V2 / G75 PRO 三模机械键盘电量与充电状态适配：
+//   迈从 (MCHOSE) G87 V2 / G75 PRO / G98V2 / Z75S 三模机械键盘电量与充电状态适配：
 //   G87 V2 使用 65 字节 0x55/0x4A/0x87 协议；G75 PRO (3554:FA09)
 //   使用 FF02/0002、20 字节 Report ID 0x13 / 命令 0x4A 协议与独立缓存。
+//   SINOWEALTH 系 2.4G 接收器（Z75S 258A:01BB、G98V2 41E4:2004）共用同一套
+//   20 字节 0x13/0x4A 报文，仅型号标识字节不同（Z75S=0x09、G98V2=0x18）。
 //   特别鸣谢社区贡献者：“yaphets”。
 // 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, Microsoft.Win32
 //
@@ -34,8 +36,14 @@ namespace RazerBatteryTray
         public const int PidG75Pro = 0xFA09;
         public const int VendorIdZ75s = 0x258A;
         public const int PidZ75sWireless = 0x01BB;
+        // G98V2 的 2.4G 接收器由 SINOWEALTH 方案提供，报文与 Z75S 完全一致，仅型号字节不同。
+        public const int VendorIdG98V2 = 0x41E4;
+        public const int PidG98V2Wireless = 0x2004;
         private const int Z75sReportLength = 20;
+        private const byte Z75sModelByte = 0x09;
+        private const byte G98V2ModelByte = 0x18;
         private const string Z75sModelToken = "0A0000000009";
+        private const string G98V2ModelToken = "0A0000000018";
         private static readonly object z75sLock = new object();
         private static DateTime lastZ75sQueryTime = DateTime.MinValue;
         private static List<MouseBatteryInfo> cachedZ75sDevices = new List<MouseBatteryInfo>();
@@ -75,7 +83,8 @@ namespace RazerBatteryTray
         {
             return (vid == VendorIdMchose && pid == PidG87V2) ||
                    (vid == VendorIdCompX && pid == PidG75Pro) ||
-                   (vid == VendorIdZ75s && pid == PidZ75sWireless);
+                   (vid == VendorIdZ75s && pid == PidZ75sWireless) ||
+                   (vid == VendorIdG98V2 && pid == PidG98V2Wireless);
         }
 
         public static bool IsMchoseKeyboard(string identifier)
@@ -88,7 +97,9 @@ namespace RazerBatteryTray
                          (lower.Contains("pid_fa09") || lower.Contains(":fa09"));
             bool isZ75s = (lower.Contains("vid_258a") || lower.Contains("258a:") || lower.Contains("258a&")) &&
                           (lower.Contains("pid_01bb") || lower.Contains(":01bb"));
-            return isG87 || isG75 || isZ75s;
+            bool isG98V2 = (lower.Contains("vid_41e4") || lower.Contains("41e4:") || lower.Contains("41e4&")) &&
+                           (lower.Contains("pid_2004") || lower.Contains(":2004"));
+            return isG87 || isG75 || isZ75s || isG98V2;
         }
 
         public static string GetModelName(string productString)
@@ -272,10 +283,25 @@ namespace RazerBatteryTray
             return report[19] == (byte)(sum & 0xFF);
         }
 
+        /// <summary>
+        /// 校验 SINOWEALTH 系接收器的型号握手应答，并回传型号标识字节。
+        /// 已知取值：0x09 = Z75S，0x18 = G98V2。
+        /// </summary>
+        public static bool ParseSinowealthIdentityResponse(byte[] report, int length, out byte modelByte)
+        {
+            modelByte = 0;
+            if (!IsZ75sResponse(report, length, 0x05, 6)) return false;
+            if (report[5] != 0x0A || report[6] != 0 || report[7] != 0 || report[8] != 0 || report[9] != 0) return false;
+            byte value = report[10];
+            if (value != Z75sModelByte && value != G98V2ModelByte) return false;
+            modelByte = value;
+            return true;
+        }
+
         public static bool ParseZ75sIdentityResponse(byte[] report, int length)
         {
-            return IsZ75sResponse(report, length, 0x05, 6) && report[5] == 0x0A &&
-                report[6] == 0 && report[7] == 0 && report[8] == 0 && report[9] == 0 && report[10] == 9;
+            byte modelByte;
+            return ParseSinowealthIdentityResponse(report, length, out modelByte) && modelByte == Z75sModelByte;
         }
 
         public static bool ParseZ75sBatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
@@ -290,12 +316,24 @@ namespace RazerBatteryTray
             return true;
         }
 
+        /// <summary>
+        /// 只接受已实测的 SINOWEALTH 接收器组合：258A:01BB（Z75S）与 41E4:2004（G98V2）。
+        /// 必须同时锁定 UsagePage/Usage 与 20 字节的 In/Out 长度，禁止宽松匹配。
+        /// </summary>
         private static bool IsZ75sEndpoint(HidDeviceDescriptor descriptor)
         {
-            return descriptor != null && descriptor.VendorId == VendorIdZ75s &&
-                descriptor.ProductId == PidZ75sWireless && descriptor.UsagePage == 0xFF02 &&
+            if (descriptor == null || string.IsNullOrEmpty(descriptor.DevicePath)) return false;
+            bool knownPair = (descriptor.VendorId == VendorIdZ75s && descriptor.ProductId == PidZ75sWireless) ||
+                             (descriptor.VendorId == VendorIdG98V2 && descriptor.ProductId == PidG98V2Wireless);
+            return knownPair && descriptor.UsagePage == 0xFF02 &&
                 descriptor.Usage == 2 && descriptor.InputReportLength == Z75sReportLength &&
-                descriptor.OutputReportLength == Z75sReportLength && !string.IsNullOrEmpty(descriptor.DevicePath);
+                descriptor.OutputReportLength == Z75sReportLength;
+        }
+
+        private static bool IsG98V2Endpoint(HidDeviceDescriptor descriptor)
+        {
+            return descriptor != null && descriptor.VendorId == VendorIdG98V2 &&
+                descriptor.ProductId == PidG98V2Wireless;
         }
 
         private static string GetZ75sEndpointKey(HidDeviceDescriptor descriptor)
@@ -313,12 +351,22 @@ namespace RazerBatteryTray
         private static MouseBatteryInfo CreateZ75sInfo(HidDeviceDescriptor descriptor, MouseBatteryInfo previous,
             int battery, bool charging, bool fresh)
         {
+            byte modelByte = IsG98V2Endpoint(descriptor) ? G98V2ModelByte : Z75sModelByte;
+            return BuildSinowealthInfo(descriptor, previous, battery, charging, fresh, modelByte);
+        }
+
+        private static MouseBatteryInfo BuildSinowealthInfo(HidDeviceDescriptor descriptor, MouseBatteryInfo previous,
+            int battery, bool charging, bool fresh, byte modelByte)
+        {
+            bool isG98V2 = modelByte == G98V2ModelByte;
+            string modelName = isG98V2 ? "MCHOSE G98V2" : "MCHOSE Z75S";
+            string modelId = isG98V2 ? "MCHOSE:41E4:2004" : "MCHOSE:258A:01BB";
             bool hasPrevious = previous != null && previous.BatteryPercent >= 0 && previous.BatteryPercent <= 100;
             MouseBatteryInfo info = new MouseBatteryInfo();
-            info.DeviceId = "MCHOSE:258A:01BB";
-            info.HardwareFingerprint = "HID:258A:01BB";
+            info.DeviceId = modelId;
+            info.HardwareFingerprint = isG98V2 ? "HID:41E4:2004" : "HID:258A:01BB";
             info.HardwareId = descriptor.InstanceId;
-            info.DeviceName = "MCHOSE Z75S";
+            info.DeviceName = modelName;
             info.Brand = "MCHOSE";
             info.Category = DeviceCategory.Keyboard;
             info.Transport = "2.4G 无线";
@@ -330,8 +378,19 @@ namespace RazerBatteryTray
             info.ExactBatteryPercent = info.BatteryPercent;
             info.IsCharging = fresh ? charging : (hasPrevious && previous.IsCharging);
             info.LastUpdated = fresh ? DateTime.Now : (hasPrevious ? previous.LastUpdated : DateTime.MinValue);
-            if (!fresh) info.CustomTooltip = "Z75S 接收器在线，键盘暂未响应；电量为上次真实读数（如有）";
+            if (!fresh) info.CustomTooltip = modelName + " 接收器在线，键盘暂未响应；电量为上次真实读数（如有）";
             return info;
+        }
+
+        private static bool IsKnownModelToken(string token)
+        {
+            return Z75sModelToken.Equals(token, StringComparison.Ordinal) ||
+                   G98V2ModelToken.Equals(token, StringComparison.Ordinal);
+        }
+
+        private static string GetModelToken(HidDeviceDescriptor descriptor)
+        {
+            return IsG98V2Endpoint(descriptor) ? G98V2ModelToken : Z75sModelToken;
         }
 
         private static MouseBatteryInfo LoadZ75sCache(HidDeviceDescriptor descriptor)
@@ -340,7 +399,7 @@ namespace RazerBatteryTray
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(GetZ75sCachePath(descriptor), false))
                 {
-                    if (key == null || !Z75sModelToken.Equals(key.GetValue("ModelToken") as string, StringComparison.Ordinal) ||
+                    if (key == null || !IsKnownModelToken(key.GetValue("ModelToken") as string) ||
                         !GetZ75sEndpointKey(descriptor).Equals(key.GetValue("Endpoint") as string, StringComparison.OrdinalIgnoreCase)) return null;
                     MouseBatteryInfo info = CreateZ75sInfo(descriptor, null, -1, false, false);
                     int battery = Convert.ToInt32(key.GetValue("BatteryPercent", -1));
@@ -366,7 +425,7 @@ namespace RazerBatteryTray
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey(GetZ75sCachePath(descriptor)))
                 {
                     if (key == null) return;
-                    key.SetValue("ModelToken", Z75sModelToken, RegistryValueKind.String);
+                    key.SetValue("ModelToken", GetModelToken(descriptor), RegistryValueKind.String);
                     key.SetValue("Endpoint", GetZ75sEndpointKey(descriptor), RegistryValueKind.String);
                     if (info.BatteryPercent < 0) return; // 只持久化真实电量；型号握手成功也可单独记忆。
                     key.SetValue("BatteryPercent", info.BatteryPercent, RegistryValueKind.DWord);
@@ -397,12 +456,13 @@ namespace RazerBatteryTray
         }
 
         private static bool QueryZ75sDevice(HidDeviceDescriptor descriptor, out bool verified, out bool differentModel,
-            out int battery, out bool charging)
+            out int battery, out bool charging, out byte modelByte)
         {
             verified = false;
             differentModel = false;
             battery = -1;
             charging = false;
+            modelByte = 0;
             // 只打开厂商配置集合，按键集合（Usage 1/6、\\kbd）绝不进入中断 I/O。
             if (!IsZ75sEndpoint(descriptor)) return false;
             IntPtr handle = HidTransport.Open(descriptor.DevicePath);
@@ -413,12 +473,14 @@ namespace RazerBatteryTray
                 HidTransport.DrainReports(handle, Z75sReportLength, 3);
                 byte[] rx;
                 if (!ExchangeZ75sReport(handle, BuildZ75sIdentityFrame(), timer, out rx)) return false;
-                verified = ParseZ75sIdentityResponse(rx, rx.Length);
+                byte detected;
+                verified = ParseSinowealthIdentityResponse(rx, rx.Length, out detected);
                 if (!verified)
                 {
                     differentModel = true;
                     return false;
                 }
+                modelByte = detected;
                 if (!ExchangeZ75sReport(handle, BuildZ75sBatteryFrame(), timer, out rx)) return false;
                 return ParseZ75sBatteryResponse(rx, rx.Length, out battery, out charging);
             }
@@ -435,7 +497,9 @@ namespace RazerBatteryTray
                     return new List<MouseBatteryInfo>(cachedZ75sDevices);
                 lastZ75sQueryTime = now;
                 List<MouseBatteryInfo> result = new List<MouseBatteryInfo>();
-                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdZ75s, PidZ75sWireless);
+                List<HidDeviceDescriptor> descriptors = new List<HidDeviceDescriptor>();
+                descriptors.AddRange(HidTransport.Enumerate(VendorIdZ75s, PidZ75sWireless));
+                descriptors.AddRange(HidTransport.Enumerate(VendorIdG98V2, PidG98V2Wireless));
                 HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < descriptors.Count; i++)
                 {
@@ -449,15 +513,18 @@ namespace RazerBatteryTray
                     bool differentModel;
                     int battery;
                     bool charging;
-                    bool fresh = QueryZ75sDevice(descriptor, out verified, out differentModel, out battery, out charging);
+                    byte modelByte;
+                    bool fresh = QueryZ75sDevice(descriptor, out verified, out differentModel, out battery, out charging, out modelByte);
                     if (differentModel)
                     {
                         z75sSamples.Remove(endpoint);
                         try { Registry.CurrentUser.DeleteSubKeyTree(GetZ75sCachePath(descriptor), false); } catch { }
                         continue;
                     }
-                    if (!verified && previous == null) continue; // 冷启动无型号响应时不猜测 Z75S。
-                    MouseBatteryInfo info = CreateZ75sInfo(descriptor, previous, battery, charging, fresh);
+                    if (!verified && previous == null) continue; // 冷启动无型号响应时不猜测机型。
+                    byte effectiveModel = verified ? modelByte
+                        : (IsG98V2Endpoint(descriptor) ? G98V2ModelByte : Z75sModelByte);
+                    MouseBatteryInfo info = BuildSinowealthInfo(descriptor, previous, battery, charging, fresh, effectiveModel);
                     z75sSamples[endpoint] = info;
                     if (verified) SaveZ75sCache(descriptor, info);
                     result.Add(info);

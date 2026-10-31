@@ -161,3 +161,89 @@
    - [ ] 连接罗技 GPW 与无线接收器，确认正确显示为“Lightspeed 无线”，电量正常读取。
    - [ ] 连接瓦尔基里键盘，确认电量百分比正常探测展示。
    - [ ] 调节雷柏鼠标 DPI，确认软件与鼠标丝滑响应，无卡死或无响应现象。
+
+---
+
+## 五、 2026-10-30 新增：三台外设电量适配（MOONDROP / MCHOSE G98V2 / MCHOSE G7）
+
+本节记录在本机（Windows，.NET 4.0 / csc.exe 4.8）实测完成的三台设备适配结论，
+三台均已拿到真实电量报文（水月雨那台最初判定「无电量通道」，后由官方网页驱动 hub.moondroplab.tech 的 WebHID 协议打通）。
+
+### 5.1 设备与协议一览
+
+| 设备 | VID:PID | 端点（UsagePage:Usage） | 帧长 | 电量来源 | 状态 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| MCHOSE G98V2 键盘 2.4G 接收器 | `0x41E4:0x2004` | `FF02:0002` | 20B In/Out | SINOWEALTH `0x13 0x4A` 报文 | ✅ 实测 98% |
+| MCHOSE G7 鼠标 2.4G 接收器 | `0xA8A5:0x2255` | `FF01:0010` | 65B In/Out | 官方 `/gmouse` WebHID 协议 | ✅ 实测 100% |
+| MOONDROP GM-01 PRO 耳机 | `0x35D8:0x0133` | `0C:0001` | 64B In/Out | 官方 hub WebHID `4B 80 27` | ✅ 实测 90% |
+
+### 5.2 MCHOSE G98V2（`0x41E4:0x2004`，SINOWEALTH 方案）
+
+与仓库已有的 Z75S（`0x258A:0x01BB`）完全同构，复用 `MchoseDeviceHelper` 的 20 字节帧：
+
+- 电量查询：`13 4A 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5E`
+- 型号查询：`13 05 01 00 … 00 19`
+- 应答解析：`[1]` 命令回显，`[5]` 电量百分比，`[6]` 高半字节=充电 / 低半字节=充满，`[19]` = `sum([0..18]) & 0xFF`
+- 实机应答：`13 4A 01 00 02 62 00 … C2` → 98%，未充电
+- 型号 token `0A 00 00 00 00 18`（G98V2），与 Z75S 的 `…09` 区分，靠 token 而非 VID 判型号
+
+### 5.3 MCHOSE G7（`0xA8A5:0x2255`，YJX 主控）
+
+协议取自官方网页驱动 <https://www.mchose.com.cn/gmouse> 的 `getBatteryInfo()`：
+
+- 65 字节缓冲区，`[0]` 为 Report ID（0），其后为 payload
+- 电量查询：`00 55 30 A5 0B 2E 01 01 01 00 …`
+- 应答判定：`buf[0]==0x00 && buf[1]==0xAA && buf[2]==0x30 && buf[3]==0xA5`
+- `buf[9]` = 电量 0..100，`buf[10]` = 充电标志（`0x01` 表示已接线）
+- 辅助命令：版本 `00 55 03`（ASCII 版本在 `[24..26]`）、在线 `00 55 ED`
+- 实机应答：`00 AA 30 A5 0B 0A 01 01 01 64 00 …` → 100%，未充电
+- 该系列 DPI / 回报率只有设备主动上报帧（`AA FA`），无查询写指令，故不声明 `SupportsDpi` / `SupportsPollingRate`
+
+### 5.4 MOONDROP GM-01 PRO（`0x35D8:0x0133`）——官方 WebHID 协议
+
+协议取自官方网页驱动 <https://hub.moondroplab.tech/>（Vue SPA + WebHID），不是猜测：
+
+- 命令通道是 **`UsagePage 0x0C / Usage 0x0001`，In/Out 均 64 字节**，不是 `FF02` 私有页；
+- 帧格式：`[0]=0x4B`（Report ID 75，官方 `config.reportId`）、`[1]=OP`、`[2]=CMD`、`[3]=payload 长度`，其余补零；
+- 电量：`OP=0x80 / CMD=0x27`，应答 `[2]=0x27`、`[3]=6`、`[8]=有效标志(1)`、`[9]=0..100`；
+- 实机应答：`4B 80 27 06 00 00 00 00 01 5A` → 90%；
+- 辅助命令：`0x0C` 固件版本（ASCII `1.5.1`）、`0x31` 在线状态（`[4]=1`）、`0x2C` SKU/SN；
+- 官方协议没有充电字段，USB 直连即持续供电，故 `isCharging = false` 不臆造。
+
+> 曾经踩的坑：`FF02:0002` 的 64/65 字节镜像端点写入永远 OK 但零回帧，
+> 在这里穷举了首字节 `0x00..0x3F` 都没用——真正的通道藏在 Consumer 页的 64 字节集合里。
+> 所以 `IsProtocolEndpoint` 必须按 UsagePage/Usage/In/Out 四元组精确匹配，绝不能"取报告长度最大的集合"。
+
+`GenericHidHelper` 仍排除该 VID/PID，避免同一条耳机出现两条记录。
+### 5.5 本次改动文件索引
+
+| 序号 | 文件路径 | 修改内容 |
+| :--- | :--- | :--- |
+| 1 | `src/Hardware/MchoseGMouseHelper.cs` | **新增**：G7/G3/A7e 系列 65 字节协议、电量/版本/在线查询、注册表缓存、5s 节流 |
+| 2 | `src/Hardware/MoondropDeviceHelper.cs` | **新增**：GM-01 PRO 官方 WebHID 协议（`0x4B` / `0x80` / `0x27`）电量读取、端点四元组判定、`IsManagedDevice` 供通用扫描排除 |
+| 3 | `src/Hardware/MchoseDeviceHelper.cs` | 扩展 `0x41E4:0x2004`（G98V2）：型号 token 化、`ParseSinowealthIdentityResponse`、双 VID 枚举 |
+| 4 | `src/Hardware/GenericHidHelper.cs` | 通用扫描跳过 MOONDROP，避免重复条目 |
+| 5 | `src/Hardware/UniversalGamingDeviceHelper.cs` | `IsSupportedGamingDevice` 排除 `pid_2004` / `pid_2255`，防止误发通用鼠标探测 |
+| 6 | `src/Hardware/DeviceManager.cs` | 新增 2.966（G7）与 2.967（MOONDROP）两段注册 |
+| 7 | `tests/test_mchose_g7_gmouse.ps1` | **新增**：26 条断言，锁定帧格式、偏移与拒绝条件 |
+| 8 | `tests/test_moondrop_gm01pro.ps1` | **新增**：43 条断言，锁定协议常量、帧格式、应答解析与端点四元组 |
+
+### 5.6 复现步骤
+
+```powershell
+cd D:\code\FerrisPulse
+& cmd.exe /c "build.bat"                     # 必须用 pwsh 调 cmd，直接 ops_bash 跑 cmd 不生效
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_all_tests.ps1
+```
+
+实机核对（反射加载 `FerrisPulse.exe`，只读不写）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\scratch\list_all_devices.ps1
+# [Keyboard ] MCHOSE G98V2        98% -  2.4G 无线  MCHOSE:41E4:2004
+# [Mouse    ] MCHOSE G7          100% -  2.4G 无线  MCHOSE:A8A5:2255
+# [Headset  ] MOONDROP GM01 Pro   90% -  USB 有线    MOONDROP:35D8:0133
+```
+
+> ⚠️ 新踩的坑：`edit` / `write` 工具保存 .cs 或 .ps1 后会丢失 UTF-8 BOM，
+> 每次改完必须用 `UTF8Encoding($true)` 重写并通过 `tools/ensure_boms_safe.py` 复查。
