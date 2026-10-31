@@ -1154,9 +1154,9 @@ namespace RazerBatteryTray
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v2.0 硬件适配规范包");
+            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v1.0 硬件适配规范包");
             sb.AppendLine();
-            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份严格符合 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON，向下兼容 v1.0）。");
+            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份严格符合 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON）。");
             sb.AppendLine();
             sb.AppendLine("## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）");
             sb.AppendLine("你必须严格按以下两阶段开展工作：");
@@ -1171,7 +1171,8 @@ namespace RazerBatteryTray
             sb.AppendLine("   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！");
             sb.AppendLine("3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。");
             sb.AppendLine();
-            sb.AppendLine("### 阶段二：FDAS v2.0 动态微表达式与规范包封装 (Dynamic Calculation)");
+            sb.AppendLine("### 阶段二：FDAS v1.0 动态微表达式与规范包封装 (Dynamic Calculation)");
+            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
             sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
             sb.AppendLine("1. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验，例如：");
             sb.AppendLine("   - `\"rateParity\": \"(0x55 - $rateCode) & 0xFF\"` (CompX 互补校验位)");
@@ -1184,13 +1185,6 @@ namespace RazerBatteryTray
             sb.AppendLine("2. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
             sb.AppendLine("3. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：若设备查询电量需先唤醒接收器再查询，可声明执行序列：`[\"08 02 ...\", \"08 04 ...\"]`");
             sb.AppendLine("4. **内联表达式支持**：模板中直接支持 `{ (0x55 - rateCode) & 0xFF }` 动态求值。");
-            sb.AppendLine("5. **品牌主题色 (`metadata.brandColor`)**：`\"#RRGGBB\"` 格式，声明后优先于内置配色表。");
-            sb.AppendLine("6. **多 PID 矩阵 (`hardware.devices`)**：同一型号存在有线 / 2.4G 等多个 PID 时，用数组归并为同一设备身份，避免切换连接方式后被认成两台设备。**PID 与连接方式的对应关系必须来自实测**，不要推断。");
-            sb.AppendLine("7. **报告 ID (`capabilities.battery.reportId`)**：声明后，若报文首字节不是该 ID 会自动前插；CompX 方案（`checksumType: VgnCompxSum55`）的校验会跳过前导报告 ID，公式为 `0x55 - sum(不含ReportId) - 8`。");
-            sb.AppendLine();
-            sb.AppendLine("8. **自定义硬件动作 (`capabilities.customActions`)**：数组，每条含 `id` / `title` / `type`(Toggle|Slider|Button)。Toggle 用 `onTxHex`/`offTxHex`，Slider 用含 `{value}` 的 `txTemplate`，Button 用 `txHex`。生成后会出现在托盘「自定义动作」子菜单。");
-            sb.AppendLine();
-            sb.AppendLine("> **当前 FDAS 尚不支持**：`protocol.setStagesTxTemplate`（硬件为逐档下发）、`.fp-driver.cs` 动态驱动脚本。请勿生成这些字段，写了也不会生效。");
             sb.AppendLine();
             sb.AppendLine("## 🛡️ 逃生舱机制：代码级深度定制授权");
             sb.AppendLine("如果该设备的物理协议极其罕见或复杂（例如非标准加解密哈希、流式分片压缩等），确实超出了动态 JSON 的表达边界：");
@@ -1221,7 +1215,7 @@ namespace RazerBatteryTray
             sb.AppendLine(endpoints);
             sb.AppendLine();
             sb.AppendLine("## 4. 输出格式与契约规范");
-            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容符合 FDAS v2.0 规范，包含：");
+            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容符合 FDAS v1.0 规范，包含：");
             sb.AppendLine("1. `metadata`: brand, model, category, author, description");
             sb.AppendLine("2. `hardware`: vendorId, productId, endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
             sb.AppendLine("3. `capabilities`:");

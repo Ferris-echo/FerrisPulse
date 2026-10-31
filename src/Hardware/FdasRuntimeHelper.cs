@@ -15,35 +15,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace RazerBatteryTray
 {
-    // FDAS capabilities.customActions 的单条声明
-    public class FdasCustomAction
-    {
-        public string Id;
-        public string Title;
-        public string Type;            // Toggle / Slider / Button
-        public string ActiveText;
-        public string InactiveText;
-        public int Min;
-        public int Max;
-        public string OnTxHex;         // Toggle: 打开
-        public string OffTxHex;        // Toggle: 关闭
-        public string TxHex;           // Button: 固定报文
-        public string TxTemplate;      // Slider / 通用：含 {value}
-        // 状态回读（可选）：声明后可读回设备真实状态，而不是只靠会话内记忆
-        public string QueryStateTxHex;
-        public int StateByteOffset = -1;   // -1 = 未声明
-        public int StateActiveMask = 1;
-        // 运行时状态（不持久化，仅本次会话内记忆）
-        public bool CurrentOn;
-    }
-
     public class FdasAdapterDefinition
     {
         public string Brand;
@@ -55,34 +32,6 @@ namespace RazerBatteryTray
         public int UsagePage;
         public int Usage;
         public int ReportLength;
-
-        // FDAS metadata.brandColor（#RRGGBB）。为空时沿用内置的品牌配色表。
-        public string BrandColorHex;
-
-        // 以下三项仅做声明式承载，不参与报文构造：
-        // description 供人工查阅，sensorDescription 供 UI 展示，sampleTxHex 供样本校验。
-        public string Description;
-        public string SensorDescription;
-        public string SampleTxHex;
-
-        // FDAS capabilities.customActions
-        public List<FdasCustomAction> CustomActions;
-
-        // DPI 回读字节偏移（-1 表示未声明，不启用回读）
-        public int ActiveStageByteOffset = -1;
-        public int DpiXLoByteOffset = -1;
-        public int DpiXHiByteOffset = -1;
-        public int DpiYLoByteOffset = -1;
-        public int DpiYHiByteOffset = -1;
-
-        // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
-        // 因此所有既有 1.0 适配包的行为完全不变。
-        public int ReportId;
-
-        // FDAS hardware.devices 多 PID 矩阵。为空表示适配包未声明该字段，
-        // 设备身份沿用旧的 FDAS:VID:PID 规则，行为与之前完全一致。
-        public string[] DeviceProductIds;
-        public string[] DeviceModels;
         public int BatteryOffset;
         public int ChargingOffset;
         public byte ChargingMask;
@@ -173,40 +122,13 @@ namespace RazerBatteryTray
             try
             {
                 string ver = ExtractJsonString(jsonText, "fdasVersion");
-                // 同时接受 1.0 与 2.0：原来只认 "1.0"，导致 v2.0 适配包被整包丢弃。
-                // 2.0 的新增字段（devices / customActions 等）由后续解析按需读取，
-                // 未识别的键一律忽略，不影响 1.0 包的行为。
-                if (ver != "1.0" && ver != "2.0") return null;
+                if (ver != "1.0") return null;
 
                 FdasAdapterDefinition def = new FdasAdapterDefinition();
                 def.FilePath = filePath;
                 def.Brand = ExtractJsonString(jsonText, "brand");
                 def.Model = ExtractJsonString(jsonText, "model");
                 def.Author = ExtractJsonString(jsonText, "author");
-                def.BrandColorHex = ExtractJsonString(jsonText, "brandColor");
-                def.Description = ExtractJsonString(jsonText, "description");
-                def.SensorDescription = ExtractJsonString(jsonText, "sensorDescription");
-                def.SampleTxHex = ExtractJsonString(jsonText, "sampleTxHex");
-                def.CustomActions = ParseCustomActions(jsonText);
-                def.ActiveStageByteOffset = ExtractJsonInt(jsonText, "activeStageByteOffset", -1);
-                def.DpiXLoByteOffset = ExtractJsonInt(jsonText, "dpiXLoByteOffset", -1);
-                def.DpiXHiByteOffset = ExtractJsonInt(jsonText, "dpiXHiByteOffset", -1);
-                def.DpiYLoByteOffset = ExtractJsonInt(jsonText, "dpiYLoByteOffset", -1);
-                def.DpiYHiByteOffset = ExtractJsonInt(jsonText, "dpiYHiByteOffset", -1);
-                def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
-
-                // 多 PID 矩阵：同一型号的有线/无线 PID 归并为一个设备身份
-                string devicesBlock = ExtractJsonArrayBlock(jsonText, "devices");
-                if (!string.IsNullOrEmpty(devicesBlock))
-                {
-                    List<string> pids = ExtractJsonStringValues(devicesBlock, "productId");
-                    List<string> models = ExtractJsonStringValues(devicesBlock, "model");
-                    if (pids.Count > 0)
-                    {
-                        def.DeviceProductIds = pids.ToArray();
-                        def.DeviceModels = models.ToArray();
-                    }
-                }
 
                 string catStr = ExtractJsonString(jsonText, "category");
                 def.Category = DeviceCategory.Mouse;
@@ -449,7 +371,7 @@ namespace RazerBatteryTray
 
                                 for (int si = 0; si < txSteps.Count; si++)
                                 {
-                                    byte[] tx = ApplyReportId(ParseHexBytes(txSteps[si]), def.ReportId);
+                                    byte[] tx = ParseHexBytes(txSteps[si]);
                                     if (tx != null && tx.Length > 0)
                                     {
                                         int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -466,7 +388,7 @@ namespace RazerBatteryTray
                                             tx = trimmed;
                                         }
 
-                                        ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
+                                        ApplyChecksum(tx, def.ChecksumType, def.VendorId);
 
                                         if (def.ReportType.Equals("Feature", StringComparison.OrdinalIgnoreCase))
                                         {
@@ -547,37 +469,10 @@ namespace RazerBatteryTray
                         }
 
                         MouseBatteryInfo dev = new MouseBatteryInfo();
-                        // 声明了 devices 矩阵时，用型号做稳定分组键，
-                        // 避免同一鼠标在有线/无线之间切换被认成两台设备。
-                        bool hasPidMatrix = def.DeviceProductIds != null && def.DeviceProductIds.Length > 0;
-                        if (hasPidMatrix)
-                        {
-                            dev.DeviceId = string.Format("FDAS:{0:X4}:{1}", def.VendorId, SanitizeIdPart(def.Model));
-                        }
-                        else
-                        {
-                            dev.DeviceId = string.Format("FDAS:{0:X4}:{1:X4}", def.VendorId, def.ProductId);
-                        }
+                        dev.DeviceId = string.Format("FDAS:{0:X4}:{1:X4}", def.VendorId, def.ProductId);
                         dev.Brand = def.Brand;
                         dev.Category = def.Category;
-                        dev.OverrideBrandColor = ParseHexColor(def.BrandColorHex);
-                        dev.SensorDescription = def.SensorDescription;
-                        string matchedModel = null;
-                        if (hasPidMatrix && def.DeviceModels != null)
-                        {
-                            for (int mi = 0; mi < def.DeviceProductIds.Length; mi++)
-                            {
-                                if (mi < def.DeviceModels.Length
-                                    && ConvertHexToInt(def.DeviceProductIds[mi]) == def.ProductId)
-                                {
-                                    matchedModel = def.DeviceModels[mi];
-                                    break;
-                                }
-                            }
-                        }
-                        dev.DeviceName = !string.IsNullOrEmpty(matchedModel)
-                            ? matchedModel
-                            : (def.Brand + " " + def.Model);
+                        dev.DeviceName = def.Brand + " " + def.Model;
                                                 dev.IsConnected = (batt >= 0);
                         dev.BatteryPercent = batt >= 0 ? batt : 0;
                         dev.IsCharging = chg;
@@ -592,17 +487,6 @@ namespace RazerBatteryTray
                             dev.DpiStageCount = dev.DpiStages.Length;
                             dev.Dpi = def.CurrentDpi > 0 ? def.CurrentDpi : (dev.DpiStages.Length > 2 ? dev.DpiStages[2] : dev.DpiStages[0]);
                             dev.DpiStage = def.CurrentDpiStage > 0 ? def.CurrentDpiStage : 3;
-
-                            // 声明了字节偏移就回读设备真实 DPI 与当前档位，
-                            // 用户在鼠标上按 DPI 键改档后程序能同步。
-                            // 未声明时整段跳过，行为与之前完全一致。
-                            int hwDpiX, hwDpiY, hwStage;
-                            if (TryReadDpiState(def, out hwDpiX, out hwDpiY, out hwStage))
-                            {
-                                if (hwDpiX > 0) dev.Dpi = hwDpiX;
-                                if (hwDpiY > 0) dev.DpiY = hwDpiY;
-                                if (hwStage > 0) dev.DpiStage = hwStage;
-                            }
                             dev.IsXyIndependent = def.SupportsXyIndependence;
 
                             dev.SupportedPollingRates = (def.SupportedRates != null && def.SupportedRates.Length > 0)
@@ -619,33 +503,6 @@ namespace RazerBatteryTray
 
                 return result;
             }
-        }
-
-        // 批量写入全部 DPI 档位。与其他品牌（雷蛇/雷柏/皂品）的 Update*HardwareStages 对齐：
-        // 原来 FDAS 设备只写当前档位，改档位后其余档位的数值不会被持久化。
-        //
-        // 安全闸门：只有适配包声明了 setDpiValueTxTemplate（"写某档数值"）时才批量写；
-        // 否则 SetDpi 会退化成 setDpiTxTemplate（"切换档位"），循环会把设备反复切档。
-        public static bool UpdateStages(string deviceId, int activeStage, int[] stagesX, int[] stagesY)
-        {
-            if (stagesX == null || stagesX.Length == 0) return false;
-            FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
-            if (def == null || string.IsNullOrEmpty(def.SetDpiValueTxTemplate))
-            {
-                // 没有"写数值"模板：保持旧行为，只写当前档位
-                int ax = (activeStage >= 1 && activeStage <= stagesX.Length) ? stagesX[activeStage - 1] : stagesX[0];
-                int ay = (stagesY != null && activeStage >= 1 && activeStage <= stagesY.Length) ? stagesY[activeStage - 1] : ax;
-                return SetDpi(deviceId, ax, ay, activeStage > 0 ? activeStage : 1);
-            }
-
-            bool any = false;
-            for (int i = 0; i < stagesX.Length && i < 8; i++)
-            {
-                int dx = stagesX[i];
-                int dy = (stagesY != null && i < stagesY.Length) ? stagesY[i] : dx;
-                if (SetDpi(deviceId, dx, dy, i + 1)) any = true;
-            }
-            return any;
         }
 
         public static bool SetDpi(string deviceId, int dpiX, int dpiY, int stage)
@@ -691,7 +548,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiTxTemplate, context, def.Variables);
 
-                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
+                byte[] tx = ParseHexBytes(tpl);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -708,7 +565,7 @@ namespace RazerBatteryTray
                     tx = trimmed;
                 }
 
-                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
+                ApplyChecksum(tx, def.ChecksumType, def.VendorId);
 
                 bool sent = SendReportToDevice(def, tx);
 
@@ -718,10 +575,10 @@ namespace RazerBatteryTray
                     if (!string.IsNullOrEmpty(def.SetDpiValueTxTemplate))
                     {
                         string valTpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiValueTxTemplate, context, def.Variables);
-                        byte[] dpiValPacket = ApplyReportId(ParseHexBytes(valTpl), def.ReportId);
+                        byte[] dpiValPacket = ParseHexBytes(valTpl);
                         if (dpiValPacket != null && dpiValPacket.Length > 0)
                         {
-                            ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId, def.ReportId);
+                            ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId);
                             SendReportToDevice(def, dpiValPacket);
                         }
                     }
@@ -738,7 +595,7 @@ namespace RazerBatteryTray
                         dpiValPacket[7] = dpiLow;
                         dpiValPacket[8] = dpiFlags;
                         dpiValPacket[9] = dpiParity;
-                        ApplyChecksum(dpiValPacket, "VgnCompxSum55", def.VendorId, def.ReportId);
+                        ApplyChecksum(dpiValPacket, "VgnCompxSum55", def.VendorId);
                         SendReportToDevice(def, dpiValPacket);
                     }
                 }
@@ -818,7 +675,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetPollingRateTxTemplate, context, def.Variables);
 
-                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
+                byte[] tx = ParseHexBytes(tpl);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -835,7 +692,7 @@ namespace RazerBatteryTray
                     tx = trimmed;
                 }
 
-                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
+                ApplyChecksum(tx, def.ChecksumType, def.VendorId);
 
                 bool sent = SendReportToDevice(def, tx);
                 if (sent)
@@ -938,184 +795,7 @@ namespace RazerBatteryTray
             }
         }
 
-        // 回读设备当前 DPI 与激活档位。
-        // 需要适配包声明 queryDpiTxHex + 对应的字节偏移，否则直接返回 false。
-        // 支持可选变量 dpiDecode：把原始 16 位值换算成真实 DPI（如 CompX 的 (raw+1)*50）。
-        private static bool TryReadDpiState(FdasAdapterDefinition def, out int dpiX, out int dpiY, out int stage)
-        {
-            dpiX = -1;
-            dpiY = -1;
-            stage = -1;
-            try
-            {
-                if (def == null) return false;
-                if (string.IsNullOrEmpty(def.QueryDpiTxHex)) return false;
-                if (def.DpiXLoByteOffset < 0) return false;
-
-                byte[] q = ApplyReportId(ParseHexBytes(def.QueryDpiTxHex), def.ReportId);
-                if (q == null || q.Length == 0) return false;
-
-                int reqLen = def.ReportLength > 0 ? def.ReportLength : q.Length;
-                if (q.Length < reqLen)
-                {
-                    byte[] padded = new byte[reqLen];
-                    Array.Copy(q, padded, q.Length);
-                    q = padded;
-                }
-                else if (q.Length > reqLen)
-                {
-                    byte[] trimmed = new byte[reqLen];
-                    Array.Copy(q, trimmed, reqLen);
-                    q = trimmed;
-                }
-                ApplyChecksum(q, def.ChecksumType, def.VendorId, def.ReportId);
-
-                byte[] rx = SendAndReadFromDevice(def, q, def.ReadTimeoutMs > 0 ? def.ReadTimeoutMs : 400);
-                if (rx == null) return false;
-
-                int rawX = DecodeDpiRaw(rx, def.DpiXLoByteOffset, def.DpiXHiByteOffset);
-                if (rawX < 0) return false;
-                dpiX = ApplyDpiDecode(def, rawX);
-
-                if (def.DpiYLoByteOffset >= 0)
-                {
-                    int rawY = DecodeDpiRaw(rx, def.DpiYLoByteOffset, def.DpiYHiByteOffset);
-                    if (rawY >= 0) dpiY = ApplyDpiDecode(def, rawY);
-                }
-
-                if (def.ActiveStageByteOffset >= 0 && rx.Length > def.ActiveStageByteOffset)
-                {
-                    int st = rx[def.ActiveStageByteOffset];
-                    if (st >= 0 && st <= 8) stage = st + 1;   // 设备侧多为 0-based
-                }
-                return dpiX > 0;
-            }
-            catch (Exception dpiEx)
-            {
-                Diagnostics.Log("FdasRuntimeHelper: DPI 回读失败", dpiEx);
-                return false;
-            }
-        }
-
-        // 从响应中取 16 位原始值（小端）；偏移非法返回 -1
-        private static int DecodeDpiRaw(byte[] rx, int loOffset, int hiOffset)
-        {
-            if (rx == null || loOffset < 0 || rx.Length <= loOffset) return -1;
-            int lo = rx[loOffset];
-            int hi = (hiOffset >= 0 && rx.Length > hiOffset) ? rx[hiOffset] : 0;
-            return lo | (hi << 8);
-        }
-
-        // 可选换算：variables 里声明 dpiDecode 时用 $raw 求值，否则原样返回
-        private static int ApplyDpiDecode(FdasAdapterDefinition def, int raw)
-        {
-            try
-            {
-                if (def.Variables == null) return raw;
-                string formula;
-                if (!def.Variables.TryGetValue("dpiDecode", out formula) || string.IsNullOrEmpty(formula)) return raw;
-                Dictionary<string, long> ctx = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-                ctx["raw"] = raw;
-                long val = ExpressionEvaluator.Evaluate(formula, ctx);
-                return val > 0 ? (int)val : raw;
-            }
-            catch
-            {
-                return raw;
-            }
-        }
-
-        // 回读自定义动作的真实状态。未声明 queryStateTxHex 或 stateByteOffset 时直接返回。
-        private static void RefreshActionState(FdasAdapterDefinition def, FdasCustomAction act)
-        {
-            try
-            {
-                if (def == null || act == null) return;
-                if (string.IsNullOrEmpty(act.QueryStateTxHex) || act.StateByteOffset < 0) return;
-
-                byte[] q = ApplyReportId(ParseHexBytes(act.QueryStateTxHex), def.ReportId);
-                if (q == null || q.Length == 0) return;
-
-                int reqLen = def.ReportLength > 0 ? def.ReportLength : q.Length;
-                if (q.Length < reqLen)
-                {
-                    byte[] padded = new byte[reqLen];
-                    Array.Copy(q, padded, q.Length);
-                    q = padded;
-                }
-                else if (q.Length > reqLen)
-                {
-                    byte[] trimmed = new byte[reqLen];
-                    Array.Copy(q, trimmed, reqLen);
-                    q = trimmed;
-                }
-                ApplyChecksum(q, def.ChecksumType, def.VendorId, def.ReportId);
-
-                byte[] rx = SendAndReadFromDevice(def, q, def.ReadTimeoutMs > 0 ? def.ReadTimeoutMs : 400);
-                if (rx == null || rx.Length <= act.StateByteOffset) return;
-
-                act.CurrentOn = (rx[act.StateByteOffset] & act.StateActiveMask) != 0;
-            }
-            catch (Exception stateEx)
-            {
-                Diagnostics.Log("FdasRuntimeHelper: 自定义动作状态回读失败", stateEx);
-            }
-        }
-
-        // 发送一条查询报文并读回响应。仅服务状态回读，与电量查询路径独立。
-        private static byte[] SendAndReadFromDevice(FdasAdapterDefinition def, byte[] tx, int timeoutMs)
-        {
-            if (def == null || tx == null || tx.Length == 0) return null;
-            try
-            {
-                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(def.VendorId, def.ProductId);
-                if (descriptors == null || descriptors.Count == 0) return null;
-
-                HidDeviceDescriptor target = descriptors[0];
-                if (def.UsagePage != 0 && def.Usage != 0)
-                {
-                    for (int di = 0; di < descriptors.Count; di++)
-                    {
-                        if (descriptors[di].UsagePage == def.UsagePage && descriptors[di].Usage == def.Usage)
-                        {
-                            target = descriptors[di];
-                            break;
-                        }
-                    }
-                }
-
-                IntPtr handle = HidTransport.Open(target.DevicePath);
-                if (!HidTransport.IsValidHandle(handle)) return null;
-                try
-                {
-                    int len = def.ReportLength > 0 ? def.ReportLength : tx.Length;
-                    HidTransport.DrainReports(handle, len, 2);
-
-                    if (def.ReportType.Equals("Feature", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!HidTransport.SetFeature(handle, tx)) return null;
-                    }
-                    else
-                    {
-                        if (!HidTransport.WriteReport(handle, tx, tx.Length, 300)) return null;
-                    }
-
-                    byte[] rx;
-                    if (HidTransport.ReadReport(handle, len, timeoutMs > 0 ? timeoutMs : 400, out rx)) return rx;
-                    return null;
-                }
-                finally
-                {
-                    HidTransport.Close(handle);
-                }
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static void ApplyChecksum(byte[] buf, string checksumType, int vendorId, int reportId)
+        private static void ApplyChecksum(byte[] buf, string checksumType, int vendorId)
         {
             if (buf == null || buf.Length <= 1) return;
 
@@ -1129,13 +809,8 @@ namespace RazerBatteryTray
 
             if (isCompxSum55)
             {
-                // CompX 原生校验从 cmd 字节开始求和，不包含前导 Report ID。
-                // 适配包声明了 reportId 且报文首字节确实是它时，跳过首字节，
-                // 否则会整体偏低 0x08，设备直接拒收。
-                // 未声明 reportId 的旧适配包 sumStart=0，行为与之前完全一致。
-                int sumStart = (reportId > 0 && buf[0] == (byte)reportId) ? 1 : 0;
                 byte sum = 0;
-                for (int i = sumStart; i < buf.Length - 1; i++)
+                for (int i = 0; i < buf.Length - 1; i++)
                 {
                     sum = (byte)(sum + buf[i]);
                 }
@@ -1277,229 +952,6 @@ namespace RazerBatteryTray
             }
             catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
-        }
-
-        // 解析 #RRGGBB / RRGGBB 形式的品牌色；无法解析时返回 null，
-        // 调用方会回退到内置的品牌配色表，不会把颜色画成黑色。
-        private static Color? ParseHexColor(string hexStr)
-        {
-            if (string.IsNullOrEmpty(hexStr)) return null;
-            string clean = hexStr.Trim().TrimStart('#');
-            if (clean.Length != 6) return null;
-            try
-            {
-                int r = Convert.ToInt32(clean.Substring(0, 2), 16);
-                int g = Convert.ToInt32(clean.Substring(2, 2), 16);
-                int b = Convert.ToInt32(clean.Substring(4, 2), 16);
-                return Color.FromArgb(r, g, b);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        // 适配包声明 reportId 时，若报文首字节不是该 ID 则前插一位。
-        // reportId <= 0（未声明）时原样返回，保证旧适配包零影响。
-        private static byte[] ApplyReportId(byte[] tx, int reportId)
-        {
-            if (tx == null || tx.Length == 0 || reportId <= 0) return tx;
-            if (tx[0] == (byte)reportId) return tx;
-            byte[] withId = new byte[tx.Length + 1];
-            withId[0] = (byte)reportId;
-            Array.Copy(tx, 0, withId, 1, tx.Length);
-            return withId;
-        }
-
-        // 解析 capabilities.customActions 数组
-        private static List<FdasCustomAction> ParseCustomActions(string json)
-        {
-            List<FdasCustomAction> list = new List<FdasCustomAction>();
-            string block = ExtractJsonArrayBlock(json, "customActions");
-            if (string.IsNullOrEmpty(block)) return list;
-            foreach (string obj in SplitJsonObjects(block))
-            {
-                string id = ExtractJsonString(obj, "id");
-                if (string.IsNullOrEmpty(id)) continue;
-                FdasCustomAction a = new FdasCustomAction();
-                a.Id = id;
-                a.Title = ExtractJsonString(obj, "title");
-                if (string.IsNullOrEmpty(a.Title)) a.Title = id;
-                a.Type = ExtractJsonString(obj, "type");
-                if (string.IsNullOrEmpty(a.Type)) a.Type = "Button";
-                a.ActiveText = ExtractJsonString(obj, "activeText");
-                a.InactiveText = ExtractJsonString(obj, "inactiveText");
-                a.Min = ExtractJsonInt(obj, "min", 0);
-                a.Max = ExtractJsonInt(obj, "max", 100);
-                a.OnTxHex = ExtractJsonString(obj, "onTxHex");
-                a.OffTxHex = ExtractJsonString(obj, "offTxHex");
-                a.TxHex = ExtractJsonString(obj, "txHex");
-                a.TxTemplate = ExtractJsonString(obj, "txTemplate");
-                a.QueryStateTxHex = ExtractJsonString(obj, "queryStateTxHex");
-                a.StateByteOffset = ExtractJsonInt(obj, "stateByteOffset", -1);
-                a.StateActiveMask = ConvertHexToInt(ExtractJsonString(obj, "stateActiveMask"));
-                if (a.StateActiveMask <= 0) a.StateActiveMask = 1;
-                list.Add(a);
-            }
-            if (list.Count > 0)
-            {
-                Diagnostics.Log("FDAS: 适配包声明了 " + list.Count + " 条自定义动作");
-            }
-            return list;
-        }
-
-        // 把 [{...},{...}] 拆成单个对象文本（大括号配对，忽略数组外层）
-        private static List<string> SplitJsonObjects(string arrayBlock)
-        {
-            List<string> list = new List<string>();
-            if (string.IsNullOrEmpty(arrayBlock)) return list;
-            int depth = 0;
-            int start = -1;
-            for (int i = 0; i < arrayBlock.Length; i++)
-            {
-                char c = arrayBlock[i];
-                if (c == '{')
-                {
-                    if (depth == 0) start = i;
-                    depth++;
-                }
-                else if (c == '}')
-                {
-                    depth--;
-                    if (depth == 0 && start >= 0)
-                    {
-                        list.Add(arrayBlock.Substring(start, i - start + 1));
-                        start = -1;
-                    }
-                }
-            }
-            return list;
-        }
-
-        // 取某个设备的自定义动作列表（供 UI 渲染）
-        public static List<FdasCustomAction> GetCustomActions(string deviceId)
-        {
-            FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
-            return def != null ? def.CustomActions : null;
-        }
-
-        // 执行一条自定义动作。
-        // Toggle: 在开/关两条报文间切换，成功后翻转 CurrentOn；
-        // Slider: 用 {value} 展开模板；Button: 发固定报文。
-        // value 仅对 Slider 有意义，其余类型忽略。
-        public static bool ExecuteCustomAction(string deviceId, string actionId, int value)
-        {
-            lock (syncLock)
-            {
-                FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
-                if (def == null || def.CustomActions == null || def.CustomActions.Count == 0) return false;
-
-                FdasCustomAction act = null;
-                foreach (FdasCustomAction a in def.CustomActions)
-                {
-                    if (a != null && string.Equals(a.Id, actionId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        act = a;
-                        break;
-                    }
-                }
-                if (act == null) return false;
-
-                string hex = null;
-                bool willBeOn = act.CurrentOn;
-                if (string.Equals(act.Type, "Toggle", StringComparison.OrdinalIgnoreCase))
-                {
-                    willBeOn = !act.CurrentOn;
-                    hex = willBeOn ? act.OnTxHex : act.OffTxHex;
-                    if (string.IsNullOrEmpty(hex)) hex = act.TxHex;
-                }
-                else if (string.Equals(act.Type, "Slider", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (string.IsNullOrEmpty(act.TxTemplate)) return false;
-                    Dictionary<string, long> ctx = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-                    ctx["value"] = value;
-                    hex = ExpressionEvaluator.ExpandTemplate(act.TxTemplate, ctx, def.Variables);
-                }
-                else
-                {
-                    hex = act.TxHex;
-                }
-
-                if (string.IsNullOrEmpty(hex)) return false;
-
-                byte[] tx = ApplyReportId(ParseHexBytes(hex), def.ReportId);
-                if (tx == null || tx.Length == 0) return false;
-
-                int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
-                if (tx.Length < reqLen)
-                {
-                    byte[] padded = new byte[reqLen];
-                    Array.Copy(tx, padded, tx.Length);
-                    tx = padded;
-                }
-                else if (tx.Length > reqLen)
-                {
-                    byte[] trimmed = new byte[reqLen];
-                    Array.Copy(tx, trimmed, reqLen);
-                    tx = trimmed;
-                }
-
-                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
-
-                bool sent = SendReportToDevice(def, tx);
-                if (sent && string.Equals(act.Type, "Toggle", StringComparison.OrdinalIgnoreCase))
-                {
-                    act.CurrentOn = willBeOn;
-                    // 声明了回读报文就以设备实际状态为准，避免只靠会话内记忆
-                    RefreshActionState(def, act);
-                }
-                return sent;
-            }
-        }
-
-        // 取出形如 "key": [ ... ] 的数组块（支持嵌套），找不到返回 null。
-        private static string ExtractJsonArrayBlock(string json, string key)
-        {
-            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(key)) return null;
-            int idx = json.IndexOf("\"" + key + "\"", StringComparison.Ordinal);
-            if (idx < 0) return null;
-            int start = json.IndexOf('[', idx);
-            if (start < 0) return null;
-            int depth = 0;
-            for (int i = start; i < json.Length; i++)
-            {
-                if (json[i] == '[') depth++;
-                else if (json[i] == ']')
-                {
-                    depth--;
-                    if (depth == 0) return json.Substring(start, i - start + 1);
-                }
-            }
-            return null;
-        }
-
-        // 提取块内所有 "key": "value" 的字符串值，按出现顺序返回。
-        private static List<string> ExtractJsonStringValues(string block, string key)
-        {
-            List<string> list = new List<string>();
-            if (string.IsNullOrEmpty(block)) return list;
-            MatchCollection mc = Regex.Matches(block, "\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
-            foreach (Match m in mc) list.Add(m.Groups[1].Value);
-            return list;
-        }
-
-        // 型号转成可用作注册表/配置键的片段
-        private static string SanitizeIdPart(string raw)
-        {
-            if (string.IsNullOrEmpty(raw)) return "DEV";
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in raw)
-            {
-                if (char.IsLetterOrDigit(c)) sb.Append(c);
-                else if (sb.Length == 0 || sb[sb.Length - 1] != '_') sb.Append('_');
-            }
-            string outStr = sb.ToString().Trim('_');
-            return string.IsNullOrEmpty(outStr) ? "DEV" : outStr;
         }
 
         private static int ConvertHexToInt(string hexStr)

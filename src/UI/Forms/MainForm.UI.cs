@@ -1281,7 +1281,7 @@ namespace RazerBatteryTray
                     new Thread(() => {
                         if (isFdasMouse)
                         {
-                            FdasRuntimeHelper.UpdateStages(targetDevId, activeStage, newStagesX, newStagesY);
+                            FdasRuntimeHelper.SetDpi(targetDevId, activeDpiX, activeDpiY, activeStage);
                         }
                         else if (devBrand == "Valkyrie" || devBrand == "瓦尔基里")
                         {
