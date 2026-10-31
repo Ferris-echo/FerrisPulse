@@ -419,7 +419,7 @@ namespace RazerBatteryTray
                                             tx = trimmed;
                                         }
 
-                                        ApplyChecksum(tx, def.ChecksumType, def.VendorId);
+                                        ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
 
                                         if (def.ReportType.Equals("Feature", StringComparison.OrdinalIgnoreCase))
                                         {
@@ -622,7 +622,7 @@ namespace RazerBatteryTray
                     tx = trimmed;
                 }
 
-                ApplyChecksum(tx, def.ChecksumType, def.VendorId);
+                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
 
                 bool sent = SendReportToDevice(def, tx);
 
@@ -635,7 +635,7 @@ namespace RazerBatteryTray
                         byte[] dpiValPacket = ApplyReportId(ParseHexBytes(valTpl), def.ReportId);
                         if (dpiValPacket != null && dpiValPacket.Length > 0)
                         {
-                            ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId);
+                            ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId, def.ReportId);
                             SendReportToDevice(def, dpiValPacket);
                         }
                     }
@@ -652,7 +652,7 @@ namespace RazerBatteryTray
                         dpiValPacket[7] = dpiLow;
                         dpiValPacket[8] = dpiFlags;
                         dpiValPacket[9] = dpiParity;
-                        ApplyChecksum(dpiValPacket, "VgnCompxSum55", def.VendorId);
+                        ApplyChecksum(dpiValPacket, "VgnCompxSum55", def.VendorId, def.ReportId);
                         SendReportToDevice(def, dpiValPacket);
                     }
                 }
@@ -749,7 +749,7 @@ namespace RazerBatteryTray
                     tx = trimmed;
                 }
 
-                ApplyChecksum(tx, def.ChecksumType, def.VendorId);
+                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
 
                 bool sent = SendReportToDevice(def, tx);
                 if (sent)
@@ -852,7 +852,7 @@ namespace RazerBatteryTray
             }
         }
 
-        private static void ApplyChecksum(byte[] buf, string checksumType, int vendorId)
+        private static void ApplyChecksum(byte[] buf, string checksumType, int vendorId, int reportId)
         {
             if (buf == null || buf.Length <= 1) return;
 
@@ -866,8 +866,13 @@ namespace RazerBatteryTray
 
             if (isCompxSum55)
             {
+                // CompX 原生校验从 cmd 字节开始求和，不包含前导 Report ID。
+                // 适配包声明了 reportId 且报文首字节确实是它时，跳过首字节，
+                // 否则会整体偏低 0x08，设备直接拒收。
+                // 未声明 reportId 的旧适配包 sumStart=0，行为与之前完全一致。
+                int sumStart = (reportId > 0 && buf[0] == (byte)reportId) ? 1 : 0;
                 byte sum = 0;
-                for (int i = 0; i < buf.Length - 1; i++)
+                for (int i = sumStart; i < buf.Length - 1; i++)
                 {
                     sum = (byte)(sum + buf[i]);
                 }
