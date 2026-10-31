@@ -1047,6 +1047,10 @@ namespace RazerBatteryTray
 
             dev.Capabilities.SupportsPollingRate = false;
 
+            // 迈从键盘的「充电中」标志位只表示 USB 已插上并供电（详见 MchoseDeviceHelper
+            // 充电冻结说明），不表示电池正在充电。声明给 UI 层，避免 UI 里出现品牌硬编码。
+            dev.Capabilities.ChargingFlagMeansUsbPoweredOnly = true;
+
         }
 
 
