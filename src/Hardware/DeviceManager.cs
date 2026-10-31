@@ -1180,6 +1180,39 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.996 Query LEOBOG GM5 PRO (04F3:026F 2.4G, 0x000A/0x0000 32 字节状态帧)
+            try
+            {
+                var leobogDevices = LeobogDeviceHelper.QueryDevices();
+                if (leobogDevices != null && leobogDevices.Count > 0)
+                {
+                    foreach (var dev in leobogDevices)
+                    {
+                        if (dev == null || !(dev.IsConnected || dev.IsDonglePresent)) continue;
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             try
             {
                 var sonyDevices = SonyDeviceHelper.QueryAllSonyDevices();
@@ -1565,6 +1598,11 @@ namespace RazerBatteryTray
                         if (VgnN75ProHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
                         {
                             cfg.Category = DeviceCategory.Keyboard;
+                            SaveCustomDevice(cfg);
+                        }
+                        if (LeobogDeviceHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
+                        {
+                            cfg.Category = DeviceCategory.Mouse;
                             SaveCustomDevice(cfg);
                         }
                         if (cfg.Category != DeviceCategory.Generic)

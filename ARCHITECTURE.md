@@ -128,6 +128,7 @@ D:\FerrisPulse · 灵脉\
 | **飞智 APEX 6 / Vader 5 Pro 手柄电量** | `src/Hardware/FlydigiDeviceHelper.cs` | GPA6 0xFFA0 33 字节帧、命令 0x01 设备信息、0..10 档电量与充电状态 |
 | **迈从 G87 V2 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | 0x13/0x4A 无线、0x09/0x87 有线、校验和含 Report ID、休眠占位与离线缓存 |
 | **VGN N75 PRO 键盘电量 (与 ATK V75X 共享 320F:5088)** | `src/Hardware/VgnN75ProHelper.cs` | 0xFF1C/0x0092 64 字节 In/Out、Report 4 + 0x1A、序号回显校验、产品串互斥隔离 |
+| **LEOBOG GM5 PRO 鼠标电量 (04F3:026F)** | `src/Hardware/LeobogDeviceHelper.cs` | 0x000A/0x0000 32 字节状态帧、[1] 在线位、[4] 电量、关/开机对照实测 |
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |

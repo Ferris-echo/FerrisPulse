@@ -254,7 +254,7 @@ namespace RazerBatteryTray
                                 string lower = devicePath.ToLower();
                                 // Skip known handled or internal non-mouse devices
                                 if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||
-                                    lower.Contains("vid_320f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
+                                    lower.Contains("vid_320f") || lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
                                     lower.Contains("vid_17ef") || lower.Contains("vid_054c") || lower.Contains("vid_37d7") || lower.Contains("vid_3837") || lower.Contains("syna") || lower.Contains("tencent") || lower.Contains("virtual") ||
                                     ValkyrieDeviceHelper.IsValkyrieDevice(lower) || AcerDeviceHelper.IsAcerMouse(lower))
                                 {

@@ -45,6 +45,10 @@
   - **共享公版 PID 精确隔离**：`320F:5088` 同时是 ATK V75X 的接收器 PID，`IsSupportedDevice` 叠加 `ProductString` 中 VGN + N75 + PRO + DONGLE 四重门禁，与 `AtkDeviceHelper` 双向互不认领；DeviceId `VGN:320F:5088:KB` 与指纹 `HID:320F:5088:KB` 独立于 ATK；
   - 设备向导不再把该键盘误列为「2.4G 接收器」；历史手工添加为 Dongle 的旧条目会被原生键盘分类自愈覆盖，托盘摘要恢复「键盘 xx%」；
   - 能力边界：仅声明电量与充电；灯光/按键/回报率写指令未实测一律不开启，有线与蓝牙 PID 未经实机验证故不认领。
+- **LEOBOG GM5 PRO 无线鼠标 (`04F3:026F` 2.4G 接收器)**（本机实机抓包适配）：
+  - 新增 `LeobogDeviceHelper`：读取 `UsagePage 0x000A / Usage 0x0000` 的 32 字节状态帧，`[1]` 为在线位、`[4]` 为电量百分比，静默期沿用缓存；
+  - 协议经**关/开机对照**验证：开机 `04 01 01 01 5A ..`（90%）、关机 `04 00 01 01 5A ..`（在线位归零）、开机瞬间 `64`（100%）后回落；
+  - 充电位未观察到可信标志位，按「物理事实优先」不声明充电；设备向导不再把它误列为接收器，历史 Dongle 分类自愈为 Mouse。
 - **索尼 (Sony) DualSense Edge 旗舰无线手柄 (`054C:0DF2` USB)**（感谢 [@Q-LL](https://github.com/Q-LL) 适配贡献 #31）：
   - 新增 `SonyDeviceHelper`，通过 64 字节 Input Report `0x01` 解析 `rx[53]` 电池档位与充电状态；
   - 严格映射 10% 档位中点估值，归类为 Gamepad 专属设备卡片。
