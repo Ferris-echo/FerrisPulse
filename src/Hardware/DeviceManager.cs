@@ -1147,6 +1147,39 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.995 Query VGN N75 PRO (320F:5088 2.4G, 与 ATK V75X 共享公版 PID，靠产品串互斥认领)
+            try
+            {
+                var vgnN75 = VgnN75ProHelper.QueryDevices();
+                if (vgnN75 != null && vgnN75.Count > 0)
+                {
+                    foreach (var dev in vgnN75)
+                    {
+                        if (dev == null || !(dev.IsConnected || dev.IsDonglePresent)) continue;
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             try
             {
                 var sonyDevices = SonyDeviceHelper.QueryAllSonyDevices();
@@ -1527,6 +1560,13 @@ namespace RazerBatteryTray
                     if (existDev != null)
                     {
                         existDev.IsCustom = true;
+                        // 原生已识别的 VGN N75 PRO 键盘优先：向导早期按“Dongle”字样手工加入的旧条目，
+                        // 不得把原生键盘分类降级为接收器，否则电量卡片与托盘摘要会退回未知设备。
+                        if (VgnN75ProHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
+                        {
+                            cfg.Category = DeviceCategory.Keyboard;
+                            SaveCustomDevice(cfg);
+                        }
                         if (cfg.Category != DeviceCategory.Generic)
                         {
                             existDev.Category = cfg.Category;

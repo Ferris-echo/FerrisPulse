@@ -40,6 +40,11 @@
   - 新增 `AtkDeviceHelper`，通过 `UsagePage 0xFF1C / Usage 0x0092` 的 64 字节 Output/Input 厂商集合发送非零递增序号请求；
   - 严谨解析 `0x1A` 状态帧读取实时电量（87% 实测）与真实充电位，杜绝短包与越界电量；
   - 新增 `AtkLightingDialog` 独立键盘灯效调控台与 `AtkDeviceHelper.Lighting`：支持 20 种官方灯效、5 档亮度、RGB 调色与速度调节，引入 56 字节分块事务读取、写入与全快照校验回滚保护。
+- **VGN N75 PRO 三模机械键盘 (`320F:5088` 2.4G)**（本机实机抓包适配，署名待贡献者确认）：
+  - 新增 `VgnN75ProHelper`，复用 `UsagePage 0xFF1C / Usage 0x0092` 的 64 字节 In/Out 厂商通道，以 Report ID `0x04` + `0x1A` 查询帧读取实时电量（实测 79%）与充电位（插线 `4F 01` / 拔线 `4F 00` 双向实测），回包必须原样回显非零递增序号才予采信；
+  - **共享公版 PID 精确隔离**：`320F:5088` 同时是 ATK V75X 的接收器 PID，`IsSupportedDevice` 叠加 `ProductString` 中 VGN + N75 + PRO + DONGLE 四重门禁，与 `AtkDeviceHelper` 双向互不认领；DeviceId `VGN:320F:5088:KB` 与指纹 `HID:320F:5088:KB` 独立于 ATK；
+  - 设备向导不再把该键盘误列为「2.4G 接收器」；历史手工添加为 Dongle 的旧条目会被原生键盘分类自愈覆盖，托盘摘要恢复「键盘 xx%」；
+  - 能力边界：仅声明电量与充电；灯光/按键/回报率写指令未实测一律不开启，有线与蓝牙 PID 未经实机验证故不认领。
 - **索尼 (Sony) DualSense Edge 旗舰无线手柄 (`054C:0DF2` USB)**（感谢 [@Q-LL](https://github.com/Q-LL) 适配贡献 #31）：
   - 新增 `SonyDeviceHelper`，通过 64 字节 Input Report `0x01` 解析 `rx[53]` 电池档位与充电状态；
   - 严格映射 10% 档位中点估值，归类为 Gamepad 专属设备卡片。
