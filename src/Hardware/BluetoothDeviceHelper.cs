@@ -400,7 +400,33 @@ namespace RazerBatteryTray
 
                         uint propType, req;
 
-                        if (!SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0) || connBuf[0] == 0)
+                        // ⚠️ BLE GATT HID 设备在线判定补全（物理事实优先，铁律 3.4.6）⚠️
+                        // 现象: 部分蓝牙低功耗键鼠 (如 Kzzi K75 / 玄熊猫 P1 PRO 的 BLE 模式)
+                        //   以 GATT HID over LE 形式挂载，其 PnP 节点不上报 DEVPKEY_Device_IsConnected，
+                        //   此处原本无条件 continue，导致设备虽已 DIGCF_PRESENT 枚举到且电量可读，
+                        //   却永远进不了扫描候选列表，界面完全不显示。
+                        // 补全准则: 若节点被 DIGCF_PRESENT 枚举到（即当前真实存在），
+                        //   且能读出合法区间 (0-100) 的 GATT 电池服务电量，即视为在线。
+                        //   仅据此确认"在线"，绝不推断充电状态等未经证实的位域（铁律 3.4.5）。
+                        bool pnpConnected =
+                            SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0)
+                            && connBuf[0] != 0;
+
+                        if (!pnpConnected)
+                        {
+                            byte[] probeBuf = new byte[16];
+                            uint probeType, probeReq;
+                            if (SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_BatteryLevel, out probeType, probeBuf, (uint)probeBuf.Length, out probeReq, 0))
+                            {
+                                int probeLevel = (int)probeBuf[0];
+                                if (probeLevel >= 0 && probeLevel <= 100)
+                                {
+                                    pnpConnected = true;
+                                }
+                            }
+                        }
+
+                        if (!pnpConnected)
 
                         {
 
@@ -1113,6 +1139,20 @@ namespace RazerBatteryTray
 
 
 
+            // ⚠️ BLE GATT HID 设备在线判定补全（物理事实优先，铁律 3.4.6）⚠️
+            // 现象: 蓝牙低功耗 (BLE) 键鼠仅以 GATT HID over LE 形式挂载，
+            //   既不会被经典蓝牙枚举 (BluetoothFindFirstDevice) 上报 -> isClassicConnected=false，
+            //   其 PnP 节点又常缺少连接态属性 -> isPnpConnected=false，
+            //   导致 QueryByMac 返回 false，上行 ScanAllBluetoothDevices 执行 continue 直接丢弃，
+            //   设备电量明明可读却完全不显示。
+            // 判定准则: 只要通过 SetupAPI (DIGCF_PRESENT) 枚举到与 MAC/名称匹配的节点，
+            //   并读出合法区间 (0-100) 的电量值，即认定该设备真实在线。
+            //   绝不以此推断充电状态等未经证实的位域（铁律 3.4.5）。
+            if (!isConnected && bestBattery >= 0)
+            {
+                isConnected = true;
+            }
+
             return isConnected;
 
         }
@@ -1203,7 +1243,10 @@ namespace RazerBatteryTray
 
                     cat = DeviceCategory.Mouse;
 
-                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kb"))
+                // ⚠️ 品类补齐：Kzzi K75 5.0 在 BLE 模式下上报的设备名为 "Kzzi-K75 5.0"，
+                //    既不带 2.4G 接收器产品串，也不含任何既有关键词，故被误判为 Generic。
+                //    此处按品牌名 "kzzi" 精准补入键盘品类，不做宽泛匹配以免误伤其它设备。
+                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("kzzi") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kb"))
 
                     cat = DeviceCategory.Keyboard;
 

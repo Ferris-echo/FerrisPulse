@@ -100,6 +100,13 @@
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：
   - 新增 `MchoseDeviceHelper`，通过官方 SDK 的 `55 05 00 38 38` 性能配置查询读取 `rf_battery` 与 `isCharging`；实机 2.4G 读到 21%，通用电竞鼠标协议显式隔离 `3837:3033`。
+- **蓝牙低功耗 (BLE) 键鼠发现链路修复与 CompX 方案崩溃修复**（感谢 [@Master-five-elements](https://github.com/Master-five-elements) 实机逆向与修复）：
+  - **BLE 设备被静默丢弃（根因修复）**：`BluetoothDeviceHelper` 枚举 `BTHLE` 总线时原本无条件要求节点上报 `DEVPKEY_Device_IsConnected != 0`，而 BLE GATT HID over LE 键鼠（如 Kzzi K75 5.0 / 玄熊猫 P1 PRO）的 PnP 节点通常不上报该属性，导致设备虽已被 `DIGCF_PRESENT` 真实枚举到、电量亦可正常读出，却永远进不了扫描候选列表。现补全回退判定：节点被 `DIGCF_PRESENT` 枚举到且能读出合法区间 `0-100` 的 GATT 电量即判在线。
+  - **`QueryByMac()` 在线态补全**：原实现结尾 `return isConnected;` 的值仅反映经典蓝牙连接态；BLE 设备不会被 `BluetoothFindFirstDevice` 上报而恒为 `false`，上行 `ScanAllBluetoothDevices()` 随即 `continue` 丢弃。现于返回前按已读到的合法电量补全在线判定。
+  - **键盘品类误判纠正**：Kzzi K75 5.0 在 BLE 模式下上报设备名为 `Kzzi-K75 5.0`，不含任何既有关键词而被归为 `Generic`；现按品牌名 `kzzi` 精准补入 `Keyboard` 品类，不做宽泛匹配以免误伤。
+  - **`VgnDeviceHelper` 数组越界崩溃修复**：`readStages` 原本只分配 6 个槽位（索引 `0..5`），而取值循环上界为 `st < 8` 且硬件可回报档位数上限亦为 8；当设备回报 7 或 8 档 DPI 时，`readStages[6]` / `readStages[7]` 直接越界抛出 `IndexOutOfRangeException`，导致整台鼠标完全无法识别（玄熊猫 P1 4K 实测即命中此路径）。现扩容至 8 槽并将循环上界绑定数组容量，杜绝二者再次脱节。
+  - **电量响应边界加固**：`rxBat.Length > 8` 仅保证长度 ≥ 9，而下方会访问 `rxBat[9]`（电压高字节）要求 ≥ 10，短包时会越界崩溃；现收紧为 `> 9`。
+  - 实测：`ScanAllBluetoothDevices()` 由 `count=0` 变为 `count=2`；玄熊猫 P1 4K (`3554:F5AC`) 恢复识别并可读到电量 45%、DPI 3200（第 4/7 档）、7 档 DPI 与 6 档回报率；Kzzi K75 5.0 (`3554:FA07`) 电量 100%。
 
 ### 🛠️ 底层总线与自动化测试
 - **通用 HID 总线架构**：新增 `HidTransport`，统一 SetupAPI 枚举、HidD 属性/能力查询与重叠 I/O 超时读写，杜绝同步 `ReadFile` 阻塞 UI 轮询线程。
