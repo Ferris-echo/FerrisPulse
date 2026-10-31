@@ -220,7 +220,9 @@ Check "UI 支持 USB 有线充电状态标" ($uiSrc.Contains("USB 有线 · 充�
 Check "UI 有线带电量时不藏百分比" ($uiSrc.Contains("wiredWithBattery")) "缺少 wiredWithBattery 分支"
 Check "UI 2.4G 充电无电量时区分 USB 充电" ($uiSrc.Contains("usbChargingNoBattery")) "缺少 usbChargingNoBattery 分支"
 Check "UI 迈从键盘有线用官方口径" ($uiSrc.Contains("USB 有线充电中")) "缺少迈从键盘有线官方口径文案"
-Check "UI 迈从键盘区分纯有线与充电" ($uiSrc.Contains("isMchoseKb")) "缺少 isMchoseKb 品牌分支"
+Check "UI 迈从键盘区分纯有线与充电" ($uiSrc.Contains("usbPoweredOnlyCharging")) "缺少 usbPoweredOnlyCharging 能力分支"
+Check "UI 读取充电语义能力契约" ($uiSrc.Contains("ChargingFlagMeansUsbPoweredOnly")) "缺少 ChargingFlagMeansUsbPoweredOnly 能力契约读取"
+Check "UI 层已移除品牌硬编码" (-not $uiSrc.Contains("isMchoseKb")) "仍残留 isMchoseKb 品牌硬编码"
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 if ($fail -eq 0) {
