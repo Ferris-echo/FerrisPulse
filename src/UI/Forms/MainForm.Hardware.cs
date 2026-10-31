@@ -2272,21 +2272,14 @@ namespace RazerBatteryTray
             bool isLogitechMouse = (isLogitech && info.Category == DeviceCategory.Mouse);
             bool isRapooMouse = (isRapoo && info.Category == DeviceCategory.Mouse);
             bool isZaopinMouse = ((info.Brand == "Zaopin" || info.Brand == "皂品") && info.Category == DeviceCategory.Mouse);
-            // 迈从 MCHOSE（含 4D 帧协议族 K7 V2 Ultra+ / A5 V3 Ultra+）走独立私有协议，
-            // 具备完整的 DPI 档位读写与回报率写入能力，必须进入可交互控制台分支；
-            // 否则会落入下方 Generic Mouse 分支，DPI/回报率按钮被整块隐藏。
-            bool isMchoseBrandMouse = ((info.Brand == "MCHOSE" || info.Brand == "Mchose" || info.Brand == "迈从")
-                && info.Category == DeviceCategory.Mouse);
-
-            // 蓝牙 BLE 形态（HID over GATT）只暴露标准鼠标集合，没有 0x4D 厂商通道，
-            // DPI 与回报率在物理上不可读写（驱动层已在 PopulateCapabilities 中如实降级）。
-            // 此时必须与上游对「能力缺失鼠标」的既有处理保持一致：落入 Generic Mouse 分支，
-            // 只保留电量、供电与回报率测速，而不是亮出一整块空标题加零个按钮。
-            bool isMchoseMouseBle = isMchoseBrandMouse
-                && info.Transport != null
-                && info.Transport.IndexOf("蓝牙", StringComparison.Ordinal) >= 0;
-
-            bool isMchoseMouse = isMchoseBrandMouse && !isMchoseMouseBle;
+            // 鼠标是否进入可交互控制台分支（DPI 档位 / 回报率可读写）。
+            // 遵守「UI 层零品牌硬编码」铁律：一律读取能力契约，由各品牌驱动在
+            // PopulateCapabilities 中声明，严禁在 UI 层写 Brand == "xxx" 做门禁。
+            // 蓝牙 BLE 形态（HID over GATT）没有 0x4D 厂商通道，驱动层已将 DPI/回报率
+            // 能力如实置 false，因此该形态会自然落入下方 Generic Mouse 分支
+            // （仅保留电量、供电与回报率测速），不需要 UI 层再按品牌名二次判断。
+            bool supportsMouseTuning = info.Capabilities != null
+                && (info.Capabilities.SupportsDpi || info.Capabilities.SupportsDpiStages || info.Capabilities.SupportsPollingRate);
 
             int secW = cardPerformance.ClientSize.Width - (int)(32 * dpiScale);
 
@@ -2768,7 +2761,7 @@ namespace RazerBatteryTray
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
             }
-            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isZaopinMouse || isFdasMouse || isMchoseMouse)
+            else if (isRazer || isValkyrieMouse || isLogitechMouse || isRapooMouse || isZaopinMouse || isFdasMouse || supportsMouseTuning)
             {
                 if (lblPerfTitle != null)
                 {
@@ -2998,7 +2991,7 @@ namespace RazerBatteryTray
                             btnRates[i].AccentColor = brandAccent;
                             if (i < pollingRateValues.Length)
                             {
-                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isZaopinMouse || isFdasMouse || isMchoseMouse)
+                                if (isValkyrieMouse || isLogitechMouse || isRapooMouse || isRazer || isZaopinMouse || isFdasMouse || supportsMouseTuning)
                                 {
                                     btnRates[i].Selected = (pollingRateValues[i] == info.PollingRate);
                                 }
@@ -3046,7 +3039,7 @@ namespace RazerBatteryTray
                 {
                     rateMenu.Text = "调节回报率 (&P)";
                     rateMenu.DropDownItems.Clear();
-                    int targetActive = (isValkyrieMouse || isFdasMouse || isMchoseMouse) ? info.PollingRate : (autoGameRateEnabled ? (isGamingActive ? gamePollingRate : desktopPollingRate) : desktopPollingRate);
+                    int targetActive = (isValkyrieMouse || isFdasMouse || supportsMouseTuning) ? info.PollingRate : (autoGameRateEnabled ? (isGamingActive ? gamePollingRate : desktopPollingRate) : desktopPollingRate);
                     for (int i = 0; i < pollingRateValues.Length; i++)
                     {
                         int val = pollingRateValues[i];
