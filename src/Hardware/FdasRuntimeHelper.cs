@@ -572,6 +572,33 @@ namespace RazerBatteryTray
             }
         }
 
+        // 批量写入全部 DPI 档位。与其他品牌（雷蛇/雷柏/皂品）的 Update*HardwareStages 对齐：
+        // 原来 FDAS 设备只写当前档位，改档位后其余档位的数值不会被持久化。
+        //
+        // 安全闸门：只有适配包声明了 setDpiValueTxTemplate（"写某档数值"）时才批量写；
+        // 否则 SetDpi 会退化成 setDpiTxTemplate（"切换档位"），循环会把设备反复切档。
+        public static bool UpdateStages(string deviceId, int activeStage, int[] stagesX, int[] stagesY)
+        {
+            if (stagesX == null || stagesX.Length == 0) return false;
+            FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
+            if (def == null || string.IsNullOrEmpty(def.SetDpiValueTxTemplate))
+            {
+                // 没有"写数值"模板：保持旧行为，只写当前档位
+                int ax = (activeStage >= 1 && activeStage <= stagesX.Length) ? stagesX[activeStage - 1] : stagesX[0];
+                int ay = (stagesY != null && activeStage >= 1 && activeStage <= stagesY.Length) ? stagesY[activeStage - 1] : ax;
+                return SetDpi(deviceId, ax, ay, activeStage > 0 ? activeStage : 1);
+            }
+
+            bool any = false;
+            for (int i = 0; i < stagesX.Length && i < 8; i++)
+            {
+                int dx = stagesX[i];
+                int dy = (stagesY != null && i < stagesY.Length) ? stagesY[i] : dx;
+                if (SetDpi(deviceId, dx, dy, i + 1)) any = true;
+            }
+            return any;
+        }
+
         public static bool SetDpi(string deviceId, int dpiX, int dpiY, int stage)
         {
             lock (syncLock)
