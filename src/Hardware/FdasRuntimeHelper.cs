@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -32,6 +33,18 @@ namespace RazerBatteryTray
         public int UsagePage;
         public int Usage;
         public int ReportLength;
+
+        // FDAS metadata.brandColor（#RRGGBB）。为空时沿用内置的品牌配色表。
+        public string BrandColorHex;
+
+        // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
+        // 因此所有既有 1.0 适配包的行为完全不变。
+        public int ReportId;
+
+        // FDAS hardware.devices 多 PID 矩阵。为空表示适配包未声明该字段，
+        // 设备身份沿用旧的 FDAS:VID:PID 规则，行为与之前完全一致。
+        public string[] DeviceProductIds;
+        public string[] DeviceModels;
         public int BatteryOffset;
         public int ChargingOffset;
         public byte ChargingMask;
@@ -122,13 +135,31 @@ namespace RazerBatteryTray
             try
             {
                 string ver = ExtractJsonString(jsonText, "fdasVersion");
-                if (ver != "1.0") return null;
+                // 同时接受 1.0 与 2.0：原来只认 "1.0"，导致 v2.0 适配包被整包丢弃。
+                // 2.0 的新增字段（devices / customActions 等）由后续解析按需读取，
+                // 未识别的键一律忽略，不影响 1.0 包的行为。
+                if (ver != "1.0" && ver != "2.0") return null;
 
                 FdasAdapterDefinition def = new FdasAdapterDefinition();
                 def.FilePath = filePath;
                 def.Brand = ExtractJsonString(jsonText, "brand");
                 def.Model = ExtractJsonString(jsonText, "model");
                 def.Author = ExtractJsonString(jsonText, "author");
+                def.BrandColorHex = ExtractJsonString(jsonText, "brandColor");
+                def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
+
+                // 多 PID 矩阵：同一型号的有线/无线 PID 归并为一个设备身份
+                string devicesBlock = ExtractJsonArrayBlock(jsonText, "devices");
+                if (!string.IsNullOrEmpty(devicesBlock))
+                {
+                    List<string> pids = ExtractJsonStringValues(devicesBlock, "productId");
+                    List<string> models = ExtractJsonStringValues(devicesBlock, "model");
+                    if (pids.Count > 0)
+                    {
+                        def.DeviceProductIds = pids.ToArray();
+                        def.DeviceModels = models.ToArray();
+                    }
+                }
 
                 string catStr = ExtractJsonString(jsonText, "category");
                 def.Category = DeviceCategory.Mouse;
@@ -371,7 +402,7 @@ namespace RazerBatteryTray
 
                                 for (int si = 0; si < txSteps.Count; si++)
                                 {
-                                    byte[] tx = ParseHexBytes(txSteps[si]);
+                                    byte[] tx = ApplyReportId(ParseHexBytes(txSteps[si]), def.ReportId);
                                     if (tx != null && tx.Length > 0)
                                     {
                                         int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -469,10 +500,36 @@ namespace RazerBatteryTray
                         }
 
                         MouseBatteryInfo dev = new MouseBatteryInfo();
-                        dev.DeviceId = string.Format("FDAS:{0:X4}:{1:X4}", def.VendorId, def.ProductId);
+                        // 声明了 devices 矩阵时，用型号做稳定分组键，
+                        // 避免同一鼠标在有线/无线之间切换被认成两台设备。
+                        bool hasPidMatrix = def.DeviceProductIds != null && def.DeviceProductIds.Length > 0;
+                        if (hasPidMatrix)
+                        {
+                            dev.DeviceId = string.Format("FDAS:{0:X4}:{1}", def.VendorId, SanitizeIdPart(def.Model));
+                        }
+                        else
+                        {
+                            dev.DeviceId = string.Format("FDAS:{0:X4}:{1:X4}", def.VendorId, def.ProductId);
+                        }
                         dev.Brand = def.Brand;
                         dev.Category = def.Category;
-                        dev.DeviceName = def.Brand + " " + def.Model;
+                        dev.OverrideBrandColor = ParseHexColor(def.BrandColorHex);
+                        string matchedModel = null;
+                        if (hasPidMatrix && def.DeviceModels != null)
+                        {
+                            for (int mi = 0; mi < def.DeviceProductIds.Length; mi++)
+                            {
+                                if (mi < def.DeviceModels.Length
+                                    && ConvertHexToInt(def.DeviceProductIds[mi]) == def.ProductId)
+                                {
+                                    matchedModel = def.DeviceModels[mi];
+                                    break;
+                                }
+                            }
+                        }
+                        dev.DeviceName = !string.IsNullOrEmpty(matchedModel)
+                            ? matchedModel
+                            : (def.Brand + " " + def.Model);
                                                 dev.IsConnected = (batt >= 0);
                         dev.BatteryPercent = batt >= 0 ? batt : 0;
                         dev.IsCharging = chg;
@@ -548,7 +605,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiTxTemplate, context, def.Variables);
 
-                byte[] tx = ParseHexBytes(tpl);
+                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -575,7 +632,7 @@ namespace RazerBatteryTray
                     if (!string.IsNullOrEmpty(def.SetDpiValueTxTemplate))
                     {
                         string valTpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiValueTxTemplate, context, def.Variables);
-                        byte[] dpiValPacket = ParseHexBytes(valTpl);
+                        byte[] dpiValPacket = ApplyReportId(ParseHexBytes(valTpl), def.ReportId);
                         if (dpiValPacket != null && dpiValPacket.Length > 0)
                         {
                             ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId);
@@ -675,7 +732,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetPollingRateTxTemplate, context, def.Variables);
 
-                byte[] tx = ParseHexBytes(tpl);
+                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -952,6 +1009,83 @@ namespace RazerBatteryTray
             }
             catch (Exception diagEx) { Diagnostics.Log("Hardware/FdasRuntimeHelper.cs: 已忽略异常", diagEx); }
             return null;
+        }
+
+        // 解析 #RRGGBB / RRGGBB 形式的品牌色；无法解析时返回 null，
+        // 调用方会回退到内置的品牌配色表，不会把颜色画成黑色。
+        private static Color? ParseHexColor(string hexStr)
+        {
+            if (string.IsNullOrEmpty(hexStr)) return null;
+            string clean = hexStr.Trim().TrimStart('#');
+            if (clean.Length != 6) return null;
+            try
+            {
+                int r = Convert.ToInt32(clean.Substring(0, 2), 16);
+                int g = Convert.ToInt32(clean.Substring(2, 2), 16);
+                int b = Convert.ToInt32(clean.Substring(4, 2), 16);
+                return Color.FromArgb(r, g, b);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 适配包声明 reportId 时，若报文首字节不是该 ID 则前插一位。
+        // reportId <= 0（未声明）时原样返回，保证旧适配包零影响。
+        private static byte[] ApplyReportId(byte[] tx, int reportId)
+        {
+            if (tx == null || tx.Length == 0 || reportId <= 0) return tx;
+            if (tx[0] == (byte)reportId) return tx;
+            byte[] withId = new byte[tx.Length + 1];
+            withId[0] = (byte)reportId;
+            Array.Copy(tx, 0, withId, 1, tx.Length);
+            return withId;
+        }
+
+        // 取出形如 "key": [ ... ] 的数组块（支持嵌套），找不到返回 null。
+        private static string ExtractJsonArrayBlock(string json, string key)
+        {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(key)) return null;
+            int idx = json.IndexOf("\"" + key + "\"", StringComparison.Ordinal);
+            if (idx < 0) return null;
+            int start = json.IndexOf('[', idx);
+            if (start < 0) return null;
+            int depth = 0;
+            for (int i = start; i < json.Length; i++)
+            {
+                if (json[i] == '[') depth++;
+                else if (json[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0) return json.Substring(start, i - start + 1);
+                }
+            }
+            return null;
+        }
+
+        // 提取块内所有 "key": "value" 的字符串值，按出现顺序返回。
+        private static List<string> ExtractJsonStringValues(string block, string key)
+        {
+            List<string> list = new List<string>();
+            if (string.IsNullOrEmpty(block)) return list;
+            MatchCollection mc = Regex.Matches(block, "\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+            foreach (Match m in mc) list.Add(m.Groups[1].Value);
+            return list;
+        }
+
+        // 型号转成可用作注册表/配置键的片段
+        private static string SanitizeIdPart(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "DEV";
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in raw)
+            {
+                if (char.IsLetterOrDigit(c)) sb.Append(c);
+                else if (sb.Length == 0 || sb[sb.Length - 1] != '_') sb.Append('_');
+            }
+            string outStr = sb.ToString().Trim('_');
+            return string.IsNullOrEmpty(outStr) ? "DEV" : outStr;
         }
 
         private static int ConvertHexToInt(string hexStr)
