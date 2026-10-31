@@ -252,7 +252,7 @@ namespace RazerBatteryTray
 
             // Row 1: DPI 档位
             int r1Y = (int)(38 * dpiScale);
-            int lblW = (int)(82 * dpiScale);
+            int lblW = MeasurePerfLabelColumnW();
             int segH = (int)(28 * dpiScale);
 
             lblDpiTitle = new Label();
@@ -1127,6 +1127,31 @@ namespace RazerBatteryTray
             UpdateMainFormClientSize(baseW, clientH);
         }
 
+        // 左列「标签 / 开关」栏的宽度：按真实文字实测动态计算。
+        // 固定 82px 在「电竞回报率」这类较长文案下会把最后一个字压到右侧
+        // 档位按钮底下——ModernCheckBox 的文字从控件内 x=25 起绘（1px 留白
+        // + 16px 方框 + 8px 间距），68px 宽文本实际需要 97px 控件宽度，
+        // 而右侧第一个回报率按钮正好紧贴该栏右边缘起排。故此处按最宽文案实测取值。
+        private int MeasurePerfLabelColumnW()
+        {
+            int boxAndGap = 25; // 与 ModernCheckBox.OnPaint 的 boxRect.Right + 8 保持一致
+            int breathing = (int)Math.Ceiling(4 * dpiScale);
+            int widest = 0;
+
+            if (lblDpiTitle != null) { int w = TextRenderer.MeasureText(lblDpiTitle.Text, lblDpiTitle.Font).Width; if (w > widest) widest = w; }
+            if (lblRateTitle != null) { int w = TextRenderer.MeasureText(lblRateTitle.Text, lblRateTitle.Font).Width; if (w > widest) widest = w; }
+            if (lblNuphyBrightTitle != null) { int w = TextRenderer.MeasureText(lblNuphyBrightTitle.Text, lblNuphyBrightTitle.Font).Width; if (w > widest) widest = w; }
+            if (chkAutoGameDpi != null) { int w = TextRenderer.MeasureText(chkAutoGameDpi.Text, chkAutoGameDpi.Font).Width; if (w > widest) widest = w; }
+            if (chkAutoGameRate != null) { int w = TextRenderer.MeasureText(chkAutoGameRate.Text, chkAutoGameRate.Font).Width; if (w > widest) widest = w; }
+
+            // 兜底：控件尚未创建时按最长内置文案「常规回报率 / 电竞回报率」的实测宽度。
+            if (widest <= 0) widest = 68;
+
+            int needed = widest + boxAndGap + breathing;
+            int minW = (int)Math.Ceiling(82 * dpiScale);
+            return (needed > minW) ? needed : minW;
+        }
+
         private void RelayoutDpiButtons()
         {
             if (cardPerformance == null || btnDpiStages == null || btnDpiManage == null) return;
@@ -1134,7 +1159,7 @@ namespace RazerBatteryTray
             int cPad = (int)(14 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
             int r1Y = (int)(38 * dpiScale);
-            int lblW = (int)(82 * dpiScale);
+            int lblW = MeasurePerfLabelColumnW();
             int segH = (int)(28 * dpiScale);
 
             int dpiStartX = cPad + lblW;
@@ -1142,9 +1167,11 @@ namespace RazerBatteryTray
             int gap = (int)(5 * dpiScale);
             int manageBtnW = segH;
 
-            int count = Math.Max(1, Math.Min(btnDpiStages.Length, dpiStageList.Count));
+            // 严格按板载实际档位数量渲染：有多少档就显示多少，绝不用 Math.Max(1, ...) 伪造出档位。
+            int count = Math.Min(btnDpiStages.Length, dpiStageList.Count);
+            if (count < 0) count = 0;
             int remainingW = availableW - manageBtnW - gap;
-            int stageW = (remainingW - (count - 1) * gap) / count;
+            int stageW = (count > 0) ? ((remainingW - (count - 1) * gap) / count) : remainingW;
 
             dpiStageValues = dpiStageList.ToArray();
 
@@ -1227,7 +1254,7 @@ namespace RazerBatteryTray
             int cPad = (int)(14 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
             int r2Y = (int)(75 * dpiScale);
-            int lblW = (int)(82 * dpiScale);
+            int lblW = MeasurePerfLabelColumnW();
             int segH = (int)(28 * dpiScale);
 
             int hzStartX = cPad + lblW;
@@ -1236,11 +1263,12 @@ namespace RazerBatteryTray
             int manageBtnW = segH;
 
             // 回报率最多 5 档快捷显示
-            int count = Math.Max(1, Math.Min(5, Math.Min(btnRates.Length, (pollingRateValues != null) ? pollingRateValues.Length : 4)));
+            // 严格按设备实际上报的回报率数量渲染：有多少档就显示多少，绝不补默认值。
+            int count = (pollingRateValues != null) ? Math.Min(5, Math.Min(btnRates.Length, pollingRateValues.Length)) : 0;
 
             // 1. 常规桌面回报率档位（末尾空出齿轮按钮位置）
             int remainingW = availableW - manageBtnW - gap;
-            int hzSegW = (remainingW - (count - 1) * gap) / count;
+            int hzSegW = (count > 0) ? ((remainingW - (count - 1) * gap) / count) : remainingW;
 
             for (int i = 0; i < btnRates.Length; i++)
             {
@@ -1287,7 +1315,7 @@ namespace RazerBatteryTray
             if (cardPerformance == null) return;
             int cPad = (int)(14 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
-            int lblW = (int)(82 * dpiScale);
+            int lblW = MeasurePerfLabelColumnW();
             int segH = (int)(28 * dpiScale);
 
             if (lblLiveRateBadge != null)
@@ -1349,8 +1377,8 @@ namespace RazerBatteryTray
             }
             if (btnGameDpiStages != null)
             {
-                int dpiCount = Math.Max(1, Math.Min(btnGameDpiStages.Length, dpiStageList.Count));
-                int stageW = (availableW - (dpiCount - 1) * gap) / dpiCount;
+                int dpiCount = Math.Min(btnGameDpiStages.Length, dpiStageList.Count);
+                int stageW = (dpiCount > 0) ? ((availableW - (dpiCount - 1) * gap) / dpiCount) : availableW;
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
                     if (btnGameDpiStages[i] != null)
@@ -1359,7 +1387,7 @@ namespace RazerBatteryTray
                         {
                             btnGameDpiStages[i].Location = new Point(hzStartX + i * (stageW + gap), r4Y);
                             btnGameDpiStages[i].Size = new Size(stageW, segH);
-                            int valX = (dpiStageList != null && i < dpiStageList.Count) ? dpiStageList[i] : 800;
+                            int valX = (dpiStageList != null && i < dpiStageList.Count) ? dpiStageList[i] : 0;
                             int valY = (selectedDevice != null && selectedDevice.DpiStagesY != null && selectedDevice.DpiStagesY.Length > i) ? selectedDevice.DpiStagesY[i] : valX;
                             bool isDiffXy = (selectedDevice != null && selectedDevice.IsXyIndependent && valX != valY);
                             if (isDiffXy)
@@ -1406,8 +1434,8 @@ namespace RazerBatteryTray
             }
             if (btnGameRates != null)
             {
-                int rateCount = Math.Max(1, Math.Min(5, Math.Min(btnGameRates.Length, (pollingRateValues != null) ? pollingRateValues.Length : 4)));
-                int gameSegW = (availableW - (rateCount - 1) * gap) / rateCount;
+                int rateCount = (pollingRateValues != null) ? Math.Min(5, Math.Min(btnGameRates.Length, pollingRateValues.Length)) : 0;
+                int gameSegW = (rateCount > 0) ? ((availableW - (rateCount - 1) * gap) / rateCount) : availableW;
                 for (int i = 0; i < btnGameRates.Length; i++)
                 {
                     if (btnGameRates[i] != null)
@@ -1846,7 +1874,9 @@ namespace RazerBatteryTray
             if (lblGameDpiTitle != null) lblGameDpiTitle.Visible = false;
             if (btnGameDpiStages != null)
             {
-                int count = Math.Max(1, Math.Min(5, dpiStageList.Count));
+                // 严格按板载实际档位数量渲染：有多少档就显示多少，不得凭空造出一个档位。
+                int count = (dpiStageList != null && dpiStageList.Count > 0)
+                    ? Math.Min(5, dpiStageList.Count) : 0;
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
                     if (btnGameDpiStages[i] != null)
@@ -1861,7 +1891,9 @@ namespace RazerBatteryTray
             if (lblGameRateTitle != null) lblGameRateTitle.Visible = false;
             if (btnGameRates != null)
             {
-                int count = Math.Max(1, Math.Min(5, Math.Min(btnGameRates.Length, (pollingRateValues != null) ? pollingRateValues.Length : 4)));
+                // 回报率同样按设备实际上报数量渲染，不补默认值。
+                int count = (pollingRateValues != null && pollingRateValues.Length > 0)
+                    ? Math.Min(5, Math.Min(btnGameRates.Length, pollingRateValues.Length)) : 0;
                 for (int i = 0; i < btnGameRates.Length; i++)
                 {
                     if (btnGameRates[i] != null)
@@ -2113,15 +2145,18 @@ namespace RazerBatteryTray
             if (curDev == null) return;
 
             string devName = !string.IsNullOrEmpty(curDev.DisplayName) ? curDev.DisplayName : (curDev.Brand + " 鼠标");
+            // 严格按设备实际上报的回报率创建选项，不补全表。
             int[] supported = (curDev.SupportedPollingRates != null && curDev.SupportedPollingRates.Length > 0)
                 ? curDev.SupportedPollingRates
-                : new int[] { 125, 250, 500, 1000, 2000, 4000, 8000 };
+                : ((curDev.PollingRate > 0) ? new int[] { curDev.PollingRate } : new int[0]);
+            if (supported.Length == 0) return;
 
             int[] activeSelected = (pollingRateValues != null && pollingRateValues.Length > 0)
                 ? pollingRateValues
                 : supported;
 
-            int curHz = curDev.PollingRate > 0 ? curDev.PollingRate : 1000;
+            // 读不到就不编造 1000 Hz。
+            int curHz = curDev.PollingRate > 0 ? curDev.PollingRate : (supported.Length > 0 ? supported[0] : 0);
             using (var dlg = new PollingRateManagementDialog(devName, supported, activeSelected, curHz, dpiScale))
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
@@ -2155,7 +2190,7 @@ namespace RazerBatteryTray
                         RelayoutPerformanceControls();
                         SetGameRateControlsVisibility(autoGameRateEnabled);
 
-                        curHz = curDev.PollingRate > 0 ? curDev.PollingRate : 1000;
+                        curHz = curDev.PollingRate > 0 ? curDev.PollingRate : (newSelected.Length > 0 ? newSelected[0] : 0);
                         UpdateDesktopRateButtonSelection(curHz);
                         UpdateGameRateButtonSelection(gamePollingRate);
                         UpdatePollingRateDisplayStates();

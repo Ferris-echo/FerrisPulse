@@ -370,6 +370,19 @@ namespace RazerBatteryTray
                                         }
 
                                         if (GanssDeviceHelper.NormalizeConfig(cfg)) SaveCustomDevice(cfg);
+
+                                        // 品类权威纠错：VID/PID 能唯一确定品类时以硬件事实为准。
+                                        // 复合外设（如 3837:1018）同时暴露键盘与鼠标接口，手动添加时
+                                        // 容易被记成 Keyboard；错误一旦固化，鼠标驱动 CanHandle 会
+                                        // 拒绝接管，DPI/回报率控件整块消失，且原逻辑只做键盘单向迁移、
+                                        // 没有反向纠错，用户无法自行恢复。此处立即写回正确品类。
+                                        DeviceCategory authoritativeCat;
+                                        if (MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out authoritativeCat) &&
+                                            cfg.Category != authoritativeCat)
+                                        {
+                                            cfg.Category = authoritativeCat;
+                                            SaveCustomDevice(cfg);
+                                        }
                                         list.Add(cfg);
                                     }
                                 }
@@ -571,6 +584,41 @@ namespace RazerBatteryTray
             catch { }
         }
 
+        /// <summary>
+        /// 清理迈从鼠标的历史通用记录。
+        ///
+        /// 背景：旧版通用 HID 扫描曾把 K7 V2 Ultra+（3837:1018）当成"无主 HID 鼠标"，
+        /// 在 HKCU\...\CustomDevices 下写下 "HID:3837:1018" 的通用配置。如今该型号已由
+        /// MchoseMouse4DHelper 原生接管（DeviceId 为 "MCHOSE:3837:1018"），两条记录并存
+        /// 会让主界面出现"同一台鼠标两张卡片"，其中通用卡永远读不到电量（-1%）。
+        /// 这里只删除通用前缀的记录，原生 "MCHOSE:" 记录保持不动。
+        /// </summary>
+        public static void CleanupDuplicateMchoseDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c.DeviceId == null) continue;
+                    if (!c.DeviceId.StartsWith("HID:3837:", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    int pid = 0;
+                    string pidHex = c.DeviceId.Substring("HID:3837:".Length).Trim();
+                    bool pidOk = int.TryParse(pidHex, System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture, out pid);
+
+                    // 仅当该 PID 已被 4D 原生驱动接管时才删除通用记录，
+                    // 否则会误删尚未适配的迈从设备的用户自定义配置。
+                    if (pidOk && MchoseMouse4DHelper.IsSupportedPid(pid))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void UpdateCustomDeviceBattery(string deviceId, int battery, DateTime lastSeen)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
@@ -756,6 +804,7 @@ namespace RazerBatteryTray
             CleanupDuplicateValkyrieDevices();
             CleanupDuplicateRapooDevices();
             CleanupDuplicateHyperXDevices();
+            CleanupDuplicateMchoseDevices();
 
             CleanupDuplicateSteelSeriesDevices();
             CleanupPhantomAppleDevices();
@@ -1527,7 +1576,15 @@ namespace RazerBatteryTray
                     if (existDev != null)
                     {
                         existDev.IsCustom = true;
-                        if (cfg.Category != DeviceCategory.Generic)
+                        DeviceCategory mergeTruthCat;
+                        bool mergeTruthKnown = MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out mergeTruthCat);
+                        if (mergeTruthKnown && mergeTruthCat != DeviceCategory.Generic)
+                        {
+                            // 硬件事实优先：驱动已按 VID/PID 正确归类时，
+                            // 不允许注册表里的历史错值把品类再改回去。
+                            existDev.Category = mergeTruthCat;
+                        }
+                        else if (cfg.Category != DeviceCategory.Generic)
                         {
                             existDev.Category = cfg.Category;
                         }

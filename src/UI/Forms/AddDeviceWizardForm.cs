@@ -580,11 +580,29 @@ namespace RazerBatteryTray
                 };
 
                 Func<string, DeviceCategory, DeviceCategory> resolveCategory = delegate(string devId, DeviceCategory defCat) {
+                    // 硬件事实优先：VID/PID 能唯一确定品类时，绝不让注册表里的
+                    // 历史错值把它盖掉。复合外设（如 3837:1018 同时暴露键盘与
+                    // 鼠标接口）一旦被记成 Keyboard 并固化，鼠标驱动会拒绝接管，
+                    // DPI/回报率控件整块消失，用户无法自行恢复。
+                    DeviceCategory truthCat;
+                    if (MchoseDeviceHelper.TryGetAuthoritativeCategory(devId, devId, out truthCat) &&
+                        truthCat != DeviceCategory.Generic)
+                    {
+                        return truthCat;
+                    }
                     if (existingConfigs != null)
                     {
                         var match = existingConfigs.Find(c => c.DeviceId == devId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == devId));
                         if (match != null)
+                        {
+                            DeviceCategory matchTruthCat;
+                            if (MchoseDeviceHelper.TryGetAuthoritativeCategory(match.DeviceId, match.HardwareFingerprint, out matchTruthCat) &&
+                                matchTruthCat != DeviceCategory.Generic)
+                            {
+                                return matchTruthCat;
+                            }
                             return match.Category;
+                        }
                     }
                     return defCat;
                 };

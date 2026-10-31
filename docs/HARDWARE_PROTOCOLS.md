@@ -52,6 +52,65 @@
 ### 1.6 迈从 (MCHOSE) A5 V2 Ultra 鼠标与 G87 V2 键盘
 - **A5 V2 Ultra (`MchoseMouseHelper.cs`)**：
   - `UsagePage 0xFF01 / 0xFF0B`：短报文 `0x11` 发送 `CMD_IDENTITY (0x06)`（载荷异或 `0xFF`），回复 `[11] ^ 0xFF` 为电量，`[12] ^ 0xFF` 为充电；长报文 `0x12` 发送 `0x67/0x57/0x41` 读写 6 档 XY DPI 与 8K 回报率。
+- **K7 V2 Ultra+ 等新一代 4D 帧协议族 (`MchoseMouse4DHelper.cs`)**：
+  - **支持 PID 白名单**：`0x1001`（K7 Ultra）、`0x1014`、`0x1016`、`0x1018`（K7 V2 Ultra+，实机验证）、`0x101C`、`0x101D`，VID 固定 `0x3837`。
+  - **帧结构（64 字节，首字节即 Report ID `0x4D`）**：
+    ```
+    [0]=0x4D  [1]=0x01  [2]=flags(1)  [3]=data 长度
+    [4]=cmd 低字节  [5]=cmd 高字节  [6]=bizCode  [7]=sequence
+    [8..]=data  [8+len]=校验和
+    ```
+    校验和为 `frame[2]` 到 `frame[7+len]` 逐字节 XOR。**payload 不做 `^0xFF` 反转**（这是与旧 A5 协议最关键的区别）。
+  - **传输要求**：必须 `CreateFile` 带 `GENERIC_READ|GENERIC_WRITE` 打开，用 `WriteFile`/`ReadFile` 收发中断报告；`HidD_SetFeature`/`HidD_GetFeature` 对该协议族**一律无效**。
+  - **忙标志**：设备刚唤醒或正在落盘配置时，回包数据区首字节为 `0xFF`（无有效数据），必须退避重发（`BusyRetryCount × BusyRetryDelayMs`），不能当作有效应答。
+  - **命令表**：
+    | 命令 | 方向 | 用途与关键偏移 |
+    | --- | --- | --- |
+    | `0x0900` | 读 | 设备信息：`[8..9]`=VID(LE)、`[10..11]`=PID(LE)、`[12]`=配置档数、`[13]`=宏存储类型、`[14..15]`=共享宏区、`[16..17]`=宏单元、`[18]`=连接状态、`[19]`=充电状态、`[20]`=电量%、`[21]`=游戏模式 |
+    | `0x0002` | 读 | 性能配置：`[8]`=配置档、`[9]`=高4位 USB 回报率索引/低4位 USB DPI 档、`[10]`=高4位 2.4G 回报率索引/低4位 2.4G DPI 档、`[11]`=休眠分钟、`[12]`=休眠模式、`[13]`=传感器、`[14]`=角度、`[15]`=左键消抖、`[16]`=右键消抖 |
+    | `0x0003` | 读 | DPI：`[8]`=配置档、`[9]`=方向、`[10]`=档位总数、`[11]`=当前档位、`[12]`=是否 XY 独立、`[13..24]`=6×uint16 LE DPI |
+    | `0x0103` | 写 | DPI 整表回写，data 17 字节 `[档位, 方向, XY独立, 档位总数, 当前档位, 6×uint16]` |
+    | `0x0102` | 写 | 性能配置全量回写，data 19 字节（只改回报率半字节，其余字段原样回写） |
+    | `0x0901` | 读 | 固件版本，data `[0]`=鼠标 / `[1]`=接收器 |
+  - **连接状态**：`[18]` 为 `0` 表示有线直连，`2` 表示 2.4G 接收器链路。
+    但**实测 `0x4028`（USB 有线直连接口）回包 `[18]` 为 `1`**，与旧固件的 `0` 不一致。
+    因此连接形态的判定**必须以实际命中的接口 PID 为主判据**（`GetTransportNameByPid`），
+    只在 PID 未知时才退回 `[18]` 的旧映射，否则会把有线形态误标成「2.4G 无线」。
+  - **回报率索引**：协议内按「RATES 索引 + 1」存储，RATES = `125/500/1000/2000/4000/8000` Hz；索引 0 仍发 0。
+  - **DPI 上限**：搭载 PAW3950 的 4D 机型上限 42,000 DPI、6 档板载；旧版 A5 V2 Ultra 保持 26,000 DPI / 5 档。
+  - **XY 双轴能力必须以 `0x0003` 的 `[12]` (HasY) 为准，不可硬编码**：
+    实测 K7 V2 Ultra+（PAW3950 单传感器）该位恒为 `0`，向 `0x0103` 写入 `1200x800` 后回读为 `1200x1200`，
+    固件强制把 Y 轴同步为 X 轴；`0x0102` 的 XY 标志位写入后同样被忽略。因此
+    `BuiltInDrivers.PopulateCapabilities` 对 4D 协议族取 `dev.IsXyIndependent`（即 HasY），
+    仅对真实支持双轴的旧版 A5 V2 Ultra 保持 `true`，避免向用户暴露无效开关。
+  - **与旧协议隔离**：`MchoseMouseHelper.FindControlPath` 遇到上述 PID 直接跳过，避免重复卡片；四个写入入口优先委派 4D 驱动，失败自动回退旧协议。
+  - **USB 有线直连形态（PID `0x4028`）**：
+    - 鼠标插 USB 线后**不再**走 2.4G 接收器，Windows 枚举出的 USB 接口 PID 变为 `0x4028`（接收器是 `0x1018`）。
+      该 PID 必须加入 `SupportedPids` 白名单，否则有线形态完全不被识别。
+    - **协议完全一致**：`0x0900` / `0x0002` / `0x0003` / `0x0102` / `0x0103` 全部可用，
+      电量、充电状态、DPI 档位读写、回报率切换与 2.4G 形态**无任何差别**
+      （实机验证：电量 `[20]`=98、充电 `[19]`=1、DPI 2200、回报率 1000 Hz）。
+    - **关键坑：端点必须优先选 `0x4028`**。鼠标插线后 2.4G 接收器通常仍插在机器上，
+      于是 `UsagePage 0xFF01` 会**同时**枚举出两个端点：`0x1018`（已断链）与 `0x4028`（在线）。
+      若 `PickEndpoint()` 不优先返回 `0x4028`，所有写帧都会打进断链的接收器端点，
+      表现为「句柄有效、写入返回 False、读无应答」，DPI 与回报率功能全哑。
+    - **无接收器**：有线形态由线缆供电，`IsDonglePresent` 必须为 `false`；
+      `BuildStaleCard` 也不得再把传输形态硬编码成「2.4G 无线」。
+  - **蓝牙 BLE 形态（HID over GATT，PID `0x4026`）**：
+    - 同一台 K7 V2 Ultra+ 切到蓝牙后**不再**以 USB 厂商接口出现，而是成为 BLE HID over GATT 节点，Windows 在该节点上报的 PID 为 `0x4026`（与 USB 接口 PID `0x1018` 不同，是固件另编的身份，不是笔误）。
+    - **无厂商通道**：BLE 形态只暴露标准鼠标/键盘/多媒体集合，`0x4D` 帧协议在此形态下完全不可达。因此 DPI 档位、X/Y 双轴、回报率一律**不可读写**，必须由 `MchoseMouseDriver.PopulateCapabilities` 按 `Transport` 含「蓝牙」如实降级为 `SupportsDpi = false` / `SupportsDpiStages = false` / `SupportsPollingRate = false` / `SupportsXyIndependence = false` / `SupportsHardwareDpiMonitor = false`，UI 落入 Generic Mouse 分支（与上游对「能力缺失鼠标」的既有处理一致）。
+    - **电量走 Windows 原生 GATT 电池服务**：读 `DEVPKEY_Device_BatteryLevel`（`DEVPROP_TYPE_BYTE`，单字节 0-100）。**不能**按 `ToInt32` 读，否则会把相邻字节一并算进来得到荒谬数值。
+    - **关键坑：VID/PID 与电量分属两个不同节点**，两步缺一不可：
+      ```
+      BTHLEDEVICE\{GATT 服务 GUID}_DEV_VID&023837_PID&4026_REV&0100_<MAC>\...   ← 有 VID/PID，无电量
+      BTHLE\DEV_<MAC>\...                                                      ← 有电量与 FriendlyName，无 VID/PID
+      ```
+      必须先枚举 `BTHLEDEVICE`（`SetupDiGetClassDevs(..., "BTHLEDEVICE", ...)`）拿到 MAC 与 PID，再回到 `BTHLE` 按 MAC 找父节点读电量。
+    - **VID/PID 前缀约定**：实例 ID 里写作 `VID&023837` / `PID&4026`，前两位是 Windows 的序号前缀，解析时必须只取**末 4 位**作为真实 VID/PID。
+    - **MAC 解析不能用 `BluetoothDeviceHelper.ExtractMac`**：它按 `DEV_` 后取 12 位，对带 `VID&/PID&` 前缀的 BLE 格式会截成 `VID&023837_P`。正确做法是取**最后一个反斜杠之前**、且该段中**最后一个下划线之后**的 12 位十六进制（不能取第一个反斜杠，`BTHLEDEVICE` 之后就有一个）。
+    - **充电状态不可读**：标准 GATT 电池服务只给百分比，没有充电标志位，`IsCharging` 恒为 `false`，**绝不猜测**。
+    - **性能铁律**：BLE 在线时必须**先**返回并跳过 `0x4D` 查询。鼠标切蓝牙后 2.4G 接收器通常仍插在机上但已断链，此时 0x4D 通道每次查询都要把 `BusyRetryCount(8) × BusyRetryDelayMs(90)` 全部耗完才放弃，**单次约 4.2 秒**；若不跳过，每轮 UI 刷新都会白卡 4 秒以上（实测由 4.2 s 降至 55 ms）。
+    - **卡片去重**：旧版通用 HID 扫描曾在 `HKCU\Software\RazerBatteryTray\CustomDevices` 下写入 `HID:3837:1018` 通用记录，与原生 `MCHOSE:` 记录并存会让主界面出现两张卡（通用卡永远 `-1%`）。`DeviceManager.CleanupDuplicateMchoseDevices()` 只删 `HID:3837:` 前缀且 PID 命中 4D 白名单的记录，原生记录保持不动。
 - **G87 V2 (`3837:3033`, `MchoseDeviceHelper.cs`)**：
   - 优先选 `UsagePage 1 / Usage 0` 的 65 字节集合（MI_01），发送未编号性能配置查询帧 `00 55 05 00 38 38 ...`（65 字节），回复 `AA 05 ...` 中 `offset 40` 为电量，`offset 41` 为充电标志。
 - **Z75S 三模机械键盘 (`258A:01BB`, `MchoseDeviceHelper.cs`)**（社区贡献者 `@WaterGauge` 贡献）：

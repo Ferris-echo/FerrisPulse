@@ -5,7 +5,9 @@ $ErrorActionPreference = "Stop"
 $asmPath = Join-Path $PSScriptRoot "..\FerrisPulse.exe"
 if (-not (Test-Path $asmPath)) { $asmPath = "FerrisPulse.exe" }
 $fullPath = (Resolve-Path $asmPath).Path
-$asm = [System.Reflection.Assembly]::LoadFile($fullPath)
+# ⚠️ 铁律 10：严禁 Add-Type -Path / LoadFile 锁死 exe 文件句柄（会导致后续编译 CS0016）。
+# 必须全内存反射装载。
+$asm = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($fullPath))
 
 $tRazer = $asm.GetType("RazerBatteryTray.RazerDeviceHelper")
 if ($tRazer -eq $null) {

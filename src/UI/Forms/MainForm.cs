@@ -511,9 +511,10 @@ namespace RazerBatteryTray
 
         private ModernButton btnDpiManage;
 
-        private List<int> dpiStageList = new List<int> { 400, 800, 1600, 3000, 6400 };
+        // 档位默认为空：必须等设备实际上报板载档位后才渲染，绝不能用默认值伪造选项。
+        private List<int> dpiStageList = new List<int>();
 
-        private int[] dpiStageValues = new int[] { 400, 800, 1600, 3000, 6400 };
+        private int[] dpiStageValues = new int[0];
 
         private Label lblRateTitle;
 
@@ -521,7 +522,7 @@ namespace RazerBatteryTray
 
         private ModernButton btnRateManage;
 
-        private int[] pollingRateValues = new int[] { 1000, 2000, 4000, 8000 };
+        private int[] pollingRateValues = new int[0];
 
         private bool autoGameRateEnabled = false;
 
@@ -771,6 +772,14 @@ namespace RazerBatteryTray
         private float dpiScale = 1.0f;
 
         private MouseBatteryInfo lastInfo = null;
+
+        // [设备聚焦记忆] 上次用户主动选中的设备 ID（跨重启保持）。
+        // 嗜血教训：不记忆时每次启动都回落到键盘（GetPrimaryDevice），
+        // 而键盘视图下 DPI/回报率控件整块不渲染，用户会误以为“无法调整 DPI”。
+        private string lastSelectedDeviceId = null;
+
+        // 用户是否已手动指定过面板展示设备；未手动指定前，启动阶段允许自动纠正到有效设备。
+        private bool deviceSelectionPinnedByUser = false;
 
 
 
@@ -1385,7 +1394,7 @@ namespace RazerBatteryTray
 
                 RestoreWindowPosition();
 
-                var devToSelect = targetDev ?? GetPrimaryDevice();
+                var devToSelect = targetDev ?? GetPreferredStartupDevice();
 
                 if (devToSelect != null)
 
@@ -1970,7 +1979,8 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                             gameDpiStage = (int)gameDpiStageVal;
 
-                            if (gameDpiStage < 1 || gameDpiStage > 5) gameDpiStage = 2;
+                            // 只做合法性下界兜底；上界在运行时按设备实际档位数收敛，绝不凭 2/5 造档。
+            if (gameDpiStage < 1) gameDpiStage = 1;
 
                         }
 
@@ -2040,43 +2050,8 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
 
 
-                        var customDpiVal = key.GetValue("CustomDpiStages") as string;
-
-                        if (!string.IsNullOrEmpty(customDpiVal))
-
-                        {
-
-                            string[] parts = customDpiVal.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-
-                            List<int> loaded = new List<int>();
-
-                            for (int i = 0; i < parts.Length && loaded.Count < 5; i++)
-
-                            {
-
-                                int pDpi;
-
-                                if (int.TryParse(parts[i].Trim(), out pDpi) && pDpi >= 100 && pDpi <= 20000)
-
-                                {
-
-                                    loaded.Add(pDpi);
-
-                                }
-
-                            }
-
-                            if (loaded.Count > 0)
-
-                            {
-
-                                dpiStageList = loaded;
-
-                                dpiStageValues = dpiStageList.ToArray();
-
-                            }
-
-                        }
+                        // 注册表里的档位数量只作历史记录，绝不作为 UI 选项来源：
+                        // DPI 档位必须由设备板载实际配置决定——有多少档就显示多少。
 
 
 
@@ -2087,6 +2062,10 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                         var wyVal = key.GetValue("WindowY");
 
                         if (wyVal != null) savedWindowY = (int)wyVal;
+
+                        var lsVal = key.GetValue("LastSelectedDevice");
+
+                        if (lsVal != null) lastSelectedDeviceId = lsVal as string;
 
                     }
 
@@ -2303,6 +2282,14 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                             key.SetValue("WindowX", savedWindowX);
 
                             key.SetValue("WindowY", savedWindowY);
+
+                        }
+
+                        if (!string.IsNullOrEmpty(lastSelectedDeviceId))
+
+                        {
+
+                            key.SetValue("LastSelectedDevice", lastSelectedDeviceId);
 
                         }
 
