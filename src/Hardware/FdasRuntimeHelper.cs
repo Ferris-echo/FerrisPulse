@@ -36,6 +36,10 @@ namespace RazerBatteryTray
 
         // FDAS metadata.brandColor（#RRGGBB）。为空时沿用内置的品牌配色表。
         public string BrandColorHex;
+
+        // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
+        // 因此所有既有 1.0 适配包的行为完全不变。
+        public int ReportId;
         public int BatteryOffset;
         public int ChargingOffset;
         public byte ChargingMask;
@@ -137,6 +141,7 @@ namespace RazerBatteryTray
                 def.Model = ExtractJsonString(jsonText, "model");
                 def.Author = ExtractJsonString(jsonText, "author");
                 def.BrandColorHex = ExtractJsonString(jsonText, "brandColor");
+                def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
 
                 string catStr = ExtractJsonString(jsonText, "category");
                 def.Category = DeviceCategory.Mouse;
@@ -379,7 +384,7 @@ namespace RazerBatteryTray
 
                                 for (int si = 0; si < txSteps.Count; si++)
                                 {
-                                    byte[] tx = ParseHexBytes(txSteps[si]);
+                                    byte[] tx = ApplyReportId(ParseHexBytes(txSteps[si]), def.ReportId);
                                     if (tx != null && tx.Length > 0)
                                     {
                                         int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -557,7 +562,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiTxTemplate, context, def.Variables);
 
-                byte[] tx = ParseHexBytes(tpl);
+                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -584,7 +589,7 @@ namespace RazerBatteryTray
                     if (!string.IsNullOrEmpty(def.SetDpiValueTxTemplate))
                     {
                         string valTpl = ExpressionEvaluator.ExpandTemplate(def.SetDpiValueTxTemplate, context, def.Variables);
-                        byte[] dpiValPacket = ParseHexBytes(valTpl);
+                        byte[] dpiValPacket = ApplyReportId(ParseHexBytes(valTpl), def.ReportId);
                         if (dpiValPacket != null && dpiValPacket.Length > 0)
                         {
                             ApplyChecksum(dpiValPacket, def.ChecksumType, def.VendorId);
@@ -684,7 +689,7 @@ namespace RazerBatteryTray
 
                 string tpl = ExpressionEvaluator.ExpandTemplate(def.SetPollingRateTxTemplate, context, def.Variables);
 
-                byte[] tx = ParseHexBytes(tpl);
+                byte[] tx = ApplyReportId(ParseHexBytes(tpl), def.ReportId);
                 if (tx == null || tx.Length == 0) return false;
 
                 int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
@@ -981,6 +986,18 @@ namespace RazerBatteryTray
             {
                 return null;
             }
+        }
+
+        // 适配包声明 reportId 时，若报文首字节不是该 ID 则前插一位。
+        // reportId <= 0（未声明）时原样返回，保证旧适配包零影响。
+        private static byte[] ApplyReportId(byte[] tx, int reportId)
+        {
+            if (tx == null || tx.Length == 0 || reportId <= 0) return tx;
+            if (tx[0] == (byte)reportId) return tx;
+            byte[] withId = new byte[tx.Length + 1];
+            withId[0] = (byte)reportId;
+            Array.Copy(tx, 0, withId, 1, tx.Length);
+            return withId;
         }
 
         private static int ConvertHexToInt(string hexStr)
