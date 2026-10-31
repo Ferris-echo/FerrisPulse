@@ -125,6 +125,36 @@
   - `maxRate` (int, 必填): 硬件最大极限回报率（如 `8000`）。
   - `rateIndexMap` (object, 可选): 速率到固件协议索引的映射（如 `{"125": 0, "500": 1, "1000": 2, "2000": 3, "4000": 4, "8000": 5}`）。
 
+#### C. 自定义硬件动作 (`capabilities.customActions`)
+
+数组，每条声明一个可在托盘「自定义动作」子菜单里触发的操作。缺省时该菜单整项隐藏。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string, 必填 | 动作唯一标识 |
+| `title` | string, 必填 | 菜单显示名称 |
+| `type` | string, 必填 | `Toggle` / `Slider` / `Button` |
+| `activeText` / `inactiveText` | string, 可选 | Toggle 的开/关文案（预留） |
+| `onTxHex` / `offTxHex` | string, Toggle 必填 | 开 / 关两条报文 |
+| `txHex` | string, Button 必填 | 固定报文 |
+| `txTemplate` | string, Slider 必填 | 含 `{value}` 的报文模板 |
+| `min` / `max` | int, Slider 可选 | 取值范围，默认 0 ~ 100 |
+
+```json
+"customActions": [
+  { "id": "led", "title": "灯效开关", "type": "Toggle",
+    "onTxHex": "08 07 00 00 00 02 01 54 00 00 00 00 00 00 00 00 CC",
+    "offTxHex": "08 07 00 00 00 02 00 55 00 00 00 00 00 00 00 00 CC" },
+  { "id": "bright", "title": "亮度", "type": "Slider", "min": 0, "max": 100,
+    "txTemplate": "08 07 00 00 00 02 {value} 00 00 00 00 00 00 00 00 CC" },
+  { "id": "reset", "title": "恢复默认", "type": "Button",
+    "txHex": "08 07 00 00 00 02 FF 00 00 00 00 00 00 00 00 00 CC" }
+]
+```
+
+> **限制**：Toggle 的状态仅在本会话内记忆，不回读设备；重启后从「关」开始。
+> 报文同样会经过 `reportId` 前插与 `checksumType` 校验。
+
 ### 2.4 指令字典与报文模板 (`protocol`)
 定义与硬件双向交互的 Tx 发送模板：
 - `queryBatteryTxHex` (string, 可选): 查询电量主动发送的 Hex 报文。
@@ -195,6 +225,7 @@
 | `protocol.queryBatteryPipeline` | protocol | 多步握手管线 |
 | `protocol.setDpiValueTxTemplate` | protocol | 写入 DPI 数值（区别于切档位） |
 | `checksumType: VgnCompxSum55` | protocol | 补充 CompX 校验，排除前导 Report ID |
+| `capabilities.customActions` | capabilities | 自定义动作（Toggle / Slider / Button），托盘菜单触发 |
 
 **v2.0 修复的实现缺陷**：此前 CompX 校验把前导 `0x08` 也计入求和，
 导致所有含报告 ID 的报文校验位偏低 8、设备拒收。现已按 `reportId` 声明自动排除。
@@ -203,7 +234,7 @@
 
 | 项 | 状态 |
 |---|---|
-| `capabilities.customActions` | 未实现（Toggle / Slider / Button） |
-| `protocol.setStagesTxTemplate` | 未实现（五档批量下发） |
+| `capabilities.customActions` 状态回读 | 未实现（Toggle 状态仅会话内记忆） |
+| `protocol.setStagesTxTemplate` | 不引入——硬件为逐档下发，已用批量写入语义替代 |
 | `.fp-driver.cs` 动态 C# 驱动 | 未实现（无热加载机制） |
 | `capabilities.battery.sampleTxHex` | 仅解析 `sampleRxHex` |

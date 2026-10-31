@@ -22,6 +22,24 @@ using System.Text.RegularExpressions;
 
 namespace RazerBatteryTray
 {
+    // FDAS capabilities.customActions 的单条声明
+    public class FdasCustomAction
+    {
+        public string Id;
+        public string Title;
+        public string Type;            // Toggle / Slider / Button
+        public string ActiveText;
+        public string InactiveText;
+        public int Min;
+        public int Max;
+        public string OnTxHex;         // Toggle: 打开
+        public string OffTxHex;        // Toggle: 关闭
+        public string TxHex;           // Button: 固定报文
+        public string TxTemplate;      // Slider / 通用：含 {value}
+        // 运行时状态（不持久化，仅本次会话内记忆）
+        public bool CurrentOn;
+    }
+
     public class FdasAdapterDefinition
     {
         public string Brand;
@@ -42,6 +60,9 @@ namespace RazerBatteryTray
         public string Description;
         public string SensorDescription;
         public string SampleTxHex;
+
+        // FDAS capabilities.customActions
+        public List<FdasCustomAction> CustomActions;
 
         // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
         // 因此所有既有 1.0 适配包的行为完全不变。
@@ -155,6 +176,7 @@ namespace RazerBatteryTray
                 def.Description = ExtractJsonString(jsonText, "description");
                 def.SensorDescription = ExtractJsonString(jsonText, "sensorDescription");
                 def.SampleTxHex = ExtractJsonString(jsonText, "sampleTxHex");
+                def.CustomActions = ParseCustomActions(jsonText);
                 def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
 
                 // 多 PID 矩阵：同一型号的有线/无线 PID 归并为一个设备身份
@@ -1083,6 +1105,142 @@ namespace RazerBatteryTray
             withId[0] = (byte)reportId;
             Array.Copy(tx, 0, withId, 1, tx.Length);
             return withId;
+        }
+
+        // 解析 capabilities.customActions 数组
+        private static List<FdasCustomAction> ParseCustomActions(string json)
+        {
+            List<FdasCustomAction> list = new List<FdasCustomAction>();
+            string block = ExtractJsonArrayBlock(json, "customActions");
+            if (string.IsNullOrEmpty(block)) return list;
+            foreach (string obj in SplitJsonObjects(block))
+            {
+                string id = ExtractJsonString(obj, "id");
+                if (string.IsNullOrEmpty(id)) continue;
+                FdasCustomAction a = new FdasCustomAction();
+                a.Id = id;
+                a.Title = ExtractJsonString(obj, "title");
+                if (string.IsNullOrEmpty(a.Title)) a.Title = id;
+                a.Type = ExtractJsonString(obj, "type");
+                if (string.IsNullOrEmpty(a.Type)) a.Type = "Button";
+                a.ActiveText = ExtractJsonString(obj, "activeText");
+                a.InactiveText = ExtractJsonString(obj, "inactiveText");
+                a.Min = ExtractJsonInt(obj, "min", 0);
+                a.Max = ExtractJsonInt(obj, "max", 100);
+                a.OnTxHex = ExtractJsonString(obj, "onTxHex");
+                a.OffTxHex = ExtractJsonString(obj, "offTxHex");
+                a.TxHex = ExtractJsonString(obj, "txHex");
+                a.TxTemplate = ExtractJsonString(obj, "txTemplate");
+                list.Add(a);
+            }
+            return list;
+        }
+
+        // 把 [{...},{...}] 拆成单个对象文本（大括号配对，忽略数组外层）
+        private static List<string> SplitJsonObjects(string arrayBlock)
+        {
+            List<string> list = new List<string>();
+            if (string.IsNullOrEmpty(arrayBlock)) return list;
+            int depth = 0;
+            int start = -1;
+            for (int i = 0; i < arrayBlock.Length; i++)
+            {
+                char c = arrayBlock[i];
+                if (c == '{')
+                {
+                    if (depth == 0) start = i;
+                    depth++;
+                }
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0 && start >= 0)
+                    {
+                        list.Add(arrayBlock.Substring(start, i - start + 1));
+                        start = -1;
+                    }
+                }
+            }
+            return list;
+        }
+
+        // 取某个设备的自定义动作列表（供 UI 渲染）
+        public static List<FdasCustomAction> GetCustomActions(string deviceId)
+        {
+            FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
+            return def != null ? def.CustomActions : null;
+        }
+
+        // 执行一条自定义动作。
+        // Toggle: 在开/关两条报文间切换，成功后翻转 CurrentOn；
+        // Slider: 用 {value} 展开模板；Button: 发固定报文。
+        // value 仅对 Slider 有意义，其余类型忽略。
+        public static bool ExecuteCustomAction(string deviceId, string actionId, int value)
+        {
+            lock (syncLock)
+            {
+                FdasAdapterDefinition def = FindAdapterByDeviceId(deviceId);
+                if (def == null || def.CustomActions == null || def.CustomActions.Count == 0) return false;
+
+                FdasCustomAction act = null;
+                foreach (FdasCustomAction a in def.CustomActions)
+                {
+                    if (a != null && string.Equals(a.Id, actionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        act = a;
+                        break;
+                    }
+                }
+                if (act == null) return false;
+
+                string hex = null;
+                bool willBeOn = act.CurrentOn;
+                if (string.Equals(act.Type, "Toggle", StringComparison.OrdinalIgnoreCase))
+                {
+                    willBeOn = !act.CurrentOn;
+                    hex = willBeOn ? act.OnTxHex : act.OffTxHex;
+                    if (string.IsNullOrEmpty(hex)) hex = act.TxHex;
+                }
+                else if (string.Equals(act.Type, "Slider", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrEmpty(act.TxTemplate)) return false;
+                    Dictionary<string, long> ctx = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                    ctx["value"] = value;
+                    hex = ExpressionEvaluator.ExpandTemplate(act.TxTemplate, ctx, def.Variables);
+                }
+                else
+                {
+                    hex = act.TxHex;
+                }
+
+                if (string.IsNullOrEmpty(hex)) return false;
+
+                byte[] tx = ApplyReportId(ParseHexBytes(hex), def.ReportId);
+                if (tx == null || tx.Length == 0) return false;
+
+                int reqLen = def.ReportLength > 0 ? def.ReportLength : tx.Length;
+                if (tx.Length < reqLen)
+                {
+                    byte[] padded = new byte[reqLen];
+                    Array.Copy(tx, padded, tx.Length);
+                    tx = padded;
+                }
+                else if (tx.Length > reqLen)
+                {
+                    byte[] trimmed = new byte[reqLen];
+                    Array.Copy(tx, trimmed, reqLen);
+                    tx = trimmed;
+                }
+
+                ApplyChecksum(tx, def.ChecksumType, def.VendorId, def.ReportId);
+
+                bool sent = SendReportToDevice(def, tx);
+                if (sent && string.Equals(act.Type, "Toggle", StringComparison.OrdinalIgnoreCase))
+                {
+                    act.CurrentOn = willBeOn;
+                }
+                return sent;
+            }
         }
 
         // 取出形如 "key": [ ... ] 的数组块（支持嵌套），找不到返回 null。

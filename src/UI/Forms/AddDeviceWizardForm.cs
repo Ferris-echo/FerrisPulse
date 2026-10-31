@@ -1188,7 +1188,9 @@ namespace RazerBatteryTray
             sb.AppendLine("6. **多 PID 矩阵 (`hardware.devices`)**：同一型号存在有线 / 2.4G 等多个 PID 时，用数组归并为同一设备身份，避免切换连接方式后被认成两台设备。**PID 与连接方式的对应关系必须来自实测**，不要推断。");
             sb.AppendLine("7. **报告 ID (`capabilities.battery.reportId`)**：声明后，若报文首字节不是该 ID 会自动前插；CompX 方案（`checksumType: VgnCompxSum55`）的校验会跳过前导报告 ID，公式为 `0x55 - sum(不含ReportId) - 8`。");
             sb.AppendLine();
-            sb.AppendLine("> **当前 FDAS 尚不支持**：`capabilities.customActions`（自定义动作控件）、`protocol.setStagesTxTemplate`（五档批量下发）、`.fp-driver.cs` 动态驱动脚本。请勿生成这些字段，写了也不会生效。");
+            sb.AppendLine("8. **自定义硬件动作 (`capabilities.customActions`)**：数组，每条含 `id` / `title` / `type`(Toggle|Slider|Button)。Toggle 用 `onTxHex`/`offTxHex`，Slider 用含 `{value}` 的 `txTemplate`，Button 用 `txHex`。生成后会出现在托盘「自定义动作」子菜单。");
+            sb.AppendLine();
+            sb.AppendLine("> **当前 FDAS 尚不支持**：`protocol.setStagesTxTemplate`（硬件为逐档下发）、`.fp-driver.cs` 动态驱动脚本。请勿生成这些字段，写了也不会生效。");
             sb.AppendLine();
             sb.AppendLine("## 🛡️ 逃生舱机制：代码级深度定制授权");
             sb.AppendLine("如果该设备的物理协议极其罕见或复杂（例如非标准加解密哈希、流式分片压缩等），确实超出了动态 JSON 的表达边界：");
