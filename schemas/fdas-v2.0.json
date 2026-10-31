@@ -38,8 +38,8 @@
       "properties": {
         "vendorId": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
         "productId": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
-        "productString": { "type": "string" },
-        "manufacturerString": { "type": "string" },
+        "productString": { "type": "string", "description": "预留：仅承载，不参与设备识别" },
+        "manufacturerString": { "type": "string", "description": "预留：仅承载，不参与设备识别" },
         "devices": {
           "type": "array",
           "description": "v2.0 新增。多 PID 矩阵，把同一型号的有线/无线等形态归并为同一设备身份。缺省时设备身份为 FDAS:{VID}:{PID}。",
@@ -91,7 +91,7 @@
             },
             "sampleRxHex": { "type": "string" },
             "sampleTxHex": { "type": "string" },
-            "multiEndpoints": { "type": "array", "items": { "type": "string" } }
+            "multiEndpoints": { "type": "array", "items": { "type": "string" }, "description": "待实现：TWS 多节点电量，当前只支持单电量" }
           }
         },
         "mouse": {

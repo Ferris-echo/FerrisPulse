@@ -37,6 +37,11 @@
 }
 ```
 
+> **字段状态标记**
+> - 未标记：已完整实现，可放心使用
+> - **预留**：会被解析但不参与任何逻辑，写不写对功能无影响
+> - **待实现**：文档已定义但代码尚未支持，写了不会生效
+
 > **解析行为说明（重要）**
 > 运行时解析器按 **字段名全局匹配**，不区分 JSON 嵌套层级。因此把 `minDpi` 放在
 > `capabilities.mouse.dpi` 内或直接放在 `capabilities.mouse` 内，效果相同。
@@ -76,8 +81,8 @@
   - **缺省行为**：不声明 `devices` 时，设备身份为 `FDAS:{VID}:{PID}`（v1.0 行为，保持不变）；
     声明后统一为 `FDAS:{VID}:{型号slug}`。
   - **注意**：不同形态的 PID 必须来自实测。把「有线直插」误写成「1K 接收器」会导致界面显示错误的连接方式。
-- `productString` (string, 可选): 芯片 ROM 内置产品字符串。
-- `manufacturerString` (string, 可选): 芯片 ROM 内置制造商字符串。
+- `productString` (string, 可选, **预留**): 芯片 ROM 内置产品字符串。当前仅承载，不参与设备识别。
+- `manufacturerString` (string, 可选, **预留**): 芯片 ROM 内置制造商字符串。当前仅承载，不参与设备识别。
 - `endpointTopology` (object, 必填): 专用于通信的 HID 端点拓扑：
   - `usagePage` (string, 必填): 通信 UsagePage 16 进制（如 `"0xFFA0"`）。
   - `usage` (string, 必填): 通信 Usage 16 进制（如 `"0x0001"`）。
@@ -102,7 +107,7 @@
   - `"XorMask"`: 需要按位取反（如 `val ^ 0xFF`）。
   - `"VoltageAdc"`: **尚未实现**。当前不支持电压换算，请勿使用；
     需要按电压换算电量的设备，暂时只能通过内置驱动支持。
-- `multiEndpoints` (array of string, 针对 Earbuds 可选): 多耳塞独立电量声明（如 `["Left", "Right", "Case"]`）。
+- `multiEndpoints` (array of string, 针对 Earbuds, **待实现**): 多耳塞独立电量声明（如 `["Left", "Right", "Case"]`）。当前 FDAS 只支持单电量。
 - `sampleRxHex` (string, 必填): 真实抓包接收报文 Hex 字符串（包含 ReportId），自动化测试将直接回放此报文验证电量断言。
 
 #### B. 鼠标专属性能矩阵 (`capabilities.mouse`)
@@ -113,13 +118,13 @@
   - `step` (int, 必填): 调节步进（通常为 `50`）。
   - `defaultStages` (array of int, 必填): 默认档位数组（如 `[400, 800, 1600, 3200, 6400]`）。
   - `supportsXyIndependence` (bool, 必填): 是否支持 XY 轴独立灵敏度调节。
-  - `ratioPresets` (array of string, 可选): 常用屏幕比例预设（如 `["1:1", "4:3", "16:10", "1.33"]`）。
-  - `activeStageByteOffset` (int, 可选): 当前激活档位字节索引（0-based）。
-  - `dpiXLoByteOffset` (int, 可选): X 轴 DPI 低字节偏移。
-  - `dpiXHiByteOffset` (int, 可选): X 轴 DPI 高字节偏移。
-  - `dpiYLoByteOffset` (int, 可选): Y 轴 DPI 低字节偏移（若支持 XY 独立）。
-  - `dpiYHiByteOffset` (int, 可选): Y 轴 DPI 高字节偏移。
-  - `sampleDpiRxHex` (string, 可选): 读取 DPI 状态的真实抓包 Hex 样本。
+  - `ratioPresets` (array of string, 可选, **预留**): 常用屏幕比例预设。当前不支持 XY 独立预设，仅承载。
+  - `activeStageByteOffset` (int, 可选, **待实现**): 当前激活档位字节索引（0-based）。
+  - `dpiXLoByteOffset` (int, 可选, **待实现**): X 轴 DPI 低字节偏移。
+  - `dpiXHiByteOffset` (int, 可选, **待实现**): X 轴 DPI 高字节偏移。
+  - `dpiYLoByteOffset` (int, 可选, **待实现**): Y 轴 DPI 低字节偏移（若支持 XY 独立）。
+  - `dpiYHiByteOffset` (int, 可选, **待实现**): Y 轴 DPI 高字节偏移。
+  - `sampleDpiRxHex` (string, 可选, **预留**): 读取 DPI 状态的抓包样本。当前仅回放电量样本，此项不参与校验。
 - `pollingRate` (object):
   - `supportedRates` (array of int, 必填): 硬件支持的全部回报率数组（如 `[125, 250, 500, 1000, 2000, 4000, 8000]`）。
   - `defaultRate` (int, 必填): 推荐默认回报率（如 `1000`）。
@@ -169,7 +174,7 @@
 - `queryDpiTxHex` (string, 可选): 读取当前 DPI 的报文。
 - `setDpiTxTemplate` (string, 鼠标必填): **切换当前激活档位**的报文模板（不是写 DPI 数值）。
   支持宏变量替换：
-  - `{stage}`: 当前激活档位 (1-based 或 0-based 由 `stageBaseZero` 决定)
+  - `{stage}`: 当前激活档位（1-based）；`{stage0}` 为 0-based，两者都提供，无需额外开关
   - `{dpiX_lo}`, `{dpiX_hi}`: X 轴 DPI 低位/高位十六进制
   - `{dpiY_lo}`, `{dpiY_hi}`: Y 轴 DPI 低位/高位十六进制
 - `setDpiValueTxTemplate` (string, 可选, **v2.0 新增**): **写入某个档位的 DPI 数值**的报文模板。
@@ -241,4 +246,7 @@
 |---|---|
 | `protocol.setStagesTxTemplate` | 不引入——硬件为逐档下发，已用批量写入语义替代 |
 | `.fp-driver.cs` 动态 C# 驱动 | 未实现（无热加载机制） |
+| `activeStageByteOffset` / `dpiX/Y Lo/Hi ByteOffset` | 待实现——FDAS 设备目前只能写 DPI，不能读回 |
+| `multiEndpoints`（TWS 多节点电量） | 待实现——FDAS 只支持单电量 |
+| `productString` / `manufacturerString` / `sampleDpiRxHex` / `ratioPresets` | 预留——仅承载，不参与逻辑 |
 | `capabilities.battery.sampleTxHex` | 仅解析 `sampleRxHex` |
