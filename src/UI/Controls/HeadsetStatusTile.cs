@@ -3,8 +3,8 @@
 // 所属区域: UI/Controls (复合展示控件层)
 // 核心职责:
 //   蓝牙/音频耳机设备状态卡片，展示连接状态、一键跳转 Windows 系统声音设置按钮，
-//   自适应高分屏 DPI 缩放。
-// 依赖关系: RoundedCard
+//   自适应高分屏 DPI 与无极缩放。
+// 依赖关系: RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -92,7 +92,7 @@ namespace RazerBatteryTray
 
             int w = Width;
             int h = Height;
-            int r = (int)(8 * DpiScale);
+            int r = Math.Max(3, (int)(8 * DpiScale));
 
             using (var path = RoundedCard.GetRoundedRectangle(new Rectangle(0, 0, w - 1, h - 1), r))
             {
@@ -101,9 +101,9 @@ namespace RazerBatteryTray
             }
 
             int padX = (int)(14 * DpiScale);
-            using (var titleFont = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point))
-            using (var valFont = new Font("Microsoft YaHei UI", 10.2F, FontStyle.Bold, GraphicsUnit.Point))
-            using (var footFont = new Font("Microsoft YaHei UI", 7.6F, FontStyle.Regular, GraphicsUnit.Point))
+            using (var titleFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2F, FontStyle.Regular, DpiScale))
+            using (var valFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 10.2F, FontStyle.Bold, DpiScale))
+            using (var footFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.6F, FontStyle.Regular, DpiScale))
             {
                 var sz1 = TextRenderer.MeasureText(Title, titleFont);
                 var sz2 = TextRenderer.MeasureText("● " + StatusText, valFont);
@@ -137,13 +137,13 @@ namespace RazerBatteryTray
                 Color btnBg = isBtnHovered ? Color.FromArgb(40, AccentColor.R, AccentColor.G, AccentColor.B) : Color.FromArgb(24, AccentColor.R, AccentColor.G, AccentColor.B);
                 Color btnBorder = isBtnHovered ? AccentColor : Color.FromArgb(70, AccentColor.R, AccentColor.G, AccentColor.B);
 
-                using (var bPath = RoundedCard.GetRoundedRectangle(btnRect, (int)(5 * DpiScale)))
+                using (var bPath = RoundedCard.GetRoundedRectangle(btnRect, Math.Max(2, (int)(5 * DpiScale))))
                 {
                     using (var bBrush = new SolidBrush(btnBg)) g.FillPath(bBrush, bPath);
                     using (var bPen = new Pen(btnBorder, 1f)) g.DrawPath(bPen, bPath);
                 }
 
-                using (var bFont = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold))
+                using (var bFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2F, FontStyle.Bold, DpiScale))
                 {
                     TextRenderer.DrawText(g, "系统声音设置 ↗", bFont, btnRect, AccentColor,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);

@@ -111,7 +111,13 @@ namespace RazerBatteryTray
         {
             get
             {
-                switch (Category)
+                return GetCategoryIcon(Category);
+            }
+        }
+
+        public static string GetCategoryIcon(DeviceCategory cat)
+        {
+            switch (cat)
                 {
                     case DeviceCategory.Headset: return "🎧";
                     case DeviceCategory.Earbuds: return "🦻";
@@ -122,7 +128,6 @@ namespace RazerBatteryTray
                     default: return "🖱️";
                 }
             }
-        }
 
         public Color BrandColor
         {

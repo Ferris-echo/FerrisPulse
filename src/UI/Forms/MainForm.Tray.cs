@@ -420,7 +420,7 @@ namespace RazerBatteryTray
             prioMenuItem = new ToolStripMenuItem("设备优先级管理 (拖拽排序)...", null, (s, e) => OpenPriorityManager());
             contextMenu.Items.Add(prioMenuItem);
 
-            addDevMenuItem = new ToolStripMenuItem("手动添加新设备向导...", null, (s, e) => OpenAddDeviceWizard());
+            addDevMenuItem = new ToolStripMenuItem("外设接入与自定义配置向导...", null, (s, e) => OpenAddDeviceWizard());
             contextMenu.Items.Add(addDevMenuItem);
 
             createDesktopLnkItem = new ToolStripMenuItem("创建桌面快捷方式", null, (s, e) => {

@@ -3,8 +3,8 @@
 // 所属区域: UI (Forms)
 // 核心职责:
 //   VGN Neon75 Ultra 有线模式灯光调节面板。读取/写入主灯 mode、亮度、速度、
-//   幻彩标志与 RGB，并在写入后回读校验；2.4G Dongle 不提供设置通道。
-// 依赖关系: VgnKeyboardHelper.cs, MouseBatteryInfo.cs, ModernButton.cs
+//   幻彩标志与 RGB，并在写入后回读校验；2.4G Dongle 不提供设置通道。支持全局无极缩放同步。
+// 依赖关系: VgnKeyboardHelper.cs, MouseBatteryInfo.cs, ModernButton.cs, DpiAwareForm.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑或新增控件时，【必须】同步更新上方说明。
@@ -18,7 +18,7 @@ using System.Windows.Forms;
 
 namespace RazerBatteryTray
 {
-    public class VgnKeyboardForm : Form
+    public class VgnKeyboardForm : DpiAwareForm
     {
         private class ModeItem
         {
@@ -54,9 +54,14 @@ namespace RazerBatteryTray
         private int currentMode = 1;
         private bool loading;
 
-        public VgnKeyboardForm()
+        public VgnKeyboardForm() : this(0f)
+        {
+        }
+
+        public VgnKeyboardForm(float scale) : base(scale)
         {
             BuildUI();
+            DpiScaleHelper.ApplyScaledFontsToControlTree(this, this.dpiScale);
             RefreshFromDevice();
         }
 
@@ -80,33 +85,33 @@ namespace RazerBatteryTray
             this.StartPosition = FormStartPosition.CenterParent;
             this.BackColor = Color.FromArgb(18, 22, 30);
             this.ForeColor = Color.FromArgb(225, 232, 245);
-            this.ClientSize = new Size(460, 500);
+            this.ClientSize = new Size(Scale(460), Scale(500));
             this.Font = new Font("Microsoft YaHei UI", 9F);
 
             Label lblTitle = new Label();
             lblTitle.Text = "VGN Neon75 Ultra";
             lblTitle.Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 229, 255);
-            lblTitle.SetBounds(20, 16, 420, 32);
+            lblTitle.SetBounds(Scale(20), Scale(16), Scale(420), Scale(32));
             this.Controls.Add(lblTitle);
 
             Label lblSub = new Label();
             lblSub.Text = "主灯效 · USB 有线设置通道";
             lblSub.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblSub.ForeColor = Color.FromArgb(145, 158, 178);
-            lblSub.SetBounds(22, 48, 420, 20);
+            lblSub.SetBounds(Scale(22), Scale(48), Scale(420), Scale(20));
             this.Controls.Add(lblSub);
 
             lblStatus = new Label();
             lblStatus.Text = "正在读取键盘状态…";
             lblStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblStatus.ForeColor = Color.FromArgb(160, 175, 195);
-            lblStatus.SetBounds(22, 76, 420, 22);
+            lblStatus.SetBounds(Scale(22), Scale(76), Scale(420), Scale(22));
             this.Controls.Add(lblStatus);
 
             Label lblMode = new Label();
             lblMode.Text = "灯效模式";
-            lblMode.SetBounds(22, 118, 80, 24);
+            lblMode.SetBounds(Scale(22), Scale(118), Scale(80), Scale(24));
             this.Controls.Add(lblMode);
 
             cboMode = new ComboBox();
@@ -114,7 +119,7 @@ namespace RazerBatteryTray
             cboMode.FlatStyle = FlatStyle.Flat;
             cboMode.BackColor = Color.FromArgb(28, 32, 44);
             cboMode.ForeColor = Color.FromArgb(225, 232, 245);
-            cboMode.SetBounds(110, 114, 320, 28);
+            cboMode.SetBounds(Scale(110), Scale(114), Scale(320), Scale(28));
             AddMode("关闭", 0);
             AddMode("常亮", 1);
             AddMode("呼吸", 2);
@@ -140,7 +145,7 @@ namespace RazerBatteryTray
 
             Label lblBrightness = new Label();
             lblBrightness.Text = "亮度";
-            lblBrightness.SetBounds(22, 164, 80, 24);
+            lblBrightness.SetBounds(Scale(22), Scale(164), Scale(80), Scale(24));
             this.Controls.Add(lblBrightness);
 
             trkBrightness = new TrackBar();
@@ -149,7 +154,7 @@ namespace RazerBatteryTray
             trkBrightness.TickFrequency = 1;
             trkBrightness.SmallChange = 1;
             trkBrightness.LargeChange = 1;
-            trkBrightness.SetBounds(104, 156, 250, 45);
+            trkBrightness.SetBounds(Scale(104), Scale(156), Scale(250), Scale(45));
             trkBrightness.ValueChanged += (s, e) =>
             {
                 if (lblBrightnessVal != null)
@@ -161,13 +166,13 @@ namespace RazerBatteryTray
 
             lblBrightnessVal = new Label();
             lblBrightnessVal.Text = "75%";
-            lblBrightnessVal.SetBounds(364, 164, 64, 24);
+            lblBrightnessVal.SetBounds(Scale(364), Scale(164), Scale(64), Scale(24));
             lblBrightnessVal.ForeColor = Color.FromArgb(0, 229, 255);
             this.Controls.Add(lblBrightnessVal);
 
             Label lblSpeed = new Label();
             lblSpeed.Text = "速度";
-            lblSpeed.SetBounds(22, 214, 80, 24);
+            lblSpeed.SetBounds(Scale(22), Scale(214), Scale(80), Scale(24));
             this.Controls.Add(lblSpeed);
 
             trkSpeed = new TrackBar();
@@ -176,7 +181,7 @@ namespace RazerBatteryTray
             trkSpeed.TickFrequency = 1;
             trkSpeed.SmallChange = 1;
             trkSpeed.LargeChange = 1;
-            trkSpeed.SetBounds(104, 206, 250, 45);
+            trkSpeed.SetBounds(Scale(104), Scale(206), Scale(250), Scale(45));
             trkSpeed.ValueChanged += (s, e) =>
             {
                 if (lblSpeedVal != null)
@@ -188,20 +193,20 @@ namespace RazerBatteryTray
 
             lblSpeedVal = new Label();
             lblSpeedVal.Text = "中";
-            lblSpeedVal.SetBounds(364, 214, 64, 24);
+            lblSpeedVal.SetBounds(Scale(364), Scale(214), Scale(64), Scale(24));
             lblSpeedVal.ForeColor = Color.FromArgb(0, 229, 255);
             this.Controls.Add(lblSpeedVal);
 
             chkChroma = new CheckBox();
             chkChroma.Text = "幻彩模式（颜色由灯效自动循环，忽略下方颜色）";
             chkChroma.ForeColor = Color.FromArgb(200, 210, 225);
-            chkChroma.SetBounds(110, 252, 320, 24);
+            chkChroma.SetBounds(Scale(110), Scale(252), Scale(320), Scale(24));
             chkChroma.CheckedChanged += (s, e) => UpdateColorEnabled();
             this.Controls.Add(chkChroma);
 
             Label lblColor = new Label();
             lblColor.Text = "颜色";
-            lblColor.SetBounds(22, 292, 80, 24);
+            lblColor.SetBounds(Scale(22), Scale(292), Scale(80), Scale(24));
             this.Controls.Add(lblColor);
 
             btnColor = new ModernButton();
@@ -212,9 +217,9 @@ namespace RazerBatteryTray
             btnColor.PressedColor = Color.FromArgb(20, 24, 34);
             btnColor.BorderColor = Color.FromArgb(70, 90, 130);
             btnColor.TextColor = Color.White;
-            btnColor.CornerRadius = 6;
+            btnColor.CornerRadius = Math.Max(3, Scale(6));
             btnColor.Cursor = Cursors.Hand;
-            btnColor.SetBounds(110, 286, 130, 34);
+            btnColor.SetBounds(Scale(110), Scale(286), Scale(130), Scale(34));
             btnColor.Click += (s, e) => PickColor();
             this.Controls.Add(btnColor);
 
@@ -222,7 +227,7 @@ namespace RazerBatteryTray
             lblHint.Text = "写入后会立即回读设备校验。灯光设置保存在键盘板载配置中，\r\n2.4G 接收器不转发设置，必须保持 Wired 档。";
             lblHint.Font = new Font("Microsoft YaHei UI", 8F);
             lblHint.ForeColor = Color.FromArgb(130, 145, 165);
-            lblHint.SetBounds(22, 332, 420, 40);
+            lblHint.SetBounds(Scale(22), Scale(332), Scale(420), Scale(40));
             this.Controls.Add(lblHint);
 
             btnApply = MakeButton("应用并校验", 22, 390, 132, Color.FromArgb(0, 190, 140));
@@ -252,9 +257,9 @@ namespace RazerBatteryTray
             btn.PressedColor = Color.FromArgb(20, 24, 34);
             btn.BorderColor = accent;
             btn.TextColor = accent;
-            btn.CornerRadius = 6;
+            btn.CornerRadius = Math.Max(3, Scale(6));
             btn.Cursor = Cursors.Hand;
-            btn.SetBounds(x, y, w, 34);
+            btn.SetBounds(Scale(x), Scale(y), Scale(w), Scale(34));
             return btn;
         }
 

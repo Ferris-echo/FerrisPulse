@@ -13,8 +13,26 @@
 - **核心指令**：
   - 电量查询：Class `0x07`, Cmd `0x80`（`byte[10]` 为 `0..255` 原始电量，换算 `(raw * 100) / 255`）。
   - 充电状态：Class `0x07`, Cmd `0x84`（`byte[10]` 为 `0/1`）。
-  - DPI 读写：Class `0x04`, Cmd `0x05` / `0x06`（支持 Focus Pro 35K Gen-2 1-DPI 步进与 XY 轴独立设置）。
+  - DPI 读写：Class `0x04`, Cmd `0x05` / `0x06`；多档位查询 Class `0x04`, Cmd `0x86`（载荷 38 字节 `0x26`），多档位写入 Class `0x04`, Cmd `0x06`。支持 Focus Pro 35K Gen-2、Focus Pro 45K Gen-2、Focus Pro 50K Gen-3 1-DPI 步进与 XY 独立配置。
   - 回报率：Class `0x00`, Cmd `0x40`（传统 125~1000Hz）与 HyperPolling `8000Hz` 协议。
+- **雷云官方 Web 驱动 (`https://synapse.razer.com/`) 物理事实与 V4 Pro 矩阵**：
+  - **毒蝰 V4 Pro (Viper V4 Pro)**: 有线 PID `0x00E5` (229), Dongle PID `0x00E6` (230)。Focus Pro 50K Gen-3 传感器，支持 50,000 DPI，1-DPI 步进，帧同步 (FrameSync)，Airoha AB1623 主控，8000Hz 超高回报率。
+  - **炼狱蝰蛇 V4 Pro 碳纤维版 (DeathAdder V4 Pro Carbon)**: 官方专属独立有线 PID `0x00EF` (239), Dongle PID `0x00F0` (240)。Focus Pro 50K Gen-3 传感器，支持 50,000 DPI，1-DPI 步进，帧同步 (FrameSync)，8000Hz 超高回报率。
+  - **炼狱蝰蛇 V4 Pro 标准版 (DeathAdder V4 Pro)**: 有线 PID `0x00BE` (190), Dongle PID `0x00BF` (191)。第二代 Focus Pro 45K 传感器，支持 45,000 DPI（绝非 35K 亦非 50K），1-DPI 步进，8000Hz 超高回报率。
+  - **极速版系列鼠标 (HyperSpeed Mice)**: 
+    - `Razer DeathAdder V4 HyperSpeed`: PID `0xB007` (45063)，Focus Pro 33K 传感器 (33,000 DPI)，1-DPI 步进，支持 HyperPolling。
+    - `Razer Viper V4 HyperSpeed`: PID `0xB005` (45061)，Focus Pro 33K 传感器 (33,000 DPI)，1-DPI 步进，支持 HyperPolling。
+  - **猎魂光蛛键盘系列 (Huntsman Keyboards)**:
+    - 60% 基础版: `Huntsman Mini` (`0x0257`), `Huntsman Mini Japan` (`0x0269`), `Huntsman V3 Pro Mini` (`0x02B0`)。
+    - 旗舰 8000Hz 系列: `Huntsman V3 Pro 8KHz` (`0x02CF`), `Huntsman V3 Pro TKL 8KHz` (`0x02D0`), `Huntsman V3 Pro Mini 8KHz` (`0x02D1`), `Huntsman Signature Edition` (`0x02D8`), `Huntsman V3 Tenkeyless 8KHz` (`0x02E5`), `Huntsman V3 Pro Low-profile Tenkeyless 8KHz` (`0x02E6`)。
+    - 极速磁轴 (HE) 竞技系列: `Huntsman V3 HE Magnetic Mini 65% 8KHz` (`0x02E4`), `Huntsman V3 HE Magnetic TKL 8KHz` (`0x02EA`)。
+  - **单手键盘与灵刃笔记本控制器 (Keypad & Blade Laptops)**:
+    - `Tartarus V2 Pro` (`0x02EB`): 塔洛斯神蝎 V2 Pro 单手游戏键盘。
+    - `Blade 16 (2026)` (`0x02E0`) 与 `Blade 18 (2026)` (`0x02E1`): 灵刃 16 / 18 内置系统控制器与键盘。
+- **Airoha 主控通信时序与状态防破坏机制**：
+  - Airoha AB1623 主控在 8KHz 帧同步模式下处理 Feature Report 时容易处于 BUSY (`status == 0x01`)，查询多档位时必须采用至少 3 次带 15ms 退避的重试机制。
+  - 刷新时若单次偶发未获取到档位，必须平滑继承当前已知有效状态，严禁将内存档位清零（防止 UI 兜底跌落到第 1 档）。
+  - 开机桌面校准仅同步硬件物理档位至内存记忆，严禁在未读取前向下发送第 1 档覆盖硬件板载 EEPROM。
 
 ### 1.2 罗技 (Logitech) HID++ 2.0 / 4.2 协议 (`LogitechDeviceHelper.cs`)
 - **VID**: `0x046D`。Lightspeed `C547` 接收器必须优先锁定 20 字节长集合（`0xFF00/0x0002`），避开 7 字节短集合。

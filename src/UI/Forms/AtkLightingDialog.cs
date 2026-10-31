@@ -107,7 +107,7 @@ namespace RazerBatteryTray
             if (layoutFont == null || Math.Abs(layoutFont.Size - 9F * scale) > 0.01F)
             {
                 Font previous = layoutFont;
-                layoutFont = new Font("Microsoft YaHei UI", 9F * scale);
+                layoutFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9F, FontStyle.Regular, scale);
                 Font = layoutFont;
                 if (previous != null) previous.Dispose();
             }

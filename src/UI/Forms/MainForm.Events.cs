@@ -44,6 +44,9 @@ namespace RazerBatteryTray
 
 
 
+        private int lastSizingLayoutTick = 0;
+        private float pendingDragScale = 0f;
+
         protected override void OnPaintBackground(PaintEventArgs e)
 
         {
@@ -126,6 +129,115 @@ namespace RazerBatteryTray
 
             }
 
+            else if (m.Msg == NativeMethods.WM_SIZING && m.LParam != IntPtr.Zero)
+            {
+                isUserSizingDrag = true;
+                NativeMethods.RECT rc = (NativeMethods.RECT)Marshal.PtrToStructure(m.LParam, typeof(NativeMethods.RECT));
+                int edge = m.WParam.ToInt32();
+
+                int frameW = Math.Max(0, this.Width - this.ClientSize.Width);
+                int frameH = Math.Max(0, this.Height - this.ClientSize.Height);
+                int baseClientW = 486;
+                int baseClientH = GetCurrentBaseClientHeight();
+
+                int reqClientW = (rc.Right - rc.Left) - frameW;
+                int reqClientH = (rc.Bottom - rc.Top) - frameH;
+
+                float scaleW = (float)reqClientW / (float)baseClientW;
+                float scaleH = (float)reqClientH / (float)baseClientH;
+                float targetScale;
+
+                if (edge == NativeMethods.WMSZ_LEFT || edge == NativeMethods.WMSZ_RIGHT)
+                {
+                    targetScale = scaleW;
+                }
+                else if (edge == NativeMethods.WMSZ_TOP || edge == NativeMethods.WMSZ_BOTTOM)
+                {
+                    targetScale = scaleH;
+                }
+                else
+                {
+                    targetScale = (scaleW + scaleH) * 0.5f;
+                }
+
+                Screen scr = Screen.FromHandle(this.Handle);
+                targetScale = DpiScaleHelper.ClampScaleToScreen(targetScale, scr, baseClientH + frameH);
+
+                int lockedW = (int)Math.Round(baseClientW * targetScale) + frameW;
+                int lockedH = (int)Math.Round(baseClientH * targetScale) + frameH;
+
+                if (edge == NativeMethods.WMSZ_LEFT || edge == NativeMethods.WMSZ_TOPLEFT || edge == NativeMethods.WMSZ_BOTTOMLEFT)
+                {
+                    rc.Left = rc.Right - lockedW;
+                }
+                else
+                {
+                    rc.Right = rc.Left + lockedW;
+                }
+
+                if (edge == NativeMethods.WMSZ_TOP || edge == NativeMethods.WMSZ_TOPLEFT || edge == NativeMethods.WMSZ_TOPRIGHT)
+                {
+                    rc.Top = rc.Bottom - lockedH;
+                }
+                else
+                {
+                    rc.Bottom = rc.Top + lockedH;
+                }
+
+                Marshal.StructureToPtr(rc, m.LParam, false);
+                pendingDragScale = targetScale;
+                int nowTick = Environment.TickCount;
+
+                if (Math.Abs(targetScale - this.dpiScale) >= 0.006f)
+                {
+                    ShowZoomTitleHint(targetScale);
+                    if (sizingDragTimer == null)
+                    {
+                        sizingDragTimer = new System.Windows.Forms.Timer();
+                        sizingDragTimer.Interval = 45;
+                        sizingDragTimer.Tick += (s, ev) =>
+                        {
+                            sizingDragTimer.Stop();
+                            if (isUserSizingDrag && pendingDragScale >= DpiScaleHelper.MinScale && Math.Abs(pendingDragScale - this.dpiScale) >= 0.006f)
+                            {
+                                SetUserWindowScale(pendingDragScale, false);
+                            }
+                        };
+                    }
+                    sizingDragTimer.Stop();
+                    sizingDragTimer.Start();
+                }
+                lastSizingLayoutTick = nowTick;
+                {
+                    lastSizingLayoutTick = nowTick;
+                {
+                }
+                }
+
+                m.Result = (IntPtr)1;
+                return;
+            }
+            else if (m.Msg == NativeMethods.WM_EXITSIZEMOVE)
+            {
+                if (isUserSizingDrag)
+                {
+                    if (sizingDragTimer != null) sizingDragTimer.Stop();
+                    isUserSizingDrag = false;
+                    float finalScale = pendingDragScale >= DpiScaleHelper.MinScale ? pendingDragScale : this.dpiScale;
+                    pendingDragScale = 0f;
+                    SetUserWindowScale(finalScale, true);
+                }
+            }
+            else if (m.Msg == 0x020A && (Control.ModifierKeys & Keys.Control) == Keys.Control)
+            {
+                short wheelDelta = (short)((m.WParam.ToInt64() >> 16) & 0xFFFF);
+                if (wheelDelta != 0)
+                {
+                    StepWindowScale(wheelDelta > 0 ? 0.05f : -0.05f);
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+            }
             else if (m.Msg == NativeMethods.WM_DPICHANGED)
 
             {
@@ -186,6 +298,36 @@ namespace RazerBatteryTray
 
             base.WndProc(ref m);
 
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            if ((Control.ModifierKeys & Keys.Control) == Keys.Control && e.Delta != 0)
+            {
+                StepWindowScale(e.Delta > 0 ? 0.05f : -0.05f);
+                return;
+            }
+            base.OnMouseWheel(e);
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.D0) || keyData == (Keys.Control | Keys.NumPad0))
+            {
+                ResetWindowScale();
+                return true;
+            }
+            if (keyData == (Keys.Control | Keys.Oemplus) || keyData == (Keys.Control | Keys.Add))
+            {
+                StepWindowScale(0.05f);
+                return true;
+            }
+            if (keyData == (Keys.Control | Keys.OemMinus) || keyData == (Keys.Control | Keys.Subtract))
+            {
+                StepWindowScale(-0.05f);
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
 

@@ -3,8 +3,8 @@
 // 所属区域: UI/Controls (复合展示控件层)
 // 核心职责:
 //   主界面焦点设备选择胶囊卡片，集成现代矢量设备图标、设备型号短名（抗裁切截断）、
-//   电量药丸胶囊与下拉展开箭头，支持点击弹出设备切换飞出面板。
-// 依赖关系: Models.DeviceCategory, Theme.ModernThemeHelper, RoundedCard
+//   电量药丸胶囊与下拉展开箭头，支持点击弹出设备切换飞出面板与无极等比缩放。
+// 依赖关系: Models.DeviceCategory, Theme.ModernThemeHelper, RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -77,7 +77,7 @@ namespace RazerBatteryTray
 
             int w = Width;
             int h = Height;
-            int r = (int)(8 * DpiScale);
+            int r = Math.Max(3, (int)(8 * DpiScale));
 
             Color bg = IsHovered ? Color.FromArgb(32, 36, 46) : Color.FromArgb(25, 27, 34);
             Color border = IsHovered ? AccentColor : Color.FromArgb(45, 50, 65);
@@ -96,26 +96,28 @@ namespace RazerBatteryTray
             ModernThemeHelper.DrawModernDeviceIcon(g, iconRect, Category, AccentColor);
 
             // 2. Chevron "▾" (far right)
-            int chvW = (int)(12 * DpiScale);
-            int chvX = w - (int)(16 * DpiScale);
-            using (var chvFont = new Font("Segoe UI", 9F, FontStyle.Bold))
-            using (var chvBrush = new SolidBrush(Color.FromArgb(150, 160, 180)))
+            int chvW = (int)(14 * DpiScale);
+            int chvX = w - (int)(14 * DpiScale);
+            using (var chvFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 9F, FontStyle.Bold, DpiScale))
             {
-                g.DrawString("▾", chvFont, chvBrush, chvX - chvW, (h / 2) - (int)(8 * DpiScale));
+                Rectangle chvRect = new Rectangle(chvX - chvW, 0, chvW + (int)(4 * DpiScale), h);
+                TextRenderer.DrawText(g, "▾", chvFont, chvRect, Color.FromArgb(150, 160, 180),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }
 
             // 3. Battery Pill
             int pW = 0;
-            using (var battFont = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold))
+            using (var battFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2F, FontStyle.Bold, DpiScale))
             {
-                string bStr = BatteryText;
-                var bSz = TextRenderer.MeasureText(bStr, battFont);
-                pW = bSz.Width + (int)(12 * DpiScale);
-                int pH = (int)(20 * DpiScale);
-                int pX = chvX - chvW - pW - (int)(8 * DpiScale);
+                string bStr = BatteryText ?? "";
+                var bSz = TextRenderer.MeasureText(bStr, battFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                pW = bSz.Width + Math.Max(8, (int)(12 * DpiScale));
+                int pH = Math.Max(12, (int)(20 * DpiScale));
+                int pX = chvX - chvW - pW - Math.Max(4, (int)(6 * DpiScale));
                 int pY = (h - pH) / 2;
+                Rectangle pillRect = new Rectangle(pX, pY, pW, pH);
 
-                using (var pPath = RoundedCard.GetRoundedRectangle(new Rectangle(pX, pY, pW, pH), (int)(4 * DpiScale)))
+                using (var pPath = RoundedCard.GetRoundedRectangle(pillRect, Math.Max(2, (int)(4 * DpiScale))))
                 {
                     using (var pBrush = new SolidBrush(Color.FromArgb(30, AccentColor.R, AccentColor.G, AccentColor.B)))
                     {
@@ -127,26 +129,20 @@ namespace RazerBatteryTray
                     }
                 }
 
-                using (var pTextBrush = new SolidBrush(AccentColor))
-                {
-                    g.DrawString(bStr, battFont, pTextBrush, pX + (int)(6 * DpiScale), pY + (int)(2 * DpiScale));
-                }
+                TextRenderer.DrawText(g, bStr, battFont, pillRect, AccentColor,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }
 
             // 4. Device Name (truncated if necessary)
             int nameX = iconX + (int)(24 * DpiScale);
-            int maxNameW = chvX - chvW - pW - nameX - (int)(16 * DpiScale);
-            if (maxNameW < 40) maxNameW = 40;
+            int maxNameW = chvX - chvW - pW - nameX - (int)(12 * DpiScale);
+            if (maxNameW < 30) maxNameW = 30;
 
-            using (var nameFont = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold))
-            using (var nameBrush = new SolidBrush(Color.FromArgb(240, 243, 250)))
+            using (var nameFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.2F, FontStyle.Bold, DpiScale))
             {
-                var sf = new StringFormat
-                {
-                    Trimming = StringTrimming.EllipsisCharacter,
-                    FormatFlags = StringFormatFlags.NoWrap
-                };
-                g.DrawString(DeviceName, nameFont, nameBrush, new RectangleF(nameX, (h / 2) - (int)(9 * DpiScale), maxNameW, (int)(20 * DpiScale)), sf);
+                Rectangle nameRect = new Rectangle(nameX, 0, maxNameW, h);
+                TextRenderer.DrawText(g, DeviceName ?? "", nameFont, nameRect, Color.FromArgb(240, 243, 250),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             }
         }
     }

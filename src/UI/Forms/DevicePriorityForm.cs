@@ -29,8 +29,9 @@ namespace RazerBatteryTray
         public DevicePriorityForm(List<MouseBatteryInfo> devices, float scale) : base(scale)
         {
             this.Text = "设备优先级管理 (拖拽排序)";
-            this.Size = new Size((int)(460 * dpiScale), (int)(520 * dpiScale));
-            this.MinimumSize = new Size((int)(440 * dpiScale), (int)(480 * dpiScale));
+            int initClientW = (int)(444 * dpiScale);
+            int initClientH = (int)(482 * dpiScale);
+            this.ClientSize = new Size(initClientW, initClientH);
             this.BackColor = Color.FromArgb(18, 19, 23);
             this.ForeColor = Color.White;
             this.StartPosition = FormStartPosition.CenterParent;
@@ -49,17 +50,18 @@ namespace RazerBatteryTray
             this.Controls.Add(lblTitle);
 
             var lblTip = new Label();
-            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位。第 1 位设备默认常驻任务栏（离线时自动顺延下一位在线设备）。点击「✕」可移除自定义设备。";
+            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位。第 1 位设备默认常驻任务栏（离线时自动顺延下一位在线设备）。点击「✕」可将设备从列表移除。";
             lblTip.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblTip.ForeColor = Color.FromArgb(145, 155, 175);
             lblTip.Location = new Point(pad, (int)(38 * dpiScale));
-            lblTip.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(32 * dpiScale));
+            lblTip.Size = new Size(initClientW - (pad * 2), (int)(40 * dpiScale));
+            lblTip.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.Controls.Add(lblTip);
 
             int btnW = (int)(110 * dpiScale);
             int btnH = (int)(34 * dpiScale);
             int bottomPad = (int)(16 * dpiScale);
-            int btnY = this.ClientSize.Height - bottomPad - btnH;
+            int btnY = initClientH - bottomPad - btnH;
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
@@ -70,7 +72,7 @@ namespace RazerBatteryTray
             btnCancel.BorderColor = Color.FromArgb(58, 63, 78);
             btnCancel.ForeColor = Color.FromArgb(230, 235, 245);
             btnCancel.CornerRadius = (int)(8 * dpiScale);
-            btnCancel.Location = new Point(this.ClientSize.Width - pad - (btnW * 2) - (int)(10 * dpiScale), btnY);
+            btnCancel.Location = new Point(initClientW - pad - (btnW * 2) - (int)(10 * dpiScale), btnY);
             btnCancel.Size = new Size(btnW, btnH);
             btnCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnCancel.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
@@ -84,7 +86,7 @@ namespace RazerBatteryTray
             btnSave.PressedColor = Color.FromArgb(0, 160, 65);
             btnSave.ForeColor = Color.FromArgb(10, 24, 15);
             btnSave.CornerRadius = (int)(8 * dpiScale);
-            btnSave.Location = new Point(this.ClientSize.Width - pad - btnW, btnY);
+            btnSave.Location = new Point(initClientW - pad - btnW, btnY);
             btnSave.Size = new Size(btnW, btnH);
             btnSave.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnSave.Click += (s, e) => {
@@ -97,11 +99,12 @@ namespace RazerBatteryTray
             };
             this.Controls.Add(btnSave);
 
-            int listH = btnY - (int)(76 * dpiScale) - (int)(14 * dpiScale);
+            int listTop = (int)(82 * dpiScale);
+            int listH = btnY - listTop - (int)(14 * dpiScale);
             reorderControl = new PriorityReorderControl();
             reorderControl.DpiScale = dpiScale;
-            reorderControl.Location = new Point(pad, (int)(76 * dpiScale));
-            reorderControl.Size = new Size(this.ClientSize.Width - (pad * 2), listH);
+            reorderControl.Location = new Point(pad, listTop);
+            reorderControl.Size = new Size(initClientW - (pad * 2), listH);
             reorderControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
             if (devices != null)
@@ -126,6 +129,17 @@ namespace RazerBatteryTray
                 reorderControl.ResetPositions();
             }
             this.Controls.Add(reorderControl);
+            this.MinimumSize = new Size((int)(380 * dpiScale), (int)(400 * dpiScale));
+        }
+
+        protected override void OnApplyDpiScale(float scale)
+        {
+            base.OnApplyDpiScale(scale);
+            if (reorderControl != null)
+            {
+                reorderControl.DpiScale = scale;
+                reorderControl.ResetPositions();
+            }
         }
     }
 }

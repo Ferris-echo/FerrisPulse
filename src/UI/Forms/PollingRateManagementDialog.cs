@@ -243,21 +243,23 @@ namespace RazerBatteryTray
             this.Controls.Add(lblError);
             RefreshItemRowStates();
 
-            // 6. Action Buttons
-            int btnH = S(32);
-            int actionW = S(85);
+            // 6. Action Buttons (Right-aligned, matching unified design language)
+            int btnH = S(34);
+            int btnCancelW = S(88);
+            int btnSaveW = S(110);
+            int gap = S(12);
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
-            btnCancel.Font = new Font("Microsoft YaHei UI", 8.8F);
-            btnCancel.BackColor = Color.FromArgb(24, 30, 42);
-            btnCancel.HoverColor = Color.FromArgb(34, 42, 60);
-            btnCancel.PressedColor = Color.FromArgb(18, 24, 34);
-            btnCancel.ForeColor = Color.FromArgb(180, 190, 205);
-            btnCancel.BorderColor = Color.FromArgb(50, 62, 85);
+            btnCancel.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            btnCancel.NormalColor = Color.FromArgb(24, 30, 40);
+            btnCancel.HoverColor = Color.FromArgb(34, 42, 56);
+            btnCancel.PressedColor = Color.FromArgb(18, 22, 30);
+            btnCancel.BorderColor = Color.FromArgb(42, 52, 70);
+            btnCancel.TextColor = Color.FromArgb(200, 210, 225);
             btnCancel.CornerRadius = S(6);
-            btnCancel.Size = new Size(actionW, btnH);
-            btnCancel.Location = new Point(clientW - pad - (actionW + S(15)) - actionW - S(10), S(480));
+            btnCancel.Size = new Size(btnCancelW, btnH);
+            btnCancel.Location = new Point(clientW - pad - btnSaveW - gap - btnCancelW, S(480));
             btnCancel.Click += (s, e) => {
                 this.DialogResult = DialogResult.Cancel;
                 this.Close();
@@ -267,14 +269,14 @@ namespace RazerBatteryTray
             btnSave = new ModernButton();
             btnSave.Text = "保存并应用";
             btnSave.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            btnSave.BackColor = Color.FromArgb(0, 160, 100);
-            btnSave.HoverColor = Color.FromArgb(0, 185, 118);
-            btnSave.PressedColor = Color.FromArgb(0, 135, 82);
-            btnSave.ForeColor = Color.White;
+            btnSave.NormalColor = Color.FromArgb(0, 200, 90);
+            btnSave.HoverColor = Color.FromArgb(0, 230, 115);
+            btnSave.PressedColor = Color.FromArgb(0, 160, 70);
+            btnSave.TextColor = Color.FromArgb(10, 24, 16);
             btnSave.BorderColor = Color.Transparent;
             btnSave.CornerRadius = S(6);
-            btnSave.Size = new Size(actionW + S(15), btnH);
-            btnSave.Location = new Point(clientW - pad - (actionW + S(15)), S(480));
+            btnSave.Size = new Size(btnSaveW, btnH);
+            btnSave.Location = new Point(clientW - pad - btnSaveW, S(480));
             btnSave.Click += (s, e) => SaveAndClose();
             this.Controls.Add(btnSave);
         }

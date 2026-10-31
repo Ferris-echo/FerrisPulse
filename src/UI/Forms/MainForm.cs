@@ -579,7 +579,7 @@ namespace RazerBatteryTray
 
 
 
-        private List<string> monitoredGameProcesses = new List<string> { "cs2.exe", "b1-win64-shipping.exe", "valorant-win64-shipping.exe" };
+        private List<string> monitoredGameProcesses = new List<string>();
 
         private bool fallbackFullscreenEnabled = false;
 
@@ -720,6 +720,12 @@ namespace RazerBatteryTray
         private ModernSegmentButton btnOsdStyleGauge;
 
         private ModernSegmentButton btnOsdStyleCompact;
+        private Label lblZoomTitle;
+        private ModernSegmentButton btnZoomSmall;
+        private ModernSegmentButton btnZoomMedium;
+        private ModernSegmentButton btnZoomLarge;
+        private ModernSegmentButton btnZoomReset;
+        private System.Windows.Forms.Timer sizingDragTimer = null;
 
         private SubtleDivider divSettings;
 
@@ -738,6 +744,7 @@ namespace RazerBatteryTray
         // Visual controls - Bottom Actions
 
         private ModernButton btnRefresh;
+        private DateTime lastManualRefreshTime = DateTime.MinValue;
 
         private ModernButton btnHideToTray;
 
@@ -816,6 +823,19 @@ namespace RazerBatteryTray
 
         private DateTime lastFlyoutCloseTime = DateTime.MinValue;
 
+        private float systemDpiScale = 1.0f;
+
+        private float userZoomScale = 0.0f;
+
+        private bool isUserSizingDrag = false;
+
+        private System.Windows.Forms.Timer zoomTitleTimer = null;
+
+        public float UserZoomScale
+        {
+            get { return userZoomScale; }
+        }
+
 
 
         protected override CreateParams CreateParams
@@ -852,9 +872,11 @@ namespace RazerBatteryTray
 
             {
 
-                dpiScale = g.DpiX / 96.0f;
+                systemDpiScale = g.DpiX / 96.0f;
 
-                if (dpiScale < 1.0f) dpiScale = 1.0f;
+                if (systemDpiScale < 1.0f) systemDpiScale = 1.0f;
+
+                dpiScale = systemDpiScale;
 
             }
 
@@ -866,7 +888,7 @@ namespace RazerBatteryTray
 
             {
 
-                dpiScale = DpiScaleHelper.ClampScaleToScreen(dpiScale, primaryScrn, 748);
+                dpiScale = DpiScaleHelper.ClampScaleToScreen(dpiScale, primaryScrn, DpiScaleHelper.DefaultExpandedBaseHeight);
 
             }
 
@@ -1150,13 +1172,17 @@ namespace RazerBatteryTray
 
             if (newScale < 1.0f) newScale = 1.0f;
 
+            this.systemDpiScale = newScale;
+
 
 
             Screen screen = Screen.FromRectangle(!suggestedBounds.IsEmpty ? suggestedBounds : this.Bounds);
 
+            float requested = (userZoomScale >= DpiScaleHelper.MinScale) ? userZoomScale : newScale;
+
             // 屏幕自适应防溢出安全上限约束：无论系统缩放多大，确保窗口高度绝对容纳在工作区内，底部主按钮永不被截断
 
-            newScale = DpiScaleHelper.ClampScaleToScreen(newScale, screen, 748);
+            newScale = DpiScaleHelper.ClampScaleToScreen(requested, screen, DpiScaleHelper.DefaultExpandedBaseHeight);
 
 
 
@@ -2002,7 +2028,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                         var procListVal = key.GetValue("MonitoredGameProcesses") as string;
 
-                        if (!string.IsNullOrEmpty(procListVal))
+                        if (procListVal != null)
 
                         {
 
@@ -2056,7 +2082,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                                 int pDpi;
 
-                                if (int.TryParse(parts[i].Trim(), out pDpi) && pDpi >= 100 && pDpi <= 20000)
+                                if (int.TryParse(parts[i].Trim(), out pDpi) && pDpi >= 100 && pDpi <= 50000)
 
                                 {
 
@@ -2087,6 +2113,16 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                         var wyVal = key.GetValue("WindowY");
 
                         if (wyVal != null) savedWindowY = (int)wyVal;
+
+                        var zoomVal = key.GetValue("WindowZoomScale");
+                        if (zoomVal != null)
+                        {
+                            int rawZoom = (int)zoomVal;
+                            if (rawZoom >= 600 && rawZoom <= 2500)
+                            {
+                                userZoomScale = rawZoom / 1000.0f;
+                            }
+                        }
 
                     }
 
@@ -2231,6 +2267,155 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
             RelayoutDpiButtons();
 
+            Screen curScrn = Screen.PrimaryScreen;
+            float targetScale = (userZoomScale >= DpiScaleHelper.MinScale) ? userZoomScale : systemDpiScale;
+            if (curScrn != null)
+            {
+                targetScale = DpiScaleHelper.ClampScaleToScreen(targetScale, curScrn, DpiScaleHelper.DefaultExpandedBaseHeight);
+            }
+            this.dpiScale = targetScale;
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+            ApplyDpiScaleToControls();
+
+        }
+
+        public int GetCurrentBaseClientHeight()
+        {
+            var dev = selectedDevice;
+            int baseCard2H = 148;
+            if (dev != null)
+            {
+                if (dev.Category == DeviceCategory.Gamepad) baseCard2H = 168;
+                else if (dev.Category == DeviceCategory.Headset || dev.Category == DeviceCategory.Earbuds) baseCard2H = 196;
+                else if (dev.Category == DeviceCategory.Keyboard) baseCard2H = (dev.Brand == "NuPhy") ? 196 : 228;
+                else if (dev.Category == DeviceCategory.Dongle) baseCard2H = 120;
+                else if (IsSelectedDeviceSupportingAutoGameRate())
+                {
+                    baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+                }
+                else
+                {
+                    baseCard2H = (dev.Category == DeviceCategory.Mouse) ? 160 : 120;
+                }
+            }
+            else
+            {
+                baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+            }
+            return 572 + baseCard2H;
+        }
+
+        public float GetRecommendedDefaultScale()
+        {
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            float baseScale = this.systemDpiScale > 0.1f ? this.systemDpiScale : 1.0f;
+            return DpiScaleHelper.ClampScaleToScreen(baseScale, scr, DpiScaleHelper.DefaultExpandedBaseHeight);
+        }
+
+        public int GetRecommendedScalePercent() { float baseScale = this.systemDpiScale > 0.1f ? this.systemDpiScale : 1.0f; float rec = GetRecommendedDefaultScale(); return (int)Math.Round((rec / baseScale) * 100.0f); }
+        public void SetWindowScalePreset(float relativeMultiplier)
+        {
+            float rec = GetRecommendedDefaultScale();
+            SetUserWindowScale((float)Math.Round(rec * relativeMultiplier, 3), true);
+        }
+
+        internal void UpdateZoomPresetButtonSelection()
+        {
+            float rec = GetRecommendedDefaultScale();
+            if (rec <= 0.01f) rec = 1.0f;
+            float s80 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 0.80f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+            float s90 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 0.90f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+            float s115 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 1.15f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+
+            bool isReset = (this.userZoomScale <= 0.01f) || (Math.Abs(this.dpiScale - rec) <= 0.015f);
+            bool isSmall = !isReset && (Math.Abs(this.dpiScale - s80) <= 0.015f);
+            bool isMed = !isReset && !isSmall && (Math.Abs(this.dpiScale - s90) <= 0.015f);
+            bool isLarge = !isReset && !isSmall && !isMed && (Math.Abs(this.dpiScale - s115) <= 0.015f);
+
+            if (btnZoomSmall != null) btnZoomSmall.Selected = isSmall;
+            if (btnZoomMedium != null) btnZoomMedium.Selected = isMed;
+            if (btnZoomLarge != null) btnZoomLarge.Selected = isLarge;
+            if (btnZoomReset != null) { string recText = string.Format("{0}%", GetRecommendedScalePercent()); if (btnZoomReset.Text != recText) btnZoomReset.Text = recText; btnZoomReset.Selected = isReset; }
+        }
+
+        private void ShowZoomTitleHint(float scale)
+        {
+            try
+            {
+                float rec = GetRecommendedDefaultScale();
+                int pct = (int)Math.Round((scale / (rec > 0.01f ? rec : 1.0f)) * 100.0f);
+                this.Text = string.Format("FerrisPulse · 灵脉 ({0}%)", pct);
+                if (zoomTitleTimer == null)
+                {
+                    zoomTitleTimer = new System.Windows.Forms.Timer();
+                    zoomTitleTimer.Interval = 1500;
+                    zoomTitleTimer.Tick += (s, e) =>
+                    {
+                        zoomTitleTimer.Stop();
+                        if (!this.IsDisposed)
+                        {
+                            this.Text = "FerrisPulse · 灵脉";
+                        }
+                    };
+                }
+                zoomTitleTimer.Stop();
+                zoomTitleTimer.Start();
+            }
+            catch { }
+        }
+
+        public void SetUserWindowScale(float newScale, bool saveConfig = true)
+        {
+            if (newScale < DpiScaleHelper.MinScale) newScale = DpiScaleHelper.MinScale;
+            if (newScale > DpiScaleHelper.MaxScale) newScale = DpiScaleHelper.MaxScale;
+
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            int frameH = Math.Max(36, this.Height - this.ClientSize.Height);
+            int curBaseTotalH = GetCurrentBaseClientHeight() + frameH;
+            newScale = DpiScaleHelper.ClampScaleToScreen(newScale, scr, curBaseTotalH);
+            newScale = (float)Math.Round(newScale, 3);
+
+            this.userZoomScale = newScale;
+            this.dpiScale = newScale;
+
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+
+            ApplyDpiScaleToControls();
+            ShowZoomTitleHint(this.dpiScale);
+
+            if (saveConfig)
+            {
+                SaveConfig();
+            }
+        }
+
+        public void StepWindowScale(float delta)
+        {
+            float target = (float)Math.Round(this.dpiScale + delta, 2);
+            SetUserWindowScale(target, true);
+        }
+
+        public void ResetWindowScale()
+        {
+            this.userZoomScale = 0.0f;
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            float defScale = GetRecommendedDefaultScale();
+            this.dpiScale = defScale;
+
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+
+            ApplyDpiScaleToControls();
+            ShowZoomTitleHint(this.dpiScale);
+            SaveConfig();
         }
 
 
@@ -2305,6 +2490,8 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                             key.SetValue("WindowY", savedWindowY);
 
                         }
+
+                        key.SetValue("WindowZoomScale", userZoomScale >= DpiScaleHelper.MinScale ? (int)Math.Round(userZoomScale * 1000.0f) : 0);
 
                     }
 

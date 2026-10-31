@@ -2,9 +2,13 @@
 // 模块名称: GameProcessManagerForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   游戏进程名单管理窗口，支持实时枚举前台可见窗口与后台进程、添加/删除白名单、
-//   双模式选择 (进程存活常驻模式 vs 仅前台窗口激活模式)、全屏自动检测开关与进程防抖持久化保存。
-// 依赖关系: Controls.*, Core.ConfigManager, Models.RunningProcessItem, Services.GameDetector
+//   现代化左右双栏电竞游戏进程控制台：
+//   1. 宽屏左右双栏布局 (左栏运行应用库 + 实时搜索过滤；右栏守护名单 + 策略控制)
+//   2. Windows 原生 API 进程高清图标提取与内存高速缓存 (22x22 高清展示)
+//   3. 与设备优先级管理页完全统一的矢量级微型添加 [+] 与删除 [✕] 按键设计
+//   4. 进程存活常驻 vs 仅前台窗口激活双策略切换、全屏兜底探测与数据解耦回调
+// 依赖关系: Controls.ModernProcessListControl, Controls.ModernButton, Controls.ModernCheckBox,
+//           Controls.RoundedCard, Models.RunningProcessItem, Core.NativeMethods
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -17,8 +21,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace RazerBatteryTray
@@ -30,16 +36,26 @@ namespace RazerBatteryTray
         private int currentMode; // 0 = 仅前台激活模式, 1 = 进程存活常驻模式 (推荐)
         private Action<List<string>, bool, int> onSaveCallback;
 
-        private ListBox lstRunning;
-        private ListBox lstMonitored;
-        private ModernButton btnAddRunning;
+        // In-memory icon cache for process executables (prevents disk I/O lag and memory leaks)
+        private static readonly Dictionary<string, Image> processIconCache = new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+
+        private List<RunningProcessItem> rawRunningProcesses = new List<RunningProcessItem>();
+
+        private Label lblRunningTitle;
+        private Panel pnlSearch;
+        private TextBox txtSearch;
+        private ModernProcessListControl ctlRunningList;
         private ModernButton btnRefreshRunning;
         private ModernButton btnBrowseExe;
-        private ModernButton btnRemove;
+
+        private Label lblMonitoredTitle;
+        private ModernProcessListControl ctlMonitoredList;
         private ModernButton btnClearAll;
+
+        private Label lblModeTitle;
         private ModernButton btnModePersistent;
         private ModernButton btnModeForeground;
-        private Label lblModeDesc;
+        private Panel pnlModeCard;
         private ModernCheckBox chkFallback;
         private ModernButton btnClose;
 
@@ -48,246 +64,334 @@ namespace RazerBatteryTray
         {
         }
 
-        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode, Action<List<string>, bool, int> callback) : base(scale)
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode, Action<List<string>, bool, int> callback)
+            : base(scale)
         {
             this.monitoredList = initialList != null ? new List<string>(initialList) : new List<string>();
             this.fallbackEnabled = initialFallback;
             this.currentMode = (initialMode == 0) ? 0 : 1;
             this.onSaveCallback = callback;
 
+            InitializeFormUI();
+        }
+
+        private int S(int val) { return (int)Math.Round(val * dpiScale); }
+
+        private void InitializeFormUI()
+        {
             this.Text = "FerrisPulse · 电竞游戏进程管理与自动捕获";
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.StartPosition = FormStartPosition.CenterParent;
-            this.BackColor = Color.FromArgb(20, 23, 30);
+            this.BackColor = Color.FromArgb(13, 16, 23);
             this.ForeColor = Color.FromArgb(240, 245, 255);
-            this.ClientSize = new Size((int)(540 * dpiScale), (int)(540 * dpiScale));
             this.KeyPreview = true;
 
-            int pad = (int)(16 * dpiScale);
-            int clientW = this.ClientSize.Width;
-            int listW = clientW - (pad * 2);
+            int clientW = S(760);
+            int clientH = S(575);
+            this.ClientSize = new Size(clientW, clientH);
 
-            // Title
+            int pad = S(16);
+
+            // ================= 1. Top Header =================
             Label lblTitle = new Label();
             lblTitle.Text = "🎮 电竞游戏进程管理与自动捕获";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
+            lblTitle.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 230, 118);
-            lblTitle.Location = new Point(pad, (int)(10 * dpiScale));
-            lblTitle.Size = new Size(clientW - (pad * 2), (int)(22 * dpiScale));
+            lblTitle.Location = new Point(pad, S(12));
+            lblTitle.Size = new Size(clientW - pad * 2, S(22));
+            lblTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblTitle);
 
-            // Subtitle
             Label lblSub = new Label();
-            lblSub.Text = "将游戏添加至守护列表后，启动游戏即自动升频与切换 DPI 档位。";
-            lblSub.Font = new Font("Microsoft YaHei UI", 8.2F);
-            lblSub.ForeColor = Color.FromArgb(150, 160, 180);
-            lblSub.Location = new Point(pad, (int)(32 * dpiScale));
-            lblSub.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
+            lblSub.Text = "将游戏添加至守护列表后，启动游戏即自动升频与切换 DPI 档位；退出游戏自动恢复常规桌面参数。";
+            lblSub.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
+            lblSub.ForeColor = Color.FromArgb(120, 135, 155);
+            lblSub.Location = new Point(pad, S(34));
+            lblSub.Size = new Size(clientW - pad * 2, S(16));
+            lblSub.BackColor = Color.Transparent;
             this.Controls.Add(lblSub);
 
-            // Section 1 Header
-            Label lblSec1 = new Label();
-            lblSec1.Text = "⚡ 当前正在运行的应用与游戏 (双击或点击下方按钮添加):";
-            lblSec1.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            lblSec1.ForeColor = Color.FromArgb(220, 230, 245);
-            lblSec1.Location = new Point(pad, (int)(52 * dpiScale));
-            lblSec1.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
-            this.Controls.Add(lblSec1);
+            // ================= 2. Column Geometry =================
+            int colGap = S(16);
+            int leftColW = S(390);
+            int rightColW = clientW - pad * 2 - leftColW - colGap; // 322px
+            int rightColX = pad + leftColW + colGap;
 
-            // ListBox Running
-            lstRunning = new ListBox();
-            lstRunning.BackColor = Color.FromArgb(28, 32, 42);
-            lstRunning.ForeColor = Color.FromArgb(225, 235, 250);
-            lstRunning.BorderStyle = BorderStyle.FixedSingle;
-            lstRunning.Font = new Font("Microsoft YaHei UI", 8.8F);
-            lstRunning.ItemHeight = (int)(20 * dpiScale);
-            lstRunning.Location = new Point(pad, (int)(72 * dpiScale));
-            lstRunning.Size = new Size(listW, (int)(100 * dpiScale));
-            lstRunning.DoubleClick += (s, e) => AddSelectedRunning();
-            this.Controls.Add(lstRunning);
+            // ================= 3. Left Column: Running Processes Library =================
+            lblRunningTitle = new Label();
+            lblRunningTitle.Text = "⚡ 当前正在运行的应用与游戏";
+            lblRunningTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblRunningTitle.ForeColor = Color.FromArgb(220, 232, 248);
+            lblRunningTitle.Location = new Point(pad, S(54));
+            lblRunningTitle.Size = new Size(leftColW, S(18));
+            lblRunningTitle.BackColor = Color.Transparent;
+            this.Controls.Add(lblRunningTitle);
 
-            // Action buttons below Running
-            int actY1 = (int)(176 * dpiScale);
-            int btnH = (int)(25 * dpiScale);
+            // Modern Rounded Search Input Box
+            pnlSearch = new Panel();
+            pnlSearch.Location = new Point(pad, S(76));
+            pnlSearch.Size = new Size(leftColW, S(30));
+            pnlSearch.BackColor = Color.FromArgb(20, 25, 36);
+            pnlSearch.Paint += (s, e) =>
+            {
+                Rectangle r = new Rectangle(0, 0, pnlSearch.Width - 1, pnlSearch.Height - 1);
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(r, S(6)))
+                {
+                    using (Pen p = new Pen(Color.FromArgb(38, 48, 68), 1f))
+                    {
+                        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                        e.Graphics.DrawPath(p, path);
+                    }
+                }
+                // Draw Search Icon 🔍
+                using (Font fontIco = DpiScaleHelper.CreateScaledFont("Segoe UI Emoji", 8.2F, FontStyle.Regular, dpiScale))
+                {
+                    TextRenderer.DrawText(e.Graphics, "🔍", fontIco, new Rectangle(S(6), 0, S(20), pnlSearch.Height), Color.FromArgb(120, 138, 160),
+                        TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+                }
+            };
+            this.Controls.Add(pnlSearch);
 
-            btnAddRunning = new ModernButton();
-            btnAddRunning.Text = "➕ 添加选中的应用";
-            btnAddRunning.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnAddRunning.NormalColor = Color.FromArgb(26, 42, 32);
-            btnAddRunning.HoverColor = Color.FromArgb(36, 60, 44);
-            btnAddRunning.BorderColor = Color.FromArgb(0, 180, 80);
-            btnAddRunning.TextColor = Color.FromArgb(0, 230, 118);
-            btnAddRunning.CornerRadius = (int)(5 * dpiScale);
-            btnAddRunning.Cursor = Cursors.Hand;
-            btnAddRunning.Location = new Point(pad, actY1);
-            btnAddRunning.Size = new Size((int)(140 * dpiScale), btnH);
-            btnAddRunning.Click += (s, e) => AddSelectedRunning();
-            this.Controls.Add(btnAddRunning);
+            txtSearch = new TextBox();
+            txtSearch.BorderStyle = BorderStyle.None;
+            txtSearch.BackColor = Color.FromArgb(20, 25, 36);
+            txtSearch.ForeColor = Color.FromArgb(240, 245, 255);
+            txtSearch.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular);
+            txtSearch.Location = new Point(S(28), S(6));
+            txtSearch.Size = new Size(leftColW - S(36), S(18));
+            txtSearch.TextChanged += (s, e) => ApplySearchFilter();
+            pnlSearch.Controls.Add(txtSearch);
+
+            // Left Process List Control
+            ctlRunningList = new ModernProcessListControl();
+            ctlRunningList.DpiScale = dpiScale;
+            ctlRunningList.ActionType = ProcessListActionType.Add;
+            ctlRunningList.EmptyPlaceholderText = "未找到正在运行的用户应用或游戏进程";
+            ctlRunningList.Location = new Point(pad, S(112));
+            ctlRunningList.Size = new Size(leftColW, S(364));
+            ctlRunningList.OnActionClicked += (item) => AddGameProcess(item.ProcessName);
+            ctlRunningList.OnItemDoubleClicked += (item) => AddGameProcess(item.ProcessName);
+            this.Controls.Add(ctlRunningList);
+
+            // Left Action Buttons Row
+            int leftBtnY = S(484);
+            int btnH = S(28);
 
             btnRefreshRunning = new ModernButton();
-            btnRefreshRunning.Text = "🔄 刷新列表";
-            btnRefreshRunning.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnRefreshRunning.NormalColor = Color.FromArgb(32, 36, 48);
-            btnRefreshRunning.HoverColor = Color.FromArgb(46, 52, 68);
-            btnRefreshRunning.BorderColor = Color.FromArgb(56, 64, 84);
-            btnRefreshRunning.TextColor = Color.FromArgb(190, 200, 220);
-            btnRefreshRunning.CornerRadius = (int)(5 * dpiScale);
+            btnRefreshRunning.Text = "🔄 刷新运行列表";
+            btnRefreshRunning.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular);
+            btnRefreshRunning.NormalColor = Color.FromArgb(24, 30, 42);
+            btnRefreshRunning.HoverColor = Color.FromArgb(34, 44, 62);
+            btnRefreshRunning.BorderColor = Color.FromArgb(42, 54, 76);
+            btnRefreshRunning.TextColor = Color.FromArgb(190, 205, 225);
+            btnRefreshRunning.CornerRadius = S(6);
             btnRefreshRunning.Cursor = Cursors.Hand;
-            btnRefreshRunning.Location = new Point(pad + (int)(148 * dpiScale), actY1);
-            btnRefreshRunning.Size = new Size((int)(90 * dpiScale), btnH);
+            btnRefreshRunning.Location = new Point(pad, leftBtnY);
+            btnRefreshRunning.Size = new Size(S(125), btnH);
             btnRefreshRunning.Click += (s, e) => RefreshRunningProcesses();
             this.Controls.Add(btnRefreshRunning);
 
             btnBrowseExe = new ModernButton();
-            btnBrowseExe.Text = "📁 浏览本地 .exe 文件...";
-            btnBrowseExe.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnBrowseExe.NormalColor = Color.FromArgb(32, 36, 48);
-            btnBrowseExe.HoverColor = Color.FromArgb(46, 52, 68);
-            btnBrowseExe.BorderColor = Color.FromArgb(56, 64, 84);
-            btnBrowseExe.TextColor = Color.FromArgb(190, 200, 220);
-            btnBrowseExe.CornerRadius = (int)(5 * dpiScale);
+            btnBrowseExe.Text = "📁 浏览本地 .exe...";
+            btnBrowseExe.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular);
+            btnBrowseExe.NormalColor = Color.FromArgb(24, 30, 42);
+            btnBrowseExe.HoverColor = Color.FromArgb(34, 44, 62);
+            btnBrowseExe.BorderColor = Color.FromArgb(42, 54, 76);
+            btnBrowseExe.TextColor = Color.FromArgb(190, 205, 225);
+            btnBrowseExe.CornerRadius = S(6);
             btnBrowseExe.Cursor = Cursors.Hand;
-            btnBrowseExe.Location = new Point(pad + (int)(246 * dpiScale), actY1);
-            btnBrowseExe.Size = new Size((int)(160 * dpiScale), btnH);
+            btnBrowseExe.Location = new Point(pad + S(135), leftBtnY);
+            btnBrowseExe.Size = new Size(S(145), btnH);
             btnBrowseExe.Click += (s, e) => BrowseLocalExe();
             this.Controls.Add(btnBrowseExe);
 
-            // Section 2 Header
-            Label lblSec2 = new Label();
-            lblSec2.Text = "📋 已生效的电竞游戏守护列表 (命中时自动切入电竞回报率):";
-            lblSec2.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            lblSec2.ForeColor = Color.FromArgb(220, 230, 245);
-            lblSec2.Location = new Point(pad, (int)(208 * dpiScale));
-            lblSec2.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
-            this.Controls.Add(lblSec2);
-
-            // ListBox Monitored
-            lstMonitored = new ListBox();
-            lstMonitored.BackColor = Color.FromArgb(24, 28, 36);
-            lstMonitored.ForeColor = Color.FromArgb(0, 230, 118);
-            lstMonitored.BorderStyle = BorderStyle.FixedSingle;
-            lstMonitored.Font = new Font("Microsoft YaHei UI", 8.8F);
-            lstMonitored.ItemHeight = (int)(20 * dpiScale);
-            lstMonitored.Location = new Point(pad, (int)(228 * dpiScale));
-            lstMonitored.Size = new Size(listW, (int)(85 * dpiScale));
-            lstMonitored.DoubleClick += (s, e) => RemoveSelectedMonitored();
-            this.Controls.Add(lstMonitored);
-
-            // Action buttons below Monitored
-            int actY2 = (int)(318 * dpiScale);
-            btnRemove = new ModernButton();
-            btnRemove.Text = "✕ 移除选中的游戏";
-            btnRemove.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnRemove.NormalColor = Color.FromArgb(42, 28, 32);
-            btnRemove.HoverColor = Color.FromArgb(60, 36, 42);
-            btnRemove.BorderColor = Color.FromArgb(160, 60, 70);
-            btnRemove.TextColor = Color.FromArgb(255, 120, 130);
-            btnRemove.CornerRadius = (int)(5 * dpiScale);
-            btnRemove.Cursor = Cursors.Hand;
-            btnRemove.Location = new Point(pad, actY2);
-            btnRemove.Size = new Size((int)(130 * dpiScale), btnH);
-            btnRemove.Click += (s, e) => RemoveSelectedMonitored();
-            this.Controls.Add(btnRemove);
+            // ================= 4. Right Column: Monitored Games & Strategy =================
+            lblMonitoredTitle = new Label();
+            lblMonitoredTitle.Text = "📋 已生效的电竞守护列表";
+            lblMonitoredTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblMonitoredTitle.ForeColor = Color.FromArgb(0, 230, 118);
+            lblMonitoredTitle.Location = new Point(rightColX, S(54));
+            lblMonitoredTitle.Size = new Size(S(220), S(18));
+            lblMonitoredTitle.BackColor = Color.Transparent;
+            this.Controls.Add(lblMonitoredTitle);
 
             btnClearAll = new ModernButton();
             btnClearAll.Text = "清空全部";
-            btnClearAll.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnClearAll.NormalColor = Color.FromArgb(32, 36, 48);
-            btnClearAll.HoverColor = Color.FromArgb(46, 52, 68);
-            btnClearAll.BorderColor = Color.FromArgb(56, 64, 84);
-            btnClearAll.TextColor = Color.FromArgb(160, 170, 190);
-            btnClearAll.CornerRadius = (int)(5 * dpiScale);
+            btnClearAll.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular);
+            btnClearAll.NormalColor = Color.FromArgb(26, 20, 24);
+            btnClearAll.HoverColor = Color.FromArgb(42, 28, 34);
+            btnClearAll.BorderColor = Color.FromArgb(64, 36, 44);
+            btnClearAll.TextColor = Color.FromArgb(240, 140, 150);
+            btnClearAll.CornerRadius = S(4);
             btnClearAll.Cursor = Cursors.Hand;
-            btnClearAll.Location = new Point(pad + (int)(138 * dpiScale), actY2);
-            btnClearAll.Size = new Size((int)(75 * dpiScale), btnH);
-            btnClearAll.Click += (s, e) => {
-                monitoredList.Clear();
-                RefreshMonitoredList();
+            btnClearAll.Location = new Point(rightColX + rightColW - S(75), S(50));
+            btnClearAll.Size = new Size(S(75), S(22));
+            btnClearAll.Click += (s, e) =>
+            {
+                if (monitoredList.Count > 0)
+                {
+                    monitoredList.Clear();
+                    RefreshMonitoredList();
+                }
             };
             this.Controls.Add(btnClearAll);
 
-            // Section 3: Optimization Mode Selection
-            int modeTitleY = (int)(350 * dpiScale);
-            Label lblModeTitle = new Label();
-            lblModeTitle.Text = "⚙️ 策略选项 (避免切出游戏看时间时频繁跳变 DPI/回报率):";
-            lblModeTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            lblModeTitle.ForeColor = Color.FromArgb(220, 230, 245);
-            lblModeTitle.Location = new Point(pad, modeTitleY);
-            lblModeTitle.Size = new Size(clientW - (pad * 2), (int)(18 * dpiScale));
+            // Right Monitored Process List Control (expanded height to S(246) for comfortable view)
+            ctlMonitoredList = new ModernProcessListControl();
+            ctlMonitoredList.DpiScale = dpiScale;
+            ctlMonitoredList.ActionType = ProcessListActionType.Delete;
+            ctlMonitoredList.EmptyPlaceholderText = "暂无守护游戏 (双击左侧应用或点击 ➕ 添加)";
+            ctlMonitoredList.Location = new Point(rightColX, S(76));
+            ctlMonitoredList.Size = new Size(rightColW, S(246));
+            ctlMonitoredList.OnActionClicked += (item) => RemoveGameProcess(item.ProcessName);
+            ctlMonitoredList.OnItemDoubleClicked += (item) => RemoveGameProcess(item.ProcessName);
+            this.Controls.Add(ctlMonitoredList);
+
+            // Section: Strategy Mode (shifted down to S(330))
+            int stratY = S(330);
+            lblModeTitle = new Label();
+            lblModeTitle.Text = "⚙️ 切换守护模式 (避免切屏频繁跳变)";
+            lblModeTitle.Font = new Font("Microsoft YaHei UI", 8.6F, FontStyle.Bold);
+            lblModeTitle.ForeColor = Color.FromArgb(220, 232, 248);
+            lblModeTitle.Location = new Point(rightColX, stratY);
+            lblModeTitle.Size = new Size(rightColW, S(18));
+            lblModeTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblModeTitle);
 
-            int modeBtnY = (int)(372 * dpiScale);
-            int modeBtnW = (listW - (int)(8 * dpiScale)) / 2;
-            int modeBtnH = (int)(28 * dpiScale);
+            int modeBtnW = (rightColW - S(8)) / 2;
+            int modeBtnH = S(28);
+            int modeBtnY = stratY + S(22);
 
             btnModePersistent = new ModernButton();
-            btnModePersistent.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold);
-            btnModePersistent.CornerRadius = (int)(5 * dpiScale);
+            btnModePersistent.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold);
+            btnModePersistent.CornerRadius = S(5);
             btnModePersistent.Cursor = Cursors.Hand;
-            btnModePersistent.Location = new Point(pad, modeBtnY);
+            btnModePersistent.Location = new Point(rightColX, modeBtnY);
             btnModePersistent.Size = new Size(modeBtnW, modeBtnH);
             btnModePersistent.Click += (s, e) => SetGameOptMode(1);
             this.Controls.Add(btnModePersistent);
 
             btnModeForeground = new ModernButton();
-            btnModeForeground.Font = new Font("Microsoft YaHei UI", 8.2F);
-            btnModeForeground.CornerRadius = (int)(5 * dpiScale);
+            btnModeForeground.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
+            btnModeForeground.CornerRadius = S(5);
             btnModeForeground.Cursor = Cursors.Hand;
-            btnModeForeground.Location = new Point(pad + modeBtnW + (int)(8 * dpiScale), modeBtnY);
+            btnModeForeground.Location = new Point(rightColX + modeBtnW + S(8), modeBtnY);
             btnModeForeground.Size = new Size(modeBtnW, modeBtnH);
             btnModeForeground.Click += (s, e) => SetGameOptMode(0);
             this.Controls.Add(btnModeForeground);
 
-            lblModeDesc = new Label();
-            lblModeDesc.Font = new Font("Microsoft YaHei UI", 8.0F);
-            lblModeDesc.Location = new Point(pad, (int)(404 * dpiScale));
-            lblModeDesc.Size = new Size(listW, (int)(26 * dpiScale));
-            this.Controls.Add(lblModeDesc);
+            // Mode Explanation Micro-Card (height expanded to S(68) to prevent text clipping)
+            int modeCardH = S(68);
+            pnlModeCard = new Panel();
+            pnlModeCard.Location = new Point(rightColX, modeBtnY + modeBtnH + S(6));
+            pnlModeCard.Size = new Size(rightColW, modeCardH);
+            pnlModeCard.BackColor = Color.FromArgb(17, 22, 31);
+            pnlModeCard.Paint += (s, e) =>
+            {
+                Graphics g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+                Rectangle r = new Rectangle(0, 0, pnlModeCard.Width - 1, pnlModeCard.Height - 1);
+                using (GraphicsPath path = RoundedCard.GetRoundedRectangle(r, S(6)))
+                {
+                    using (SolidBrush br = new SolidBrush(Color.FromArgb(17, 22, 31))) g.FillPath(br, path);
+                    using (Pen p = new Pen(Color.FromArgb(34, 44, 62), 1f)) g.DrawPath(p, path);
+                }
+
+                // Left Accent bar
+                Color accColor = (currentMode == 1) ? Color.FromArgb(0, 200, 95) : Color.FromArgb(56, 189, 248);
+                Rectangle accRect = new Rectangle(S(5), S(8), S(3), pnlModeCard.Height - S(16));
+                using (GraphicsPath accPath = RoundedCard.GetRoundedRectangle(accRect, S(1)))
+                using (SolidBrush accBr = new SolidBrush(accColor))
+                {
+                    g.FillPath(accBr, accPath);
+                }
+
+                int textX = S(14);
+                int textW = pnlModeCard.Width - textX - S(8);
+
+                string title = (currentMode == 1) ? "💡 进程存活常驻模式 (官方推荐)" : "💡 仅前台窗口激活模式 (传统)";
+                Color titleCol = (currentMode == 1) ? Color.FromArgb(0, 230, 118) : Color.FromArgb(56, 189, 248);
+
+                string desc = (currentMode == 1)
+                    ? "只要游戏在后台存活，切屏查攻略/看时间绝不反复切鼠标；彻底退出游戏才恢复常规。"
+                    : "仅当游戏位于最顶层活动窗口时生效；切换到其他应用时经 2 秒防抖立即恢复桌面参数。";
+
+                using (Font ft = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.8F, FontStyle.Bold, dpiScale))
+                using (Font fd = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.2F, FontStyle.Regular, dpiScale))
+                {
+                    TextRenderer.DrawText(g, title, ft, new Rectangle(textX, S(6), textW, S(18)), titleCol,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.WordEllipsis);
+
+                    TextRenderer.DrawText(g, desc, fd, new Rectangle(textX, S(25), textW, S(38)), Color.FromArgb(120, 138, 160),
+                        TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak);
+                }
+            };
+            this.Controls.Add(pnlModeCard);
+
+            // Fallback Checkbox (aligned right under mode micro-card)
+            chkFallback = new ModernCheckBox();
+            chkFallback.Text = "开启未在列表中的全屏游戏通用自动探测 (兜底模式)";
+            chkFallback.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
+            chkFallback.ForeColor = Color.FromArgb(160, 175, 195);
+            chkFallback.Location = new Point(rightColX, S(460));
+            chkFallback.Size = new Size(rightColW, S(22));
+            chkFallback.Checked = fallbackEnabled;
+            this.Controls.Add(chkFallback);
 
             SetGameOptMode(this.currentMode);
 
-            // Fallback checkbox & Close button
-            int botY = (int)(438 * dpiScale);
-            chkFallback = new ModernCheckBox();
-            chkFallback.Text = "开启未在列表中的全屏游戏通用自动探测 (兜底模式)";
-            chkFallback.Font = new Font("Microsoft YaHei UI", 8.2F);
-            chkFallback.ForeColor = Color.FromArgb(170, 180, 200);
-            chkFallback.Location = new Point(pad, botY);
-            chkFallback.Size = new Size((int)(360 * dpiScale), (int)(22 * dpiScale));
-            chkFallback.Checked = fallbackEnabled;
-            this.Controls.Add(chkFallback);
+            // ================= 5. Bottom Control Bar =================
+            int botY = S(524);
+
+            Label lblHintBottom = new Label();
+            lblHintBottom.Text = "💡 提示：双击左侧应用或点击 ➕ 可快速加入守护；配置修改后点击保存立即写入生效。";
+            lblHintBottom.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular);
+            lblHintBottom.ForeColor = Color.FromArgb(95, 110, 130);
+            lblHintBottom.Location = new Point(pad, botY + S(6));
+            lblHintBottom.Size = new Size(clientW - pad * 2 - S(140), S(20));
+            lblHintBottom.BackColor = Color.Transparent;
+            this.Controls.Add(lblHintBottom);
 
             btnClose = new ModernButton();
             btnClose.Text = "完成并保存";
             btnClose.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            btnClose.NormalColor = Color.FromArgb(0, 200, 83);
-            btnClose.HoverColor = Color.FromArgb(0, 230, 118);
-            btnClose.PressedColor = Color.FromArgb(0, 170, 70);
-            btnClose.BorderColor = Color.FromArgb(0, 230, 118);
-            btnClose.TextColor = Color.FromArgb(10, 24, 15);
-            btnClose.CornerRadius = (int)(6 * dpiScale);
+            btnClose.NormalColor = Color.FromArgb(0, 200, 90);
+            btnClose.HoverColor = Color.FromArgb(0, 230, 115);
+            btnClose.PressedColor = Color.FromArgb(0, 160, 70);
+            btnClose.BorderColor = Color.Transparent;
+            btnClose.TextColor = Color.FromArgb(10, 24, 16);
+            btnClose.CornerRadius = S(6);
             btnClose.Cursor = Cursors.Hand;
-            btnClose.Location = new Point(clientW - pad - (int)(110 * dpiScale), (int)(475 * dpiScale));
-            btnClose.Size = new Size((int)(110 * dpiScale), (int)(34 * dpiScale));
-            btnClose.Click += (s, e) => {
-                if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked, currentMode);
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-            };
+            btnClose.Location = new Point(clientW - pad - S(130), botY);
+            btnClose.Size = new Size(S(130), S(34));
+            btnClose.Click += (s, e) => SaveAndClose();
             this.Controls.Add(btnClose);
 
-            this.KeyDown += (s, e) => {
-                if (e.KeyCode == Keys.Escape)
-                {
-                    if (onSaveCallback != null) onSaveCallback(monitoredList, chkFallback.Checked, currentMode);
-                    this.Close();
-                }
+            this.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Escape) { SaveAndClose(); }
             };
+
+            // Apply DPI scaled fonts across all controls
+            DpiScaleHelper.ApplyScaledFontsToControlTree(this, this.dpiScale);
 
             RefreshRunningProcesses();
             RefreshMonitoredList();
+        }
+
+        protected override void OnApplyDpiScale(float scale)
+        {
+            base.OnApplyDpiScale(scale);
+            if (ctlRunningList != null) ctlRunningList.DpiScale = scale;
+            if (ctlMonitoredList != null) ctlMonitoredList.DpiScale = scale;
+            if (ctlRunningList != null) ctlRunningList.Invalidate();
+            if (ctlMonitoredList != null) ctlMonitoredList.Invalidate();
+            if (pnlModeCard != null) pnlModeCard.Invalidate();
+            if (pnlSearch != null) pnlSearch.Invalidate();
         }
 
         private void SetGameOptMode(int mode)
@@ -295,69 +399,108 @@ namespace RazerBatteryTray
             currentMode = mode;
             if (mode == 1)
             {
-                btnModePersistent.Text = "🟢 进程存活常驻 (推荐)";
-                btnModePersistent.NormalColor = Color.FromArgb(20, 48, 30);
-                btnModePersistent.HoverColor = Color.FromArgb(28, 64, 40);
+                btnModePersistent.Text = "● 进程存活常驻 (推荐)";
+                btnModePersistent.NormalColor = Color.FromArgb(20, 48, 32);
+                btnModePersistent.HoverColor = Color.FromArgb(28, 64, 42);
+                btnModePersistent.PressedColor = Color.FromArgb(16, 38, 26);
                 btnModePersistent.BorderColor = Color.FromArgb(0, 230, 118);
                 btnModePersistent.TextColor = Color.FromArgb(0, 230, 118);
 
-                btnModeForeground.Text = "⚪ 仅前台窗口激活";
-                btnModeForeground.NormalColor = Color.FromArgb(28, 32, 42);
-                btnModeForeground.HoverColor = Color.FromArgb(42, 48, 62);
-                btnModeForeground.BorderColor = Color.FromArgb(56, 64, 84);
-                btnModeForeground.TextColor = Color.FromArgb(160, 170, 190);
-
-                lblModeDesc.Text = "💡 推荐模式: 只要游戏在后台存活，切屏查看时间、查攻略、聊天绝不反复切鼠标；彻底退出游戏才恢复常规桌面参数。";
-                lblModeDesc.ForeColor = Color.FromArgb(120, 220, 160);
+                btnModeForeground.Text = "○ 仅前台窗口激活";
+                btnModeForeground.NormalColor = Color.FromArgb(24, 30, 42);
+                btnModeForeground.HoverColor = Color.FromArgb(34, 44, 62);
+                btnModeForeground.PressedColor = Color.FromArgb(18, 22, 32);
+                btnModeForeground.BorderColor = Color.FromArgb(44, 56, 78);
+                btnModeForeground.TextColor = Color.FromArgb(150, 165, 185);
             }
             else
             {
-                btnModePersistent.Text = "⚪ 进程存活常驻 (推荐)";
-                btnModePersistent.NormalColor = Color.FromArgb(28, 32, 42);
-                btnModePersistent.HoverColor = Color.FromArgb(42, 48, 62);
-                btnModePersistent.BorderColor = Color.FromArgb(56, 64, 84);
-                btnModePersistent.TextColor = Color.FromArgb(160, 170, 190);
+                btnModePersistent.Text = "○ 进程存活常驻 (推荐)";
+                btnModePersistent.NormalColor = Color.FromArgb(24, 30, 42);
+                btnModePersistent.HoverColor = Color.FromArgb(34, 44, 62);
+                btnModePersistent.PressedColor = Color.FromArgb(18, 22, 32);
+                btnModePersistent.BorderColor = Color.FromArgb(44, 56, 78);
+                btnModePersistent.TextColor = Color.FromArgb(150, 165, 185);
 
-                btnModeForeground.Text = "🟢 仅前台窗口激活";
-                btnModeForeground.NormalColor = Color.FromArgb(20, 48, 30);
-                btnModeForeground.HoverColor = Color.FromArgb(28, 64, 40);
-                btnModeForeground.BorderColor = Color.FromArgb(0, 230, 118);
-                btnModeForeground.TextColor = Color.FromArgb(0, 230, 118);
-
-                lblModeDesc.Text = "💡 传统前台模式: 仅当游戏位于最顶层活动窗口时生效；切换到桌面或其他应用时，经 2 秒防抖立即恢复常规桌面设置。";
-                lblModeDesc.ForeColor = Color.FromArgb(160, 175, 195);
+                btnModeForeground.Text = "● 仅前台窗口激活";
+                btnModeForeground.NormalColor = Color.FromArgb(20, 44, 62);
+                btnModeForeground.HoverColor = Color.FromArgb(28, 58, 80);
+                btnModeForeground.PressedColor = Color.FromArgb(16, 34, 48);
+                btnModeForeground.BorderColor = Color.FromArgb(56, 189, 248);
+                btnModeForeground.TextColor = Color.FromArgb(56, 189, 248);
             }
             btnModePersistent.Invalidate();
             btnModeForeground.Invalidate();
+            if (pnlModeCard != null) pnlModeCard.Invalidate();
         }
 
         private void RefreshRunningProcesses()
         {
-            lstRunning.Items.Clear();
-            var procs = GetRunningUserApplications();
-            for (int i = 0; i < procs.Count; i++)
+            rawRunningProcesses = GetRunningUserApplications();
+            ApplySearchFilter();
+        }
+
+        private void ApplySearchFilter()
+        {
+            string query = (txtSearch != null && txtSearch.Text != null) ? txtSearch.Text.Trim() : "";
+            List<ProcessListItem> displayItems = new List<ProcessListItem>();
+
+            for (int i = 0; i < rawRunningProcesses.Count; i++)
             {
-                lstRunning.Items.Add(procs[i]);
+                RunningProcessItem p = rawRunningProcesses[i];
+                if (string.IsNullOrEmpty(query) ||
+                    (p.WindowTitle != null && p.WindowTitle.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (p.ProcessName != null && p.ProcessName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    string sub = string.Format("{0} · PID: {1}", p.ProcessName, p.Pid);
+                    displayItems.Add(new ProcessListItem(p.ProcessName, p.WindowTitle, sub, p.IconImage, p));
+                }
             }
-            if (lstRunning.Items.Count > 0) lstRunning.SelectedIndex = 0;
+
+            ctlRunningList.SetItems(displayItems);
+
+            if (lblRunningTitle != null)
+            {
+                if (string.IsNullOrEmpty(query))
+                    lblRunningTitle.Text = string.Format("⚡ 当前正在运行的应用与游戏 ({0} 款)", rawRunningProcesses.Count);
+                else
+                    lblRunningTitle.Text = string.Format("⚡ 运行列表 (匹配 {0}/{1} 款)", displayItems.Count, rawRunningProcesses.Count);
+            }
         }
 
         private void RefreshMonitoredList()
         {
-            lstMonitored.Items.Clear();
+            List<ProcessListItem> items = new List<ProcessListItem>();
             for (int i = 0; i < monitoredList.Count; i++)
             {
-                lstMonitored.Items.Add(monitoredList[i]);
-            }
-            if (lstMonitored.Items.Count > 0) lstMonitored.SelectedIndex = 0;
-        }
+                string exeName = monitoredList[i];
+                Image ico = GetCachedProcessIcon(exeName);
+                string title = exeName;
+                string sub = "已纳入电竞性能守护名单";
 
-        private void AddSelectedRunning()
-        {
-            var item = lstRunning.SelectedItem as RunningProcessItem;
-            if (item != null)
+                // Check if matching window title exists from running processes
+                for (int j = 0; j < rawRunningProcesses.Count; j++)
+                {
+                    if (string.Equals(rawRunningProcesses[j].ProcessName, exeName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        title = rawRunningProcesses[j].WindowTitle;
+                        sub = exeName + " · 实时运行中";
+                        if (ico == null && rawRunningProcesses[j].IconImage != null)
+                        {
+                            ico = rawRunningProcesses[j].IconImage;
+                        }
+                        break;
+                    }
+                }
+
+                items.Add(new ProcessListItem(exeName, title, sub, ico));
+            }
+
+            ctlMonitoredList.SetItems(items);
+
+            if (lblMonitoredTitle != null)
             {
-                AddGameProcess(item.ProcessName);
+                lblMonitoredTitle.Text = string.Format("📋 已生效的电竞守护列表 ({0} 款)", monitoredList.Count);
             }
         }
 
@@ -365,12 +508,12 @@ namespace RazerBatteryTray
         {
             if (string.IsNullOrEmpty(exeName)) return;
             exeName = exeName.Trim();
-            string lower = exeName.ToLower();
+            string lower = exeName.ToLowerInvariant();
             if (!lower.EndsWith(".exe")) lower += ".exe";
 
             for (int i = 0; i < monitoredList.Count; i++)
             {
-                string cur = monitoredList[i].ToLower();
+                string cur = monitoredList[i].ToLowerInvariant();
                 if (!cur.EndsWith(".exe")) cur += ".exe";
                 if (cur == lower) return;
             }
@@ -378,13 +521,23 @@ namespace RazerBatteryTray
             RefreshMonitoredList();
         }
 
-        private void RemoveSelectedMonitored()
+        private void RemoveGameProcess(string exeName)
         {
-            if (lstMonitored.SelectedIndex >= 0 && lstMonitored.SelectedIndex < monitoredList.Count)
+            if (string.IsNullOrEmpty(exeName)) return;
+            string lower = exeName.ToLowerInvariant();
+            if (!lower.EndsWith(".exe")) lower += ".exe";
+
+            for (int i = 0; i < monitoredList.Count; i++)
             {
-                monitoredList.RemoveAt(lstMonitored.SelectedIndex);
-                RefreshMonitoredList();
+                string cur = monitoredList[i].ToLowerInvariant();
+                if (!cur.EndsWith(".exe")) cur += ".exe";
+                if (cur == lower)
+                {
+                    monitoredList.RemoveAt(i);
+                    break;
+                }
             }
+            RefreshMonitoredList();
         }
 
         private void BrowseLocalExe()
@@ -398,13 +551,41 @@ namespace RazerBatteryTray
                 {
                     for (int i = 0; i < ofd.FileNames.Length; i++)
                     {
-                        string fn = Path.GetFileName(ofd.FileNames[i]);
+                        string fullPath = ofd.FileNames[i];
+                        string fn = Path.GetFileName(fullPath);
+                        if (File.Exists(fullPath))
+                        {
+                            try
+                            {
+                                using (Icon ico = Icon.ExtractAssociatedIcon(fullPath))
+                                {
+                                    if (ico != null && !processIconCache.ContainsKey(fn))
+                                    {
+                                        processIconCache[fn] = ico.ToBitmap();
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
                         AddGameProcess(fn);
                     }
                 }
             }
         }
 
+        private void SaveAndClose()
+        {
+            if (onSaveCallback != null)
+            {
+                onSaveCallback(monitoredList, chkFallback != null ? chkFallback.Checked : fallbackEnabled, currentMode);
+            }
+            this.DialogResult = DialogResult.OK;
+            this.Close();
+        }
+
+        // ====================================================================
+        // High-Precision Process & Icon Enumeration Engine
+        // ====================================================================
         public static List<RunningProcessItem> GetRunningUserApplications()
         {
             var list = new List<RunningProcessItem>();
@@ -423,7 +604,7 @@ namespace RazerBatteryTray
                     string name = p.ProcessName;
                     if (seen.Contains(name)) continue;
 
-                    string nameLower = name.ToLower();
+                    string nameLower = name.ToLowerInvariant();
                     if (nameLower == "explorer" || nameLower == "taskmgr" || nameLower == "devenv" ||
                         nameLower == "ferrispulse" || nameLower == "razerbatterytray" ||
                         nameLower == "textinputhost" || nameLower == "applicationframehost" ||
@@ -435,10 +616,16 @@ namespace RazerBatteryTray
                     }
 
                     string exeName = nameLower.EndsWith(".exe") ? nameLower : (nameLower + ".exe");
-                    list.Add(new RunningProcessItem {
+                    string fullPath = ResolveProcessImagePath(p.Id);
+                    Image icon = GetOrExtractIcon(exeName, fullPath);
+
+                    list.Add(new RunningProcessItem
+                    {
                         ProcessName = exeName,
                         WindowTitle = title,
-                        Pid = p.Id
+                        Pid = p.Id,
+                        ExePath = fullPath,
+                        IconImage = icon
                     });
                     seen.Add(name);
                 }
@@ -448,8 +635,82 @@ namespace RazerBatteryTray
                     p.Dispose();
                 }
             }
+
             list.Sort((a, b) => string.Compare(a.WindowTitle, b.WindowTitle, StringComparison.CurrentCultureIgnoreCase));
             return list;
+        }
+
+        private static string ResolveProcessImagePath(int pid)
+        {
+            try
+            {
+                IntPtr hProcess = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                if (hProcess != IntPtr.Zero)
+                {
+                    try
+                    {
+                        StringBuilder sb = new StringBuilder(1024);
+                        int capacity = sb.Capacity;
+                        if (NativeMethods.QueryFullProcessImageName(hProcess, 0, sb, ref capacity))
+                        {
+                            return sb.ToString();
+                        }
+                    }
+                    finally
+                    {
+                        NativeMethods.CloseHandle(hProcess);
+                    }
+                }
+            }
+            catch { }
+
+            // Secondary fallback via Process.MainModule
+            try
+            {
+                using (Process proc = Process.GetProcessById(pid))
+                {
+                    return proc.MainModule.FileName;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private static Image GetOrExtractIcon(string exeName, string fullPath)
+        {
+            if (!string.IsNullOrEmpty(exeName))
+            {
+                Image cached;
+                if (processIconCache.TryGetValue(exeName, out cached)) return cached;
+            }
+
+            if (!string.IsNullOrEmpty(fullPath) && File.Exists(fullPath))
+            {
+                try
+                {
+                    using (Icon ico = Icon.ExtractAssociatedIcon(fullPath))
+                    {
+                        if (ico != null)
+                        {
+                            Image bmp = ico.ToBitmap();
+                            if (!string.IsNullOrEmpty(exeName)) processIconCache[exeName] = bmp;
+                            return bmp;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        private static Image GetCachedProcessIcon(string exeName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return null;
+            Image img;
+            if (processIconCache.TryGetValue(exeName, out img)) return img;
+            return null;
         }
     }
 }

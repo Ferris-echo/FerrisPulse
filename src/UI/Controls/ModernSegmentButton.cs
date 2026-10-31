@@ -122,8 +122,10 @@ namespace RazerBatteryTray
                 fg = isHovered ? Color.White : Color.FromArgb(180, 188, 205);
             }
 
-            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rect, 6))
+            float ratio = Math.Max(0.55f, Height > 0 ? Height / 28.0f : 1.0f);
+            int cornerR = Math.Max(3, (int)Math.Round(6 * ratio));
+            Rectangle rect = new Rectangle(0, 0, Math.Max(4, Width - 1), Math.Max(4, Height - 1));
+            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rect, cornerR))
             {
                 using (SolidBrush brush = new SolidBrush(bg))
                 {
@@ -140,13 +142,13 @@ namespace RazerBatteryTray
             Font tempFont = null;
             try
             {
-                int safeW = Math.Max(10, Width - 6);
+                int safeW = Math.Max(8, Width - 4);
                 Size sz = TextRenderer.MeasureText(g, Text, drawFont, new Size(int.MaxValue, int.MaxValue),
                     TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
-                if (sz.Width > safeW && drawFont.Size > 5.2f)
+                if (sz.Width > safeW && drawFont.Size > 4.0f)
                 {
                     float targetSize = drawFont.Size * ((float)safeW / (float)sz.Width);
-                    if (targetSize < 5.2f) targetSize = 5.2f;
+                    if (targetSize < 4.0f) targetSize = 4.0f;
                     tempFont = new Font(drawFont.FontFamily, targetSize, drawFont.Style);
                     drawFont = tempFont;
                 }

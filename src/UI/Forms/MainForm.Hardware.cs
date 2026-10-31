@@ -327,6 +327,12 @@ namespace RazerBatteryTray
                 else curDpiY = newDpi;
             }
 
+            // 物理按键切档同步：非游戏状态下，动态追踪鼠标硬件当前真实档位，绝不被旧内存值覆盖
+            if (!isGamingActive && newStage > 0)
+            {
+                desktopDpiStage = newStage;
+            }
+
             if (dpiOsdEnabled && osdForm != null)
             {
                 if ((DateTime.Now - lastGameOptOsdTime).TotalMilliseconds >= 2500)
@@ -496,6 +502,8 @@ namespace RazerBatteryTray
 
         public void SetPollingRateFromUI(int hz)
         {
+            if (IsPollingRateWriteBlocked()) return;
+
             desktopPollingRate = hz;
             SaveConfig();
 
@@ -924,8 +932,15 @@ namespace RazerBatteryTray
                 }
                 else if (!alreadyCalibrated)
                 {
-                    // 仅在开机或设备初次识别就绪时执行一次桌面档位同步校准，彻底杜绝关机残留 8000Hz 幽灵回报率
-                    RestoreDesktopSettingsSynchronous();
+                    // 仅在开机或设备初次识别就绪时同步硬件物理真实档位，严禁向鼠标覆盖写入默认 DPI
+                    if (dev.DpiStage > 0)
+                    {
+                        desktopDpiStage = dev.DpiStage;
+                    }
+                    if (autoGameRateEnabled && desktopPollingRate > 0)
+                    {
+                        HardwareCommandBus.SetPollingRate(dev, desktopPollingRate);
+                    }
                     calibratedStartupDevices[devKey] = true;
                 }
             }
@@ -935,6 +950,9 @@ namespace RazerBatteryTray
         {
             try
             {
+                // 严禁在日常桌面状态下向硬件盲写档位！仅在游戏运行中遭遇异常退出/关机时才紧急恢复桌面状态
+                if (!isGamingActive) return;
+
                 var curDev = GetActiveMouseDevice();
                 if (curDev == null) return;
 
@@ -1553,7 +1571,12 @@ namespace RazerBatteryTray
             badgePrimary.Visible = dev.IsPrimary;
             if (dev.IsPrimary)
             {
+                badgePrimary.Height = (int)(26 * dpiScale);
                 badgePrimary.SetStatus("● 任务栏常驻", dev.BrandColor);
+                if (cardBattery != null)
+                {
+                    badgePrimary.Location = new Point(cardBattery.ClientSize.Width - badgePrimary.Width - (int)(16 * dpiScale), (int)(14 * dpiScale));
+                }
             }
 
             if (lblDeviceName != null)
@@ -2039,8 +2062,6 @@ namespace RazerBatteryTray
         {
             if (isSyncingPhysicalState) return;
             isSyncingPhysicalState = true;
-
-            RefreshBatteryStatus(false);
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -2897,6 +2918,7 @@ namespace RazerBatteryTray
 
                 lblDeviceName.Text = "未检测到支持的无线设备";
 
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                 lblBatteryBig.Text = "--%";
                 lblBatteryBig.ForeColor = Color.FromArgb(140, 145, 155);
 
@@ -2928,6 +2950,7 @@ namespace RazerBatteryTray
                 lblDeviceName.Text = info.DisplayName;
 
                 string battDisplay = (info.BatteryPercent > 0 ? info.BatteryPercent.ToString() : "--") + "%";
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                 lblBatteryBig.Text = battDisplay;
                 lblBatteryBig.ForeColor = Color.FromArgb(150, 160, 175);
 
@@ -2966,7 +2989,7 @@ namespace RazerBatteryTray
                 if (info.IsSleeping)
                 {
                     isMouseSleeping = true;
-                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                    DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = info.BatteryPercent >= 0 ? info.BatteryPercent + "%" : "--";
                     lblBatteryBig.ForeColor = Color.FromArgb(220, 225, 235);
                     pillStatus.SetStatus("休眠待机", Color.FromArgb(255, 183, 77));
@@ -2988,7 +3011,7 @@ namespace RazerBatteryTray
                 if (isGanssWired)
                 {
                     lblDeviceName.Text = "GS3108T-PRO";
-                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);
+                    DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 24F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = "已连接 · 供电中";
                     lblBatteryBig.ForeColor = brandAccent;
 
@@ -3000,7 +3023,7 @@ namespace RazerBatteryTray
                 }
                 else if (isPureWired)
                 {
-                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);
+                    DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 24F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = "已连接 · 供电中";
                     lblBatteryBig.ForeColor = brandAccent;
 
@@ -3012,7 +3035,7 @@ namespace RazerBatteryTray
                 }
                 else if (isBle)
                 {
-                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                    DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = (info.BatteryPercent > 0 ? info.BatteryPercent.ToString() : "--") + "%";
                     lblBatteryBig.ForeColor = brandAccent;
 
@@ -3028,7 +3051,7 @@ namespace RazerBatteryTray
                     int realBatt = info.BatteryPercent;
                     if (realBatt < 0)
                     {
-                        lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                        DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                         lblBatteryBig.Text = "--";
                         lblBatteryBig.ForeColor = brandAccent;
 
@@ -3045,7 +3068,7 @@ namespace RazerBatteryTray
                         {
                             info.IsCharging = true;
                             kbCharging = true;
-                            lblBatteryBig.Font = new Font("Microsoft YaHei UI", 24F, FontStyle.Bold, GraphicsUnit.Point);
+                            DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 24F, FontStyle.Bold, dpiScale, systemDpiScale);
                             lblBatteryBig.Text = "已连接 · 充电中";
                             lblBatteryBig.ForeColor = brandAccent;
 
@@ -3057,7 +3080,7 @@ namespace RazerBatteryTray
                         }
                         else
                         {
-                            lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                            DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                             lblBatteryBig.Text = realBatt + "%";
                             lblBatteryBig.ForeColor = brandAccent;
 
@@ -3119,7 +3142,8 @@ namespace RazerBatteryTray
 
                 string battDisplay = (info.BatteryPercent >= 0 ? (info.BatteryPercent.ToString() + "%") : "--");
 
-                lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                 lblBatteryBig.Text = battDisplay;
                 lblBatteryBig.ForeColor = Color.FromArgb(220, 225, 235);
 
@@ -3196,7 +3220,7 @@ namespace RazerBatteryTray
 
             lblDeviceName.Text = info.DisplayName;
 
-            lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+            DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
             string awakeBattDisplay;
             if (info.IsCharging && info.BatteryPercent < 0)
             {

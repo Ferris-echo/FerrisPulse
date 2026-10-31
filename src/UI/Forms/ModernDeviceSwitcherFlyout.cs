@@ -261,7 +261,7 @@ namespace RazerBatteryTray
 
             // 2. Header
             int curY = pad;
-            using (var titleFont = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold))
+            using (var titleFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.5F, FontStyle.Bold, DpiScale))
             using (var titleBrush = new SolidBrush(Color.FromArgb(170, 180, 205)))
             {
                 g.DrawString("外设切换与监控", titleFont, titleBrush, pad + 2, curY + 2);
@@ -273,7 +273,7 @@ namespace RazerBatteryTray
                 foreach (var d in Devices) if (d.IsConnected) onlineCount++;
             }
             string statusStr = string.Format("● {0} 个设备在线", onlineCount);
-            using (var stFont = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold))
+            using (var stFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2F, FontStyle.Bold, DpiScale))
             using (var stBrush = new SolidBrush(Color.FromArgb(0, 230, 118)))
             {
                 var sz = TextRenderer.MeasureText(statusStr, stFont);
@@ -326,10 +326,11 @@ namespace RazerBatteryTray
 
                     // Middle: Device Name & Subtitle
                     int textX = iconX + iconSize + (int)(10 * DpiScale);
-                    using (var nameFont = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold))
+                    using (var nameFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.5F, FontStyle.Bold, DpiScale))
                     using (var nameBrush = new SolidBrush(Color.FromArgb(245, 248, 255)))
                     {
-                        g.DrawString(dev.DisplayName, nameFont, nameBrush, textX, curY + (int)(10 * DpiScale));
+                        int availW = Math.Max((int)(40 * DpiScale), pad + cardW - (int)(92 * DpiScale) - textX);
+                        TextRenderer.DrawText(g, dev.DisplayName, nameFont, new Rectangle(textX, curY + (int)(8 * DpiScale), availW, (int)(22 * DpiScale)), Color.FromArgb(245, 248, 255), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
                     }
 
                     // Subtitle
@@ -337,10 +338,11 @@ namespace RazerBatteryTray
                     Color subCol = dev.IsConnected ? Color.FromArgb(0, 230, 118) : Color.FromArgb(140, 145, 160);
                     if (dev.IsPrimary) subText += "  [托盘常驻]";
 
-                    using (var subFont = new Font("Microsoft YaHei UI", 8F))
+                    using (var subFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Regular, DpiScale))
                     using (var subBrush = new SolidBrush(subCol))
                     {
-                        g.DrawString(subText, subFont, subBrush, textX, curY + (int)(32 * DpiScale));
+                        int availSubW = Math.Max((int)(40 * DpiScale), pad + cardW - (int)(92 * DpiScale) - textX);
+                        TextRenderer.DrawText(g, subText, subFont, new Rectangle(textX, curY + (int)(30 * DpiScale), availSubW, (int)(20 * DpiScale)), subCol, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
                     }
 
                     // Right: Battery & Selected Check
@@ -349,7 +351,7 @@ namespace RazerBatteryTray
 
                     if (isSel)
                     {
-                        using (var checkFont = new Font("Segoe UI", 11.5F, FontStyle.Bold))
+                        using (var checkFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 11.5F, FontStyle.Bold, DpiScale))
                         using (var checkBrush = new SolidBrush(dev.BrandColor))
                         {
                             var chkSz = TextRenderer.MeasureText("✓", checkFont);
@@ -366,7 +368,7 @@ namespace RazerBatteryTray
                     if (isCharging)
                     {
                         string chgText = "充电中";
-                        using (var battFont = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold))
+                        using (var battFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 10F, FontStyle.Bold, DpiScale))
                         using (var battBrush = new SolidBrush(dev.BrandColor))
                         {
                             var bSz = TextRenderer.MeasureText(chgText, battFont);
@@ -389,7 +391,7 @@ namespace RazerBatteryTray
                             ? (dev.BatteryPercent + "%")
                             : (dev.IsConnected && dev.Category == DeviceCategory.Keyboard ? "免驱" : "--");
 
-                        using (var battFont = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold))
+                        using (var battFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 10.5F, FontStyle.Bold, DpiScale))
                         using (var battBrush = new SolidBrush(dev.IsConnected ? dev.BrandColor : Color.FromArgb(140, 145, 160)))
                         {
                             var bSz = TextRenderer.MeasureText(battStr, battFont);
@@ -408,7 +410,7 @@ namespace RazerBatteryTray
                     using (var cb = new SolidBrush(Color.FromArgb(25, 29, 40))) g.FillPath(cb, cPath);
                     using (var cp = new Pen(Color.FromArgb(40, 46, 62), 1f)) g.DrawPath(cp, cPath);
                 }
-                using (var tipFont = new Font("Microsoft YaHei UI", 9F))
+                using (var tipFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9F, FontStyle.Regular, DpiScale))
                 using (var tipBrush = new SolidBrush(Color.FromArgb(160, 170, 190)))
                 {
                     string tip = "暂无在线外设，请通过顶部添加按钮配置设备";

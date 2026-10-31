@@ -320,6 +320,157 @@ namespace RazerBatteryTray
             catch { }
         }
 
+        /// <summary>
+        /// 获取所有已知设备（包含当前在线与历史离线设备），供“设备优先级管理”展示并维持持久化顺序
+        /// </summary>
+        public static List<MouseBatteryInfo> GetAllKnownDevicesForPriority(List<MouseBatteryInfo> activeDevices)
+        {
+            var result = new List<MouseBatteryInfo>();
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (activeDevices != null)
+            {
+                for (int i = 0; i < activeDevices.Count; i++)
+                {
+                    var d = activeDevices[i];
+                    if (d == null || IsDeviceHidden(d.DeviceId)) continue;
+                    if (!string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)) continue;
+                    result.Add(d);
+                    seenIds.Add(d.DeviceId);
+                    if (!string.IsNullOrEmpty(d.HardwareFingerprint)) seenIds.Add(d.HardwareFingerprint);
+                    var v = GetDeviceIdVariants(d.DeviceId);
+                    for (int vi = 0; vi < v.Count; vi++) seenIds.Add(v[vi]);
+                }
+            }
+
+            var prioList = GetPriorityList();
+            var customConfigs = LoadCustomDevices();
+
+            // Append offline devices from prioList
+            for (int i = 0; i < prioList.Count; i++)
+            {
+                string pid = prioList[i];
+                if (string.IsNullOrEmpty(pid) || IsDeviceHidden(pid) || seenIds.Contains(pid)) continue;
+
+                var dev = CreateOfflineDeviceInfo(pid, customConfigs);
+                if (dev != null)
+                {
+                    result.Add(dev);
+                    seenIds.Add(dev.DeviceId);
+                    if (!string.IsNullOrEmpty(dev.HardwareFingerprint)) seenIds.Add(dev.HardwareFingerprint);
+                }
+            }
+
+            // Append any custom devices that might not be in prioList
+            if (customConfigs != null)
+            {
+                for (int i = 0; i < customConfigs.Count; i++)
+                {
+                    var cfg = customConfigs[i];
+                    if (cfg == null || string.IsNullOrEmpty(cfg.DeviceId) || IsDeviceHidden(cfg.DeviceId) || seenIds.Contains(cfg.DeviceId)) continue;
+                    if (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && (IsDeviceHidden(cfg.HardwareFingerprint) || seenIds.Contains(cfg.HardwareFingerprint))) continue;
+
+                    var dev = CreateOfflineDeviceInfo(cfg.DeviceId, customConfigs);
+                    if (dev != null)
+                    {
+                        result.Add(dev);
+                        seenIds.Add(dev.DeviceId);
+                        if (!string.IsNullOrEmpty(dev.HardwareFingerprint)) seenIds.Add(dev.HardwareFingerprint);
+                    }
+                }
+            }
+
+            // Sort all known devices according to prioList order
+            result.Sort(delegate(MouseBatteryInfo a, MouseBatteryInfo b)
+            {
+                int ia = prioList.IndexOf(a.DeviceId);
+                int ib = prioList.IndexOf(b.DeviceId);
+                if (ia < 0) ia = 9999;
+                if (ib < 0) ib = 9999;
+                return ia.CompareTo(ib);
+            });
+
+            for (int i = 0; i < result.Count; i++)
+            {
+                result[i].PriorityIndex = i + 1;
+            }
+
+            return result;
+        }
+
+        private static MouseBatteryInfo CreateOfflineDeviceInfo(string deviceId, List<CustomDeviceConfig> customConfigs)
+        {
+            var dev = new MouseBatteryInfo();
+            dev.DeviceId = deviceId;
+            dev.IsConnected = false;
+            dev.BatteryPercent = -1;
+
+            int batt = -1;
+            bool isChg = false;
+            string devName = null;
+            DateTime dt = DateTime.MinValue;
+            if (DriverStateStore.TryLoadBatteryState(deviceId, out batt, out isChg, out devName, out dt))
+            {
+                dev.BatteryPercent = batt;
+                dev.IsCharging = isChg;
+                dev.DeviceName = devName;
+                dev.LastUpdated = dt;
+            }
+
+            CustomDeviceConfig cfg = null;
+            if (customConfigs != null)
+            {
+                cfg = customConfigs.Find(delegate(CustomDeviceConfig c) {
+                    if (c == null) return false;
+                    return (c.DeviceId != null && c.DeviceId.Equals(deviceId, StringComparison.OrdinalIgnoreCase)) ||
+                           (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint.Equals(deviceId, StringComparison.OrdinalIgnoreCase));
+                });
+            }
+
+            if (cfg != null)
+            {
+                dev.IsCustom = true;
+                dev.HardwareFingerprint = cfg.HardwareFingerprint;
+                if (!string.IsNullOrEmpty(cfg.CustomName)) dev.CustomName = cfg.CustomName;
+                if (!string.IsNullOrEmpty(cfg.OriginalName) && string.IsNullOrEmpty(dev.DeviceName)) dev.DeviceName = cfg.OriginalName;
+                if (cfg.Category != DeviceCategory.Generic) dev.Category = cfg.Category;
+                if (dev.BatteryPercent < 0 && cfg.CachedBattery > 0) dev.BatteryPercent = cfg.CachedBattery;
+            }
+
+            // If Razer device, resolve official name and category
+            if (deviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))
+            {
+                dev.Brand = "Razer";
+                string hex = deviceId.Substring("Razer:1532:".Length).Trim();
+                int pid = 0;
+                int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out pid);
+                string officialName = RazerDeviceHelper.GetRazerOfficialModelName(pid, dev.DeviceName);
+                if (string.IsNullOrEmpty(dev.DeviceName)) dev.DeviceName = officialName;
+                if (dev.Category == DeviceCategory.Generic) dev.Category = RazerDeviceHelper.GetRazerDeviceCategory(pid, officialName);
+            }
+            else if (deviceId.StartsWith("Logitech:046D:", StringComparison.OrdinalIgnoreCase) || deviceId.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                dev.Brand = "Logitech";
+                if (dev.Category == DeviceCategory.Generic) dev.Category = DeviceCategory.Mouse;
+            }
+            else if (deviceId.StartsWith("Rapoo:24AE:", StringComparison.OrdinalIgnoreCase))
+            {
+                dev.Brand = "Rapoo";
+                if (dev.Category == DeviceCategory.Generic) dev.Category = DeviceCategory.Mouse;
+            }
+            else if (deviceId.IndexOf(":KB", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (dev.Category == DeviceCategory.Generic) dev.Category = DeviceCategory.Keyboard;
+            }
+
+            if (string.IsNullOrEmpty(dev.DeviceName))
+            {
+                dev.DeviceName = !string.IsNullOrEmpty(dev.CustomName) ? dev.CustomName : deviceId;
+            }
+
+            return dev;
+        }
+
         public static List<CustomDeviceConfig> LoadCustomDevices()
         {
             var list = new List<CustomDeviceConfig>();
@@ -2104,12 +2255,10 @@ namespace RazerBatteryTray
             var prioList = GetPriorityList();
             bool prioChanged = false;
 
-            var validIds = new List<string>();
-            foreach (var d in list) validIds.Add(d.DeviceId);
-
+            // Remove only user-hidden devices from prioList; NEVER purge offline devices!
             for (int i = prioList.Count - 1; i >= 0; i--)
             {
-                if (!validIds.Contains(prioList[i]))
+                if (IsDeviceHidden(prioList[i]))
                 {
                     prioList.RemoveAt(i);
                     prioChanged = true;

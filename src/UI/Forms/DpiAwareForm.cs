@@ -2,12 +2,13 @@
 // 模块名称: DpiAwareForm.cs
 // 所属区域: UI/Forms (统一窗体基类)
 // 核心职责:
-//   全软件统一的高 DPI 自适应感知窗体基类：
+//   全软件统一的高 DPI 与无极缩放自适应感知窗体基类：
 //   1. 强制关闭 WinForms 默认非线性字体拉伸 (AutoScaleMode = AutoScaleMode.None)
-//   2. 初始化时基于物理屏幕硬件句柄自动探测高 DPI 缩放比 (100%~300%)
+//   2. 初始化时支持同步主窗口无极缩放比例 (0.60x~2.50x) 或自动探测物理屏幕高 DPI 缩放比
 //   3. 原生拦截 Windows 跨屏拖拽 WM_DPICHANGED 动态响应消息并更新布局与重绘
 //   4. 统一内置 Windows 11 暗黑 Mica / Acrylic 原生圆角与防眩光主题
-//   5. 为所有子类提供统一的 OnApplyDpiScale 生命周期钩子与 Scale 等比几何工具
+//   5. 为所有子类提供统一的 OnApplyDpiScale 生命周期钩子（含 OnLoad 二次兜底装配），
+//      确保子类构造函数中添加的所有控件 100% 完成跨系统 DPI 矢量字体缩放
 // 依赖关系: Helpers.DpiScaleHelper, Helpers.ModernThemeHelper, Core.NativeMethods
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -27,27 +28,29 @@ namespace RazerBatteryTray
     {
         protected float dpiScale = 1.0f;
         private bool isHandleCreatedDpiProbed = false;
+        private bool hasExplicitInitialScale = false;
 
         public float DpiScale
         {
             get { return dpiScale; }
             protected set
             {
-                if (value < 1.0f) value = 1.0f;
+                if (value < DpiScaleHelper.MinScale) value = DpiScaleHelper.MinScale;
                 dpiScale = value;
             }
         }
 
-        public DpiAwareForm() : this(1.0f)
+        public DpiAwareForm() : this(0f)
         {
         }
 
         public DpiAwareForm(float initialScale)
         {
             this.AutoScaleMode = AutoScaleMode.None;
-            if (initialScale >= 1.0f)
+            if (initialScale >= DpiScaleHelper.MinScale)
             {
                 this.dpiScale = initialScale;
+                this.hasExplicitInitialScale = true;
             }
         }
 
@@ -58,10 +61,10 @@ namespace RazerBatteryTray
 
             if (!isHandleCreatedDpiProbed)
             {
-                if (this.dpiScale <= 1.0f)
+                if (!hasExplicitInitialScale && this.dpiScale <= 1.0f)
                 {
                     float probedScale = DpiScaleHelper.GetDpiScaleForWindow(this.Handle);
-                    if (probedScale >= 1.0f)
+                    if (probedScale >= DpiScaleHelper.MinScale)
                     {
                         this.dpiScale = probedScale;
                     }
@@ -76,13 +79,21 @@ namespace RazerBatteryTray
             }
         }
 
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // 二次兜底：若子类构造函数在 Controls.Add 之前触发了 Handle 创建（如设置 MinimumSize），
+            // 此处在所有子控件完整挂载后再执行一次幂等字体与 DPI 缩放同步。
+            OnApplyDpiScale(this.dpiScale);
+        }
+
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == NativeMethods.WM_DPICHANGED)
             {
                 int newDpiX = m.WParam.ToInt32() & 0xFFFF;
                 float newScale = newDpiX / 96.0f;
-                if (newScale < 1.0f) newScale = 1.0f;
+                if (newScale < DpiScaleHelper.MinScale) newScale = DpiScaleHelper.MinScale;
 
                 NativeMethods.RECT suggestedRect = (NativeMethods.RECT)Marshal.PtrToStructure(m.LParam, typeof(NativeMethods.RECT));
                 Rectangle suggestedBounds = Rectangle.FromLTRB(suggestedRect.Left, suggestedRect.Top, suggestedRect.Right, suggestedRect.Bottom);
@@ -118,6 +129,7 @@ namespace RazerBatteryTray
         /// </summary>
         protected virtual void OnApplyDpiScale(float scale)
         {
+            DpiScaleHelper.ApplyScaledFontsToControlTree(this, scale);
         }
 
         /// <summary>

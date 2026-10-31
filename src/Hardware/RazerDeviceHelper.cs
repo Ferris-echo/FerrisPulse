@@ -73,6 +73,7 @@ namespace RazerBatteryTray
         {
             switch (pid)
             {
+                case 0x00F0: return 0x00EF; // DeathAdder V4 Pro Carbon Fiber Dongle -> Wired
                 case 0x00BF: return 0x00BE; // DeathAdder V4 Pro Dongle -> DeathAdder V4 Pro Wired
                 case 0x00E6: return 0x00E5; // Viper V4 Pro Dongle -> Viper V4 Pro Wired
                 case 0x00C1: return 0x00C0; // Viper V3 Pro Dongle -> Viper V3 Pro Wired
@@ -96,6 +97,8 @@ namespace RazerBatteryTray
                 case 0x0088: return 0x0084; // Viper Ultimate Dongle -> Wired
                 case 0x007B: return 0x007A; // Basilisk Ultimate Dongle -> Wired
                 case 0x007D: return 0x007C; // DeathAdder V2 Mini Dongle -> Wired
+                case 0xB007: return 0xB007; // DeathAdder V4 HyperSpeed
+                case 0xB005: return 0xB005; // Viper V4 HyperSpeed
                 default:
                     return pid;
             }
@@ -149,8 +152,8 @@ namespace RazerBatteryTray
                 return DeviceCategory.Headset;
             }
 
-            // Mice: 0x0001 .. 0x00FE
-            if (pid >= 0x0001 && pid <= 0x00FE)
+            // Mice: 0x0001 .. 0x00FE & 0xB000 .. 0xB0FF
+            if ((pid >= 0x0001 && pid <= 0x00FE) || (pid >= 0xB000 && pid <= 0xB0FF))
             {
                 return DeviceCategory.Mouse;
             }
@@ -267,6 +270,7 @@ namespace RazerBatteryTray
                     case 0x0071: // Viper 8KHz
                     case 0x00B0: // DeathAdder V3 (Wired 8K)
                     case 0x00B6: case 0x00B7: // DeathAdder V3 Pro
+                    case 0x00EF: case 0x00F0: // DeathAdder V4 Pro Carbon
                     case 0x00BE: case 0x00BF: // DeathAdder V4 Pro
                     case 0x00B2: case 0x00B3: // DeathAdder V3 HyperSpeed
                     case 0x00B4: case 0x00B5: // Viper V2 Pro
@@ -284,6 +288,9 @@ namespace RazerBatteryTray
                     case 0x008F: case 0x0090: // Naga V2 Pro
                     case 0x0095: // Naga V2 HyperSpeed
                     case 0x00B9: // HyperPolling Wireless Dongle
+                    case 0x02CF: case 0x02D0: case 0x02D1: case 0x02D8:
+                    case 0x02E4: case 0x02E5: case 0x02E6: case 0x02EA: // Huntsman 8KHz keyboards
+                    case 0xB007: case 0xB005: // V4 HyperSpeed mice
                         is8k = true;
                         break;
                 }
@@ -355,6 +362,8 @@ namespace RazerBatteryTray
             { 0x00B9, "Razer HyperPolling Wireless Dongle" },
 
             // DeathAdder series
+            { 0x00EF, "Razer DeathAdder V4 Pro Carbon" },
+            { 0x00F0, "Razer DeathAdder V4 Pro Carbon" },
             { 0x00BE, "Razer DeathAdder V4 Pro" },
             { 0x00BF, "Razer DeathAdder V4 Pro" },
             { 0x00B6, "Razer DeathAdder V3 Pro" },
@@ -403,7 +412,31 @@ namespace RazerBatteryTray
             { 0x0067, "Razer Naga Trinity" },
 
             // Orochi series
-            { 0x0099, "Razer Orochi V2" }
+            { 0x0099, "Razer Orochi V2" },
+
+            // Web Synapse: HyperSpeed Mice (工程驱动与下一代极速版)
+            { 0xB007, "Razer DeathAdder V4 HyperSpeed" },
+            { 0xB005, "Razer Viper V4 HyperSpeed" },
+
+            // Web Synapse: Huntsman Keyboards (猎魂光蛛系列键盘)
+            { 0x0257, "Razer Huntsman Mini" },
+            { 0x0269, "Razer Huntsman Mini Japan" },
+            { 0x02B0, "Razer Huntsman V3 Pro Mini" },
+            { 0x02CF, "Razer Huntsman V3 Pro 8KHz" },
+            { 0x02D0, "Razer Huntsman V3 Pro Tenkeyless 8KHz" },
+            { 0x02D1, "Razer Huntsman V3 Pro Mini 8KHz" },
+            { 0x02D8, "Razer Huntsman Signature Edition" },
+            { 0x02E4, "Razer Huntsman V3 HE Magnetic Mini 65% 8KHz" },
+            { 0x02E5, "Razer Huntsman V3 Tenkeyless 8KHz" },
+            { 0x02E6, "Razer Huntsman V3 Pro Low-profile Tenkeyless 8KHz" },
+            { 0x02EA, "Razer Huntsman V3 HE Magnetic Tenkeyless 8KHz" },
+
+            // Web Synapse: Keypad (单手小键盘)
+            { 0x02EB, "Razer Tartarus V2 Pro" },
+
+            // Web Synapse: Blade Laptops (灵刃笔记本内置系统键盘/控制器)
+            { 0x02E0, "Razer Blade 16 (2026)" },
+            { 0x02E1, "Razer Blade 18 (2026)" }
         };
 
         public static string QueryPnpDeviceDesc(int pid)
@@ -488,16 +521,56 @@ namespace RazerBatteryTray
 
         public static string GetRazerOfficialModelName(int pid, string fallbackProdName = null)
         {
+            // 特殊识别：炼狱蝰蛇 V4 Pro 碳纤维版 (DeathAdder V4 Pro Carbon)
+            bool isCarbon = (fallbackProdName != null &&
+                (fallbackProdName.IndexOf("Carbon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 fallbackProdName.IndexOf("碳纤维", StringComparison.OrdinalIgnoreCase) >= 0));
+
             if (pid != 0)
             {
+                // 官方专属 PID 直接命中 (有线 0x00EF / 无线 0x00F0)
+                if (pid == 0x00EF || pid == 0x00F0 || NormalizeRazerPid(pid) == 0x00EF)
+                {
+                    return "Razer DeathAdder V4 Pro Carbon";
+                }
+
                 string pnpName = QueryPnpDeviceDesc(pid);
-                if (!string.IsNullOrEmpty(pnpName)) return pnpName;
+                if (!string.IsNullOrEmpty(pnpName))
+                {
+                    if (pnpName.IndexOf("Carbon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        pnpName.IndexOf("碳纤维", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return "Razer DeathAdder V4 Pro Carbon";
+                    }
+                    if (isCarbon && (pid == 0x00BE || pid == 0x00BF || NormalizeRazerPid(pid) == 0x00BE))
+                    {
+                        return "Razer DeathAdder V4 Pro Carbon";
+                    }
+                    return pnpName;
+                }
 
                 int normPid = NormalizeRazerPid(pid);
                 if (normPid != pid && normPid != 0)
                 {
                     pnpName = QueryPnpDeviceDesc(normPid);
-                    if (!string.IsNullOrEmpty(pnpName)) return pnpName;
+                    if (!string.IsNullOrEmpty(pnpName))
+                    {
+                        if (pnpName.IndexOf("Carbon", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            pnpName.IndexOf("碳纤维", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return "Razer DeathAdder V4 Pro Carbon";
+                        }
+                        if (isCarbon && (normPid == 0x00BE))
+                        {
+                            return "Razer DeathAdder V4 Pro Carbon";
+                        }
+                        return pnpName;
+                    }
+                }
+
+                if (isCarbon && (pid == 0x00BE || pid == 0x00BF || normPid == 0x00BE))
+                {
+                    return "Razer DeathAdder V4 Pro Carbon";
                 }
 
                 string official;
@@ -507,6 +580,11 @@ namespace RazerBatteryTray
 
             if (!string.IsNullOrEmpty(fallbackProdName))
             {
+                if (isCarbon && fallbackProdName.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return "Razer DeathAdder V4 Pro Carbon";
+                }
+
                 string clean = fallbackProdName.Trim();
                 if (clean.StartsWith("Razer ", StringComparison.OrdinalIgnoreCase)) clean = clean.Substring(6).Trim();
 
@@ -522,7 +600,11 @@ namespace RazerBatteryTray
             }
 
             string combined = fallbackProdName ?? "";
-            if (combined.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0) return "Razer DeathAdder";
+            if (combined.IndexOf("DeathAdder", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (isCarbon) return "Razer DeathAdder V4 Pro Carbon";
+                return "Razer DeathAdder";
+            }
             if (combined.IndexOf("Viper", StringComparison.OrdinalIgnoreCase) >= 0) return "Razer Viper";
             if (combined.IndexOf("Basilisk", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -625,7 +707,7 @@ namespace RazerBatteryTray
             }
 
             // 接收器 PID 集合
-            if (curPid == 0x00BF || curPid == 0x00B7 || curPid == 0x00B5 || curPid == 0x00A6 ||
+            if (curPid == 0x00F0 || curPid == 0x00BF || curPid == 0x00B7 || curPid == 0x00B5 || curPid == 0x00A6 ||
                 curPid == 0x007D || curPid == 0x009B || curPid == 0x00AD || curPid == 0x00A8 ||
                 curPid == 0x00C5 || curPid == 0x00C1 || curPid == 0x00C3 || curPid == 0x0088 ||
                 curPid == 0x0072 || curPid == 0x0090 || curPid == 0x00A3 || curPid == 0x00B3 ||
@@ -1051,7 +1133,7 @@ namespace RazerBatteryTray
                 int stageOffset = offset + 11 + stageIndex * 7;
                 int dpiX = (report[stageOffset + 1] << 8) | report[stageOffset + 2];
                 int dpiY = (report[stageOffset + 3] << 8) | report[stageOffset + 4];
-                if (report[stageOffset] != stageIndex + 1 || dpiX < 100 || dpiX > 40000 || dpiY < 100 || dpiY > 40000) return null;
+                if (report[stageOffset] != stageIndex + 1 || dpiX < 100 || dpiX > 50000 || dpiY < 100 || dpiY > 50000) return null;
                 state.DpiStages[stageIndex] = dpiX;
                 state.DpiStagesY[stageIndex] = dpiY;
             }
@@ -1195,26 +1277,34 @@ namespace RazerBatteryTray
                                                                     }
                                                                 }
 
-                                                                // 3. Query DPI Stages & Active DPI
+                                                                // 3. Query DPI Stages & Active DPI (带 3 次退避与 BUSY 0x01 过滤)
                                                                 byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, caps.FeatureReportByteLength, prepended, new byte[] { 0x01 });
                                                                 if (HidD_SetFeature(handle, stagesReq, stagesReq.Length))
                                                                 {
-                                                                    Thread.Sleep(15);
                                                                     byte[] stResp = new byte[caps.FeatureReportByteLength];
                                                                     if (prepended) stResp[0] = 0x00;
-                                                                    if (HidD_GetFeature(handle, stResp, stResp.Length))
+                                                                    for (int attempt = 0; attempt < 3; attempt++)
                                                                     {
-                                                                        if (stResp[offset + 0] == 0x02 && stResp[offset + 6] == 0x04 && stResp[offset + 7] == 0x86)
+                                                                        Thread.Sleep(15);
+                                                                        if (HidD_GetFeature(handle, stResp, stResp.Length))
                                                                         {
-                                                                            RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
-                                                                            if (parsedStages != null)
+                                                                            byte stStatus = stResp[offset + 0];
+                                                                            byte stClass = stResp[offset + 6];
+                                                                            byte stId = stResp[offset + 7];
+                                                                            if (stStatus == 0x01) continue; // BUSY
+                                                                            if (stStatus == 0x02 && stClass == 0x04 && stId == 0x86)
                                                                             {
-                                                                                activeStage = parsedStages.DpiStage;
-                                                                                stageCount = parsedStages.DpiStageCount;
-                                                                                stageList = parsedStages.DpiStages;
-                                                                                stageListY = parsedStages.DpiStagesY;
-                                                                                liveDpi = parsedStages.Dpi;
-                                                                                liveDpiY = parsedStages.DpiY;
+                                                                                RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
+                                                                                if (parsedStages != null)
+                                                                                {
+                                                                                    activeStage = parsedStages.DpiStage;
+                                                                                    stageCount = parsedStages.DpiStageCount;
+                                                                                    stageList = parsedStages.DpiStages;
+                                                                                    stageListY = parsedStages.DpiStagesY;
+                                                                                    liveDpi = parsedStages.Dpi;
+                                                                                    liveDpiY = parsedStages.DpiY;
+                                                                                    break;
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -1225,17 +1315,28 @@ namespace RazerBatteryTray
                                                                     byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, caps.FeatureReportByteLength, prepended, new byte[] { 0x00 });
                                                                     if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
                                                                     {
-                                                                        Thread.Sleep(15);
                                                                         byte[] dpiResp = new byte[caps.FeatureReportByteLength];
                                                                         if (prepended) dpiResp[0] = 0x00;
-                                                                        if (HidD_GetFeature(handle, dpiResp, dpiResp.Length) && dpiResp[offset + 0] == 0x02 && dpiResp[offset + 6] == 0x04 && dpiResp[offset + 7] == 0x85)
+                                                                        for (int attempt = 0; attempt < 3; attempt++)
                                                                         {
-                                                                            int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
-                                                                            if (readLiveDpi >= 100 && readLiveDpi <= 40000)
+                                                                            Thread.Sleep(15);
+                                                                            if (HidD_GetFeature(handle, dpiResp, dpiResp.Length))
                                                                             {
-                                                                                liveDpi = readLiveDpi;
-                                                                                int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
-                                                                                liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 40000 ? readLiveDpiY : readLiveDpi;
+                                                                                byte dStatus = dpiResp[offset + 0];
+                                                                                byte dClass = dpiResp[offset + 6];
+                                                                                byte dId = dpiResp[offset + 7];
+                                                                                if (dStatus == 0x01) continue;
+                                                                                if (dStatus == 0x02 && dClass == 0x04 && dId == 0x85)
+                                                                                {
+                                                                                    int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
+                                                                                    if (readLiveDpi >= 100 && readLiveDpi <= 50000)
+                                                                                    {
+                                                                                        liveDpi = readLiveDpi;
+                                                                                        int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
+                                                                                        liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 50000 ? readLiveDpiY : readLiveDpi;
+                                                                                        break;
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -1283,6 +1384,21 @@ namespace RazerBatteryTray
                                                     stState.BatteryPercent = pct;
                                                     stState.ExactBatteryPercent = exactPct;
                                                     stState.DeviceName = resolvedModelName;
+
+                                                    // 物理状态防破坏锁：当快速连续点击刷新或遇接收器忙时，若单次未读出档位，平滑继承已知有效档位，严禁清零！
+                                                    if (activeStage <= 0 && stState.DpiStage > 0)
+                                                    {
+                                                        activeStage = stState.DpiStage;
+                                                        stageCount = stState.DpiStageCount;
+                                                        stageList = stState.DpiStages;
+                                                        stageListY = stState.DpiStagesY;
+                                                    }
+                                                    if (liveDpi <= 0 && stState.Dpi > 0)
+                                                    {
+                                                        liveDpi = stState.Dpi;
+                                                        liveDpiY = stState.DpiY;
+                                                    }
+
                                                     stState.Dpi = liveDpi;
                                                     stState.DpiY = liveDpiY;
                                                     stState.IsXyIndependent = liveDpiY > 0 && liveDpi != liveDpiY;
@@ -1677,7 +1793,7 @@ namespace RazerBatteryTray
                                             readDpiY = sy;
                                         }
                                     }
-                                    if (readDpiX >= 100 && readDpiX <= 40000)
+                                    if (readDpiX >= 100 && readDpiX <= 50000)
                                     {
                                         curDpi = readDpiX;
                                         activeStage = readStage;
@@ -1729,7 +1845,7 @@ namespace RazerBatteryTray
                                 int readDpiX = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
                                 int readDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
                                 if (readDpiY <= 0) readDpiY = readDpiX;
-                                if (readDpiX >= 100 && readDpiX <= 40000)
+                                if (readDpiX >= 100 && readDpiX <= 50000)
                                 {
                                     curDpi = readDpiX;
                                     activeStage = (CachedDpiStage > 0 ? CachedDpiStage : 1);
@@ -1937,10 +2053,46 @@ namespace RazerBatteryTray
                 cap14k.Description = "Razer 14K 光学传感器";
                 return cap14k;
             }
-            // Focus Pro 35K Gen-2: DeathAdder V4 Pro, Viper V4 Pro, Viper V3 Pro, Basilisk V3 Pro 35K, etc.
-            if (pid == 0x00BF || pid == 0x00BE || pid == 0x00E6 || pid == 0x00E5 || pid == 0x00DF || pid == 0x00DE ||
-                pid == 0x00CC || pid == 0x00CD || pid == 0x00D6 || pid == 0x00D7 || pid == 0x00C4 || pid == 0x00C5 ||
-                name.Contains("v4 pro") || name.Contains("viper v3 pro") || name.Contains("35k"))
+            bool isCarbon = (pid == 0x00EF || pid == 0x00F0 || name.Contains("carbon") || name.Contains("碳纤维"));
+
+            // 1. Focus Pro 50K Gen-3: 毒蝰 V4 Pro (Viper V4 Pro)、炼狱蝰蛇 V4 Pro 碳纤维版 (50,000 DPI，帧同步 FrameSync，1-DPI 精准步进)
+            if (pid == 0x00E5 || pid == 0x00E6 || name.Contains("viper v4 pro") ||
+                ((pid == 0x00EF || pid == 0x00F0 || pid == 0x00BE || pid == 0x00BF || name.Contains("deathadder v4 pro")) && isCarbon))
+            {
+                var cap = new RazerDpiCapability();
+                cap.MinDpi = 100;
+                cap.MaxDpi = 50000;
+                cap.Step = 1;
+                cap.Description = "Focus Pro 50K Gen-3 · 1-DPI 精准步进 (帧同步)";
+                return cap;
+            }
+
+            // 2. 第二代 Focus Pro 45K: 炼狱蝰蛇 V4 Pro 标准版 (45,000 DPI，900 IPS，85 G，1-DPI 精准步进)
+            if ((pid == 0x00BE || pid == 0x00BF || name.Contains("deathadder v4 pro")) && !isCarbon)
+            {
+                var cap = new RazerDpiCapability();
+                cap.MinDpi = 100;
+                cap.MaxDpi = 45000;
+                cap.Step = 1;
+                cap.Description = "第二代 Focus Pro 45K · 1-DPI 精准步进";
+                return cap;
+            }
+
+                        // 3. Focus Pro 33K: Razer DeathAdder V4 HyperSpeed 与 Razer Viper V4 HyperSpeed (33,000 DPI、1-DPI 精准步进)
+            if (pid == 0xB007 || pid == 0xB005 || name.Contains("deathadder v4 hyperspeed") || name.Contains("viper v4 hyperspeed"))
+            {
+                var cap = new RazerDpiCapability();
+                cap.MinDpi = 100;
+                cap.MaxDpi = 33000;
+                cap.Step = 1;
+                cap.Description = "Focus Pro 33K · 1-DPI 精准步进";
+                return cap;
+            }
+
+            // 4. Focus Pro 35K Gen-2: Viper V3 Pro SE, Basilisk V3 Pro 35K, Basilisk V3 35K
+            if (pid == 0x00DF || pid == 0x00DE || pid == 0x00CC || pid == 0x00CD ||
+                pid == 0x00D6 || pid == 0x00D7 || pid == 0x00C4 || pid == 0x00C5 ||
+                name.Contains("viper v3 pro") || name.Contains("35k"))
             {
                 var cap = new RazerDpiCapability();
                 cap.MinDpi = 100;
@@ -2194,8 +2346,8 @@ namespace RazerBatteryTray
                 {
                     int stOffset = 3 + (s * 7);
                     fullPayload[stOffset] = (byte)(s + 1);
-                    int dpiX = Math.Max(100, Math.Min(35000, stagesX[s]));
-                    int dpiY = (stagesY != null && s < stagesY.Length) ? Math.Max(100, Math.Min(35000, stagesY[s])) : dpiX;
+                    int dpiX = Math.Max(100, Math.Min(50000, stagesX[s]));
+                    int dpiY = (stagesY != null && s < stagesY.Length) ? Math.Max(100, Math.Min(50000, stagesY[s])) : dpiX;
                     fullPayload[stOffset + 1] = (byte)((dpiX >> 8) & 0xFF);
                     fullPayload[stOffset + 2] = (byte)(dpiX & 0xFF);
                     fullPayload[stOffset + 3] = (byte)((dpiY >> 8) & 0xFF);

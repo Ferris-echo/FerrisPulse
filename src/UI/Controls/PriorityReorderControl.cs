@@ -3,8 +3,8 @@
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
 //   现代化设备托盘优先级拖拽排序控件，支持卡片流体跟随拖拽、物理弹簧阻尼回弹过渡动画、
-//   固定序号槽位渲染、微型矢量删除/隐藏设备按钮与平滑细滚动条。
-// 依赖关系: Models.PriorityItem, Hardware.DeviceManager, Theme.ModernThemeHelper, RoundedCard
+//   固定序号槽位渲染、微型矢量删除/隐藏设备按钮、平滑细滚动条与全矢量无极缩放。
+// 依赖关系: Models.PriorityItem, Hardware.DeviceManager, Theme.ModernThemeHelper, RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -371,13 +371,13 @@ namespace RazerBatteryTray
             // Draw slim modern scrollbar if content exceeds height
             if (maxScroll > 0)
             {
-                int sbW = (int)(4 * DpiScale);
+                int sbW = Math.Max(2, (int)(4 * DpiScale));
                 int sbX = Width - sbW - (int)(4 * DpiScale);
                 int trackH = Height;
                 int thumbH = Math.Max((int)(28 * DpiScale), (int)((float)Height / GetContentHeight() * trackH));
                 int thumbY = (int)((float)scrollY / maxScroll * (trackH - thumbH));
 
-                using (var thumbPath = RoundedCard.GetRoundedRectangle(new Rectangle(sbX, thumbY, sbW, thumbH), sbW / 2))
+                using (var thumbPath = RoundedCard.GetRoundedRectangle(new Rectangle(sbX, thumbY, sbW, thumbH), Math.Max(1, sbW / 2)))
                 using (var thumbBrush = new SolidBrush(Color.FromArgb(90, 110, 130, 160)))
                 {
                     g.FillPath(thumbBrush, thumbPath);
@@ -387,7 +387,7 @@ namespace RazerBatteryTray
 
         private void DrawFixedSlotRank(Graphics g, int rank, int x, int y, int w, int h)
         {
-            int rankSize = (int)(22 * DpiScale);
+            int rankSize = Math.Max(14, (int)(22 * DpiScale));
             int rx = x + (w - rankSize) / 2;
             int ry = y + (h - rankSize) / 2;
             Rectangle rankRect = new Rectangle(rx, ry, rankSize, rankSize);
@@ -397,13 +397,13 @@ namespace RazerBatteryTray
             Color rBorder = isTop ? Color.FromArgb(0, 230, 118) : Color.FromArgb(55, 62, 78);
             Color rFg = isTop ? Color.FromArgb(0, 230, 118) : Color.FromArgb(160, 170, 190);
 
-            using (var rPath = RoundedCard.GetRoundedRectangle(rankRect, rankSize / 2))
+            using (var rPath = RoundedCard.GetRoundedRectangle(rankRect, Math.Max(4, rankSize / 2)))
             {
                 using (var rb = new SolidBrush(rBg)) g.FillPath(rb, rPath);
                 using (var rp = new Pen(rBorder, isTop ? 1.5f : 1.0f)) g.DrawPath(rp, rPath);
             }
 
-            using (var rf = new Font("Segoe UI", 8.8F * DpiScale, FontStyle.Bold))
+            using (var rf = DpiScaleHelper.CreateScaledFont("Segoe UI", 8.8F, FontStyle.Bold, DpiScale))
             {
                 string rStr = rank.ToString();
                 TextRenderer.DrawText(g, rStr, rf, rankRect, rFg,
@@ -413,7 +413,7 @@ namespace RazerBatteryTray
 
         private void DrawCard(Graphics g, PriorityItem item, int x, int y, int w, int h, bool isElevated, bool isDelHovered)
         {
-            int r = (int)(8 * DpiScale);
+            int r = Math.Max(3, (int)(8 * DpiScale));
             Rectangle rect = new Rectangle(x, y, w, h);
 
             if (isElevated)
@@ -434,27 +434,19 @@ namespace RazerBatteryTray
                 using (var pen = new Pen(borderCol, isElevated ? 1.8f : 1.0f)) g.DrawPath(pen, path);
             }
 
-            // 1. Icon + Name (left aligned inside card) - Vector centered!
+            // 1. Icon (left aligned inside card) - Vector centered!
             int iconBoxSize = (int)(22 * DpiScale);
             int iconX = x + (int)(12 * DpiScale);
             int iconY = y + (h - iconBoxSize) / 2;
             Rectangle iconRect = new Rectangle(iconX, iconY, iconBoxSize, iconBoxSize);
             ModernThemeHelper.DrawModernDeviceIcon(g, iconRect, item.Category, item.AccentColor);
 
-            int nameX = iconX + iconBoxSize + (int)(10 * DpiScale);
-            int nameY = y + (h / 2) - (int)(9 * DpiScale);
-            using (var nameFont = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold))
-            using (var nameBrush = new SolidBrush(Color.FromArgb(240, 245, 255)))
-            {
-                g.DrawString(item.Name, nameFont, nameBrush, nameX, nameY);
-            }
-
             // 2. Fluent Vector Grip Handle on far right
             int gripW = (int)(16 * DpiScale);
             int gripX = x + w - gripW - (int)(14 * DpiScale);
-            int barW = (int)(12 * DpiScale);
-            int barH = (int)(2 * DpiScale);
-            int barGap = (int)(3 * DpiScale);
+            int barW = Math.Max(6, (int)(12 * DpiScale));
+            int barH = Math.Max(1, (int)(2 * DpiScale));
+            int barGap = Math.Max(2, (int)(3 * DpiScale));
             int gripStartY = y + (h - (barH * 3 + barGap * 2)) / 2;
             Color gripColor = isElevated ? item.AccentColor : Color.FromArgb(110, 120, 140);
             using (var gripBrush = new SolidBrush(gripColor))
@@ -462,24 +454,22 @@ namespace RazerBatteryTray
                 for (int b = 0; b < 3; b++)
                 {
                     int by = gripStartY + b * (barH + barGap);
-                    using (var gp = RoundedCard.GetRoundedRectangle(new Rectangle(gripX + (gripW - barW) / 2, by, barW, barH), (int)(1 * DpiScale)))
+                    using (var gp = RoundedCard.GetRoundedRectangle(new Rectangle(gripX + (gripW - barW) / 2, by, barW, barH), Math.Max(1, (int)(1 * DpiScale))))
                     {
                         g.FillPath(gripBrush, gp);
                     }
                 }
             }
 
-            int lastRightX = gripX;
-
             // 3. Sleek Pure Vector Micro Delete Button
-            int delW = (int)(22 * DpiScale);
+            int delW = Math.Max(14, (int)(22 * DpiScale));
             int delX = gripX - delW - (int)(8 * DpiScale);
             int delY = y + (h - delW) / 2;
             Rectangle delRect = new Rectangle(delX, delY, delW, delW);
 
             if (isDelHovered)
             {
-                using (var delPath = RoundedCard.GetRoundedRectangle(delRect, (int)(5 * DpiScale)))
+                using (var delPath = RoundedCard.GetRoundedRectangle(delRect, Math.Max(2, (int)(5 * DpiScale))))
                 using (var delBg = new SolidBrush(Color.FromArgb(45, 255, 82, 82)))
                 {
                     g.FillPath(delBg, delPath);
@@ -487,28 +477,39 @@ namespace RazerBatteryTray
             }
 
             Color xCol = isDelHovered ? Color.FromArgb(255, 100, 100) : Color.FromArgb(100, 115, 135);
-            float penW = Math.Max(2.0f, 2.0f * DpiScale);
+            float penW = Math.Max(1.3f, 2.0f * DpiScale);
             using (var xPen = new Pen(xCol, penW))
             {
                 xPen.StartCap = LineCap.Round;
                 xPen.EndCap = LineCap.Round;
-                int cPad = (int)(6 * DpiScale);
+                int cPad = Math.Max(3, (int)(6 * DpiScale));
                 g.DrawLine(xPen, delX + cPad, delY + cPad, delX + delW - cPad, delY + delW - cPad);
                 g.DrawLine(xPen, delX + delW - cPad, delY + cPad, delX + cPad, delY + delW - cPad);
             }
 
-            lastRightX = delX;
+            int lastRightX = delX;
 
-            // 4. Battery / Status Pill before Delete Button or Grip Handle
+            // 4. Battery / Status Pill before Delete Button
             string battStr = item.IsConnected ? (item.Battery + "%") : (item.Battery > 0 ? (item.Battery + "% 离线") : "离线");
             Color battColor = item.IsConnected ? item.AccentColor : Color.FromArgb(140, 145, 155);
-            using (var battFont = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold))
-            using (var battBrush = new SolidBrush(battColor))
+            int battX = lastRightX;
+            using (var battFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.8F, FontStyle.Bold, DpiScale))
             {
-                var bSz = TextRenderer.MeasureText(battStr, battFont);
-                int battX = lastRightX - bSz.Width - (int)(12 * DpiScale);
-                int bY = y + (h / 2) - (int)(8 * DpiScale);
-                g.DrawString(battStr, battFont, battBrush, battX, bY);
+                var bSz = TextRenderer.MeasureText(battStr, battFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                battX = lastRightX - bSz.Width - (int)(10 * DpiScale);
+                Rectangle battRect = new Rectangle(battX, y, bSz.Width + (int)(4 * DpiScale), h);
+                TextRenderer.DrawText(g, battStr, battFont, battRect, battColor,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            }
+
+            // 5. Device Name (left aligned, clipped before Battery text to prevent overlap at any scale)
+            int nameX = iconX + iconBoxSize + (int)(10 * DpiScale);
+            int maxNameW = Math.Max(30, battX - nameX - (int)(8 * DpiScale));
+            using (var nameFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.2F, FontStyle.Bold, DpiScale))
+            {
+                Rectangle nameRect = new Rectangle(nameX, y, maxNameW, h);
+                TextRenderer.DrawText(g, item.Name ?? "", nameFont, nameRect, Color.FromArgb(240, 245, 255),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             }
         }
     }

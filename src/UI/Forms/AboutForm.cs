@@ -168,12 +168,16 @@ namespace RazerBatteryTray
             }
         }
 
+        public float EffectiveScale { get { return dpiScale > 0f ? dpiScale : 1.0f; } }
+
         public AboutForm() : this(1.0f)
         {
         }
 
+
         public AboutForm(float scale) : base(scale)
         {
+
             InitializeAboutUI();
             UpdateManager.OnPendingUpdateChanged += OnPendingUpdateChangedHandler;
             UpdateAboutUpdateButtonState();
@@ -516,11 +520,14 @@ namespace RazerBatteryTray
             ApplyAboutLayout();
         }
 
+        private int S(int v) { return (int)Math.Round(v * EffectiveScale); }
+        private void SetAboutFont(Control ctrl, float basePt, FontStyle style) { if (ctrl != null) ctrl.Font = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", basePt, style, EffectiveScale, 1.0f); }
+
         private void ApplyAboutLayout()
         {
-            const int clientW = 600;
-            const int padX = 24;
-            const int cardWidth = clientW - (padX * 2); // 552
+            int clientW = S(600);
+            int padX = S(24);
+            int cardWidth = clientW - (padX * 2);
 
             // 1. 顶部标题栏由 Windows 11 原生沉浸式暗黑标题栏接管
             if (titleBar != null)
@@ -529,33 +536,33 @@ namespace RazerBatteryTray
             }
 
             // 2. 正面品牌与署名
-            const int topY = 14;
+            int topY = S(14);
             if (lblLogo != null)
             {
-                lblLogo.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
+                SetAboutFont(lblLogo, 14F, FontStyle.Bold);
                 lblLogo.Location = new Point(padX, topY);
             }
 
-            const int authorY = topY + 36; // 50
+            int authorY = topY + S(36);
             if (lblAuthorPrefix != null)
             {
-                lblAuthorPrefix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
+                SetAboutFont(lblAuthorPrefix, 9.2F, FontStyle.Regular);
                 lblAuthorPrefix.Location = new Point(padX, authorY);
                 Size prefixSize = TextRenderer.MeasureText(lblAuthorPrefix.Text, lblAuthorPrefix.Font);
                 if (lblAuthorName != null)
                 {
-                    lblAuthorName.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
-                    lblAuthorName.Location = new Point(padX + prefixSize.Width - 6, authorY);
+                    SetAboutFont(lblAuthorName, 9.2F, FontStyle.Bold);
+                    lblAuthorName.Location = new Point(padX + prefixSize.Width - S(6), authorY);
                     Size nameSize = TextRenderer.MeasureText(AuthorName, lblAuthorName.Font);
                     if (lblAuthorSuffix != null)
                     {
-                        lblAuthorSuffix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
-                        lblAuthorSuffix.Location = new Point(lblAuthorName.Left + nameSize.Width - 4, authorY);
+                        SetAboutFont(lblAuthorSuffix, 9.2F, FontStyle.Regular);
+                        lblAuthorSuffix.Location = new Point(lblAuthorName.Left + nameSize.Width - S(4), authorY);
                         lblAuthorName.SizeChanged += delegate
                         {
                             if (lblAuthorSuffix != null && !lblAuthorSuffix.IsDisposed)
                             {
-                                lblAuthorSuffix.Location = new Point(lblAuthorName.Right - 4, authorY);
+                                lblAuthorSuffix.Location = new Point(lblAuthorName.Right - S(4), authorY);
                             }
                         };
                     }
@@ -563,8 +570,8 @@ namespace RazerBatteryTray
             }
 
             // Card 1: 软件在线更新卡片 (原始设计高度 114)
-            const int card1Y = topY + 70; // 84
-            const int card1H = 114;
+            int card1Y = topY + S(70);
+            int card1H = S(114);
             if (cardUpdate != null)
             {
                 cardUpdate.Location = new Point(padX, card1Y);
@@ -573,33 +580,33 @@ namespace RazerBatteryTray
 
                 if (lblCardUpdateTitle != null)
                 {
-                    lblCardUpdateTitle.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-                    lblCardUpdateTitle.Location = new Point(20, 15);
+                    SetAboutFont(lblCardUpdateTitle, 9.5F, FontStyle.Bold);
+                    lblCardUpdateTitle.Location = new Point(S(20), S(15));
                 }
                 if (btnCheckUpdate != null)
                 {
-                    btnCheckUpdate.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-                    btnCheckUpdate.Size = new Size(110, 32);
-                    btnCheckUpdate.Location = new Point(cardWidth - 20 - 110, 44);
+                    SetAboutFont(btnCheckUpdate, 9F, FontStyle.Bold);
+                    btnCheckUpdate.Size = new Size(S(110), S(32));
+                    btnCheckUpdate.Location = new Point(cardWidth - S(20) - S(110), S(44));
                     btnCheckUpdate.CornerRadius = 6;
                 }
                 if (chkAutoUpdate != null)
                 {
-                    chkAutoUpdate.Font = new Font("Microsoft YaHei UI", 8.8F);
-                    int chkMaxW = (btnCheckUpdate != null ? btnCheckUpdate.Left : cardWidth) - 40;
-                    chkAutoUpdate.Location = new Point(20, 47);
-                    chkAutoUpdate.Size = new Size(chkMaxW, 26);
+                    SetAboutFont(chkAutoUpdate, 8.8F, FontStyle.Regular);
+                    int chkMaxW = (btnCheckUpdate != null ? btnCheckUpdate.Left : cardWidth) - S(40);
+                    chkAutoUpdate.Location = new Point(S(20), S(47));
+                    chkAutoUpdate.Size = new Size(chkMaxW, S(26));
                 }
                 if (lblUpdateStatus != null)
                 {
-                    lblUpdateStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
-                    lblUpdateStatus.Location = new Point(20, 81);
+                    SetAboutFont(lblUpdateStatus, 8.5F, FontStyle.Regular);
+                    lblUpdateStatus.Location = new Point(S(20), S(81));
                 }
             }
 
             // Card 2: 赞赏支持卡片 (原始设计高度 432)
-            const int card2Y = card1Y + card1H + 14; // 212
-            const int card2H = 432;
+            int card2Y = card1Y + card1H + S(14);
+            int card2H = S(432);
             if (cardDonate != null)
             {
                 cardDonate.Location = new Point(padX, card2Y);
@@ -607,29 +614,29 @@ namespace RazerBatteryTray
                 cardDonate.CornerRadius = 8;
             }
 
-            const int qrCardW = 176;
-            const int qrCardH = 216;
-            const int qrGap = 36;
-            const int qrTotalW = qrCardW * 2 + qrGap; // 388
-            const int qrStartX = (cardWidth - qrTotalW) / 2; // 82
+            int qrCardW = S(176);
+            int qrCardH = S(216);
+            int qrGap = S(36);
+            int qrTotalW = qrCardW * 2 + qrGap;
+            int qrStartX = (cardWidth - qrTotalW) / 2;
 
             if (lblDonateTitle != null)
             {
-                lblDonateTitle.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Bold);
-                lblDonateTitle.Location = new Point(20, 16);
+                SetAboutFont(lblDonateTitle, 9.8F, FontStyle.Bold);
+                lblDonateTitle.Location = new Point(S(20), S(16));
             }
             if (lblDonateDesc != null)
             {
-                lblDonateDesc.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lblDonateDesc.Location = new Point(20, 42);
-                lblDonateDesc.MaximumSize = new Size(cardWidth - 40, 0);
+                SetAboutFont(lblDonateDesc, 8.8F, FontStyle.Regular);
+                lblDonateDesc.Location = new Point(S(20), S(42));
+                lblDonateDesc.MaximumSize = new Size(cardWidth - S(40), 0);
                 lblDonateDesc.AutoSize = true;
                 lblDonateDesc.BackColor = Color.Transparent;
             }
 
             // 动态流式布局：严格基于 lblDonateDesc 实际文本渲染底边界计算二维码卡片起始 Y 轴，彻底根绝重叠与截断
-            int descBottom = (lblDonateDesc != null && lblDonateDesc.Height > 0) ? lblDonateDesc.Bottom : 64;
-            int qrY = Math.Max(descBottom + 14, 76);
+            int descBottom = (lblDonateDesc != null && lblDonateDesc.Height > 0) ? lblDonateDesc.Bottom : S(64);
+            int qrY = Math.Max(descBottom + S(14), S(76));
 
             if (qrPanelWeChat != null)
             {
@@ -647,28 +654,28 @@ namespace RazerBatteryTray
             int qrBottom = qrY + qrCardH;
             if (lnkQQ != null)
             {
-                lnkQQ.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lnkQQ.Top = qrBottom + 16;
+                SetAboutFont(lnkQQ, 8.8F, FontStyle.Regular);
+                lnkQQ.Top = qrBottom + S(16);
                 CenterControlHorizontally(lnkQQ, cardWidth);
                 lnkQQ.BringToFront();
             }
             if (lnkGithub != null)
             {
-                lnkGithub.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lnkGithub.Top = (lnkQQ != null ? lnkQQ.Bottom : qrBottom + 16) + 8;
+                SetAboutFont(lnkGithub, 8.8F, FontStyle.Regular);
+                lnkGithub.Top = (lnkQQ != null ? lnkQQ.Bottom : qrBottom + S(16)) + S(8);
                 CenterControlHorizontally(lnkGithub, cardWidth);
                 lnkGithub.BringToFront();
             }
             if (lnkResetApp != null)
             {
-                lnkResetApp.Font = new Font("Microsoft YaHei UI", 8.2F);
-                lnkResetApp.Top = (lnkGithub != null ? lnkGithub.Bottom : qrBottom + 16) + 12;
+                SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
+                lnkResetApp.Top = (lnkGithub != null ? lnkGithub.Bottom : qrBottom + S(16)) + S(12);
                 CenterControlHorizontally(lnkResetApp, cardWidth);
                 lnkResetApp.BringToFront();
             }
 
             // 3. 计算窗体与主容器总高度 (固定 600x668 客户端尺寸)
-            const int containerH = 668;
+            int containerH = S(668);
 
             this.ClientSize = new Size(clientW, containerH);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -692,25 +699,25 @@ namespace RazerBatteryTray
             }
             if (cardQuote != null)
             {
-                const int backCardY = 16;
-                const int backCardH = containerH - (backCardY * 2) - 8; // 628
+                int backCardY = S(16);
+                int backCardH = containerH - (backCardY * 2) - S(8);
                 cardQuote.Location = new Point(padX, backCardY);
                 cardQuote.Size = new Size(cardWidth, backCardH);
                 cardQuote.CornerRadius = 12;
 
                 if (btnFlipBack != null)
                 {
-                    btnFlipBack.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-                    btnFlipBack.Size = new Size(160, 38);
+                    SetAboutFont(btnFlipBack, 9.5F, FontStyle.Bold);
+                    btnFlipBack.Size = new Size(S(160), S(38));
                     btnFlipBack.CornerRadius = 6;
-                    btnFlipBack.Location = new Point((cardWidth - btnFlipBack.Width) / 2, backCardH - 62);
+                    btnFlipBack.Location = new Point((cardWidth - btnFlipBack.Width) / 2, backCardH - S(62));
                 }
             }
         }
 
         protected override void OnApplyDpiScale(float scale)
         {
-            base.OnApplyDpiScale(scale);
+            if (scale > 0f) this.dpiScale = scale;
             ApplyAboutLayout();
             this.Invalidate(true);
         }
@@ -757,10 +764,10 @@ namespace RazerBatteryTray
             }
 
             // 2. 内部扫码视窗 (152x152, 6px 微圆角, 浅色高对比度基底确保 100% 极速识别)
-            int innerW = 152;
-            int innerH = 152;
+            int innerW = S(152);
+            int innerH = S(152);
             int innerX = (w - innerW) / 2;
-            int innerY = 10;
+            int innerY = S(10);
             Rectangle innerRect = new Rectangle(innerX, innerY, innerW, innerH);
 
             Color qrBgColor = isWeChat ? Color.FromArgb(243, 250, 246) : Color.FromArgb(243, 246, 252);
@@ -793,7 +800,7 @@ namespace RazerBatteryTray
             // 3. 下方通道引导提示文案 (垂直居中与水平中轴线双向居中，舒展克制)
             string titleText = isWeChat ? "微信赞赏码" : "支付宝赞赏码";
 
-            using (Font titleFont = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold))
+            using (Font titleFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.0F, FontStyle.Bold, EffectiveScale, 1.0f))
             using (SolidBrush titleBrush = new SolidBrush(textAccent))
             {
                 StringFormat sf = new StringFormat();
@@ -1357,7 +1364,8 @@ namespace RazerBatteryTray
             float tSign = Math.Max(0f, Math.Min(1f, (elapsedSec - 1.45f) / 0.50f));
 
             float cx = offsetX + w / 2f;
-            float maxAllowedTextW = w - 120f;
+            float es = EffectiveScale;
+            float maxAllowedTextW = w - 120f * es;
 
             using (StringFormat sfCenter = new StringFormat())
             using (StringFormat sfRight = new StringFormat())
@@ -1375,14 +1383,14 @@ namespace RazerBatteryTray
                 if (aTitle > 0)
                 {
                     float floatTitle = (1f - tTitle) * 6f;
-                    using (Font titleFont = GetFittedArtisticFont(g, "写  在  代  码  之  外", 14.5F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font titleFont = GetFittedArtisticFont(g, "写  在  代  码  之  外", DpiScaleHelper.GetScaledFontSize(14.5F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "写  在  代  码  之  外", titleFont, Color.FromArgb(aTitle, 245, 250, 255), Color.FromArgb(Math.Min(aTitle, 140), 0, 230, 118), cx, offsetY + 60f, sfCenter, aTitle, floatTitle);
+                        DrawGlowString(g, "写  在  代  码  之  外", titleFont, Color.FromArgb(aTitle, 245, 250, 255), Color.FromArgb(Math.Min(aTitle, 140), 0, 230, 118), cx, offsetY + 60f * es, sfCenter, aTitle, floatTitle);
                     }
 
                     // 极细微光渐变分割线与中心晶体锚点
-                    int divY = (int)(offsetY + 110);
-                    int divW = 160;
+                    int divY = (int)(offsetY + 110 * es);
+                    int divW = Math.Max(40, (int)(160 * es));
                     int divX = (int)(offsetX + (w - divW) / 2);
                     int aLine = Math.Min(aTitle, 130);
                     using (LinearGradientBrush lineBrush = new LinearGradientBrush(
@@ -1419,10 +1427,10 @@ namespace RazerBatteryTray
                 if (aL1 > 0)
                 {
                     float floatL1 = (1f - tL1) * 5f;
-                    using (Font f1 = GetFittedArtisticFont(g, "拂去所有冗余与喧嚣，", 13.0F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f1 = GetFittedArtisticFont(g, "拂去所有冗余与喧嚣，", DpiScaleHelper.GetScaledFontSize(13.0F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "拂去所有冗余与喧嚣，", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 140f, sfCenter, aL1, floatL1);
-                        DrawGlowString(g, "只将最纯净的秩序赠予你。", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 172f, sfCenter, aL1, floatL1);
+                        DrawGlowString(g, "拂去所有冗余与喧嚣，", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 140f * es, sfCenter, aL1, floatL1);
+                        DrawGlowString(g, "只将最纯净的秩序赠予你。", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 172f * es, sfCenter, aL1, floatL1);
                     }
                 }
 
@@ -1431,9 +1439,9 @@ namespace RazerBatteryTray
                 if (aL2 > 0)
                 {
                     float floatL2 = (1f - tL2) * 5f;
-                    using (Font f2 = GetFittedArtisticFont(g, "灵脉初醒，微光致意。", 14.5F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f2 = GetFittedArtisticFont(g, "灵脉初醒，微光致意。", DpiScaleHelper.GetScaledFontSize(14.5F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "灵脉初醒，微光致意。", f2, Color.FromArgb(aL2, 74, 222, 128), Color.FromArgb(Math.Min(aL2, 160), 0, 230, 118), cx, offsetY + 235f, sfCenter, aL2, floatL2);
+                        DrawGlowString(g, "灵脉初醒，微光致意。", f2, Color.FromArgb(aL2, 74, 222, 128), Color.FromArgb(Math.Min(aL2, 160), 0, 230, 118), cx, offsetY + 235f * es, sfCenter, aL2, floatL2);
                     }
                 }
 
@@ -1442,10 +1450,10 @@ namespace RazerBatteryTray
                 if (aL3 > 0)
                 {
                     float floatL3 = (1f - tL3) * 5f;
-                    using (Font f3 = GetFittedArtisticFont(g, "永远专注、自由、无可阻挡。", 13.0F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f3 = GetFittedArtisticFont(g, "永远专注、自由、无可阻挡。", DpiScaleHelper.GetScaledFontSize(13.0F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "愿你在属于自己的战场上，", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 298f, sfCenter, aL3, floatL3);
-                        DrawGlowString(g, "永远专注、自由、无可阻挡。", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 330f, sfCenter, aL3, floatL3);
+                        DrawGlowString(g, "愿你在属于自己的战场上，", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 298f * es, sfCenter, aL3, floatL3);
+                        DrawGlowString(g, "永远专注、自由、无可阻挡。", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 330f * es, sfCenter, aL3, floatL3);
                     }
                 }
 
@@ -1454,9 +1462,9 @@ namespace RazerBatteryTray
                 if (aSign > 0)
                 {
                     float floatSign = (1f - tSign) * 5f;
-                    using (Font fSign = GetFittedArtisticFont(g, "——   Ferris-echo", 12.0F, 220f, FontStyle.Italic))
+                    using (Font fSign = GetFittedArtisticFont(g, "——   Ferris-echo", DpiScaleHelper.GetScaledFontSize(12.0F, es, 1.0f), 220f * es, FontStyle.Italic))
                     {
-                        DrawGlowString(g, "——   Ferris-echo", fSign, Color.FromArgb(aSign, 212, 175, 55), Color.FromArgb(Math.Min(aSign, 100), 255, 230, 150), offsetX + w - 68f, offsetY + 382f, sfRight, aSign, floatSign);
+                        DrawGlowString(g, "——   Ferris-echo", fSign, Color.FromArgb(aSign, 212, 175, 55), Color.FromArgb(Math.Min(aSign, 100), 255, 230, 150), offsetX + w - 68f * es, offsetY + 382f * es, sfRight, aSign, floatSign);
                     }
                 }
             }
