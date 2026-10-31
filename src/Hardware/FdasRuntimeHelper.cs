@@ -68,6 +68,13 @@ namespace RazerBatteryTray
         // FDAS capabilities.customActions
         public List<FdasCustomAction> CustomActions;
 
+        // DPI 回读字节偏移（-1 表示未声明，不启用回读）
+        public int ActiveStageByteOffset = -1;
+        public int DpiXLoByteOffset = -1;
+        public int DpiXHiByteOffset = -1;
+        public int DpiYLoByteOffset = -1;
+        public int DpiYHiByteOffset = -1;
+
         // FDAS capabilities.battery.reportId。0 表示未声明，报文保持原样不做任何前插，
         // 因此所有既有 1.0 适配包的行为完全不变。
         public int ReportId;
@@ -181,6 +188,11 @@ namespace RazerBatteryTray
                 def.SensorDescription = ExtractJsonString(jsonText, "sensorDescription");
                 def.SampleTxHex = ExtractJsonString(jsonText, "sampleTxHex");
                 def.CustomActions = ParseCustomActions(jsonText);
+                def.ActiveStageByteOffset = ExtractJsonInt(jsonText, "activeStageByteOffset", -1);
+                def.DpiXLoByteOffset = ExtractJsonInt(jsonText, "dpiXLoByteOffset", -1);
+                def.DpiXHiByteOffset = ExtractJsonInt(jsonText, "dpiXHiByteOffset", -1);
+                def.DpiYLoByteOffset = ExtractJsonInt(jsonText, "dpiYLoByteOffset", -1);
+                def.DpiYHiByteOffset = ExtractJsonInt(jsonText, "dpiYHiByteOffset", -1);
                 def.ReportId = ConvertHexToInt(ExtractJsonString(jsonText, "reportId"));
 
                 // 多 PID 矩阵：同一型号的有线/无线 PID 归并为一个设备身份
@@ -580,6 +592,17 @@ namespace RazerBatteryTray
                             dev.DpiStageCount = dev.DpiStages.Length;
                             dev.Dpi = def.CurrentDpi > 0 ? def.CurrentDpi : (dev.DpiStages.Length > 2 ? dev.DpiStages[2] : dev.DpiStages[0]);
                             dev.DpiStage = def.CurrentDpiStage > 0 ? def.CurrentDpiStage : 3;
+
+                            // 声明了字节偏移就回读设备真实 DPI 与当前档位，
+                            // 用户在鼠标上按 DPI 键改档后程序能同步。
+                            // 未声明时整段跳过，行为与之前完全一致。
+                            int hwDpiX, hwDpiY, hwStage;
+                            if (TryReadDpiState(def, out hwDpiX, out hwDpiY, out hwStage))
+                            {
+                                if (hwDpiX > 0) dev.Dpi = hwDpiX;
+                                if (hwDpiY > 0) dev.DpiY = hwDpiY;
+                                if (hwStage > 0) dev.DpiStage = hwStage;
+                            }
                             dev.IsXyIndependent = def.SupportsXyIndependence;
 
                             dev.SupportedPollingRates = (def.SupportedRates != null && def.SupportedRates.Length > 0)
@@ -912,6 +935,93 @@ namespace RazerBatteryTray
             catch
             {
                 return false;
+            }
+        }
+
+        // 回读设备当前 DPI 与激活档位。
+        // 需要适配包声明 queryDpiTxHex + 对应的字节偏移，否则直接返回 false。
+        // 支持可选变量 dpiDecode：把原始 16 位值换算成真实 DPI（如 CompX 的 (raw+1)*50）。
+        private static bool TryReadDpiState(FdasAdapterDefinition def, out int dpiX, out int dpiY, out int stage)
+        {
+            dpiX = -1;
+            dpiY = -1;
+            stage = -1;
+            try
+            {
+                if (def == null) return false;
+                if (string.IsNullOrEmpty(def.QueryDpiTxHex)) return false;
+                if (def.DpiXLoByteOffset < 0) return false;
+
+                byte[] q = ApplyReportId(ParseHexBytes(def.QueryDpiTxHex), def.ReportId);
+                if (q == null || q.Length == 0) return false;
+
+                int reqLen = def.ReportLength > 0 ? def.ReportLength : q.Length;
+                if (q.Length < reqLen)
+                {
+                    byte[] padded = new byte[reqLen];
+                    Array.Copy(q, padded, q.Length);
+                    q = padded;
+                }
+                else if (q.Length > reqLen)
+                {
+                    byte[] trimmed = new byte[reqLen];
+                    Array.Copy(q, trimmed, reqLen);
+                    q = trimmed;
+                }
+                ApplyChecksum(q, def.ChecksumType, def.VendorId, def.ReportId);
+
+                byte[] rx = SendAndReadFromDevice(def, q, def.ReadTimeoutMs > 0 ? def.ReadTimeoutMs : 400);
+                if (rx == null) return false;
+
+                int rawX = DecodeDpiRaw(rx, def.DpiXLoByteOffset, def.DpiXHiByteOffset);
+                if (rawX < 0) return false;
+                dpiX = ApplyDpiDecode(def, rawX);
+
+                if (def.DpiYLoByteOffset >= 0)
+                {
+                    int rawY = DecodeDpiRaw(rx, def.DpiYLoByteOffset, def.DpiYHiByteOffset);
+                    if (rawY >= 0) dpiY = ApplyDpiDecode(def, rawY);
+                }
+
+                if (def.ActiveStageByteOffset >= 0 && rx.Length > def.ActiveStageByteOffset)
+                {
+                    int st = rx[def.ActiveStageByteOffset];
+                    if (st >= 0 && st <= 8) stage = st + 1;   // 设备侧多为 0-based
+                }
+                return dpiX > 0;
+            }
+            catch (Exception dpiEx)
+            {
+                Diagnostics.Log("FdasRuntimeHelper: DPI 回读失败", dpiEx);
+                return false;
+            }
+        }
+
+        // 从响应中取 16 位原始值（小端）；偏移非法返回 -1
+        private static int DecodeDpiRaw(byte[] rx, int loOffset, int hiOffset)
+        {
+            if (rx == null || loOffset < 0 || rx.Length <= loOffset) return -1;
+            int lo = rx[loOffset];
+            int hi = (hiOffset >= 0 && rx.Length > hiOffset) ? rx[hiOffset] : 0;
+            return lo | (hi << 8);
+        }
+
+        // 可选换算：variables 里声明 dpiDecode 时用 $raw 求值，否则原样返回
+        private static int ApplyDpiDecode(FdasAdapterDefinition def, int raw)
+        {
+            try
+            {
+                if (def.Variables == null) return raw;
+                string formula;
+                if (!def.Variables.TryGetValue("dpiDecode", out formula) || string.IsNullOrEmpty(formula)) return raw;
+                Dictionary<string, long> ctx = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                ctx["raw"] = raw;
+                long val = ExpressionEvaluator.Evaluate(formula, ctx);
+                return val > 0 ? (int)val : raw;
+            }
+            catch
+            {
+                return raw;
             }
         }
 

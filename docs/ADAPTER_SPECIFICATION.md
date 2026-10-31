@@ -119,11 +119,11 @@
   - `defaultStages` (array of int, 必填): 默认档位数组（如 `[400, 800, 1600, 3200, 6400]`）。
   - `supportsXyIndependence` (bool, 必填): 是否支持 XY 轴独立灵敏度调节。
   - `ratioPresets` (array of string, 可选, **预留**): 常用屏幕比例预设。当前不支持 XY 独立预设，仅承载。
-  - `activeStageByteOffset` (int, 可选, **待实现**): 当前激活档位字节索引（0-based）。
-  - `dpiXLoByteOffset` (int, 可选, **待实现**): X 轴 DPI 低字节偏移。
-  - `dpiXHiByteOffset` (int, 可选, **待实现**): X 轴 DPI 高字节偏移。
-  - `dpiYLoByteOffset` (int, 可选, **待实现**): Y 轴 DPI 低字节偏移（若支持 XY 独立）。
-  - `dpiYHiByteOffset` (int, 可选, **待实现**): Y 轴 DPI 高字节偏移。
+  - `activeStageByteOffset` (int, 可选): 当前激活档位字节索引（0-based）。需配合 `queryDpiTxHex` 才生效。
+  - `dpiXLoByteOffset` (int, 可选): X 轴 DPI 低字节偏移。声明后启用 DPI 回读。
+  - `dpiXHiByteOffset` (int, 可选): X 轴 DPI 高字节偏移。
+  - `dpiYLoByteOffset` (int, 可选): Y 轴 DPI 低字节偏移（若支持 XY 独立）。
+  - `dpiYHiByteOffset` (int, 可选): Y 轴 DPI 高字节偏移。
   - `sampleDpiRxHex` (string, 可选, **预留**): 读取 DPI 状态的抓包样本。当前仅回放电量样本，此项不参与校验。
 - `pollingRate` (object):
   - `supportedRates` (array of int, 必填): 硬件支持的全部回报率数组（如 `[125, 250, 500, 1000, 2000, 4000, 8000]`）。
@@ -171,7 +171,9 @@
 - `queryBatteryPipeline` (array of string, 可选, **v2.0 新增**): 多步时序握手管线。
   需要先唤醒 / 握手 / 解锁才能读到电量的设备，按顺序发送数组中每条报文。
   声明后优先于 `queryBatteryTxHex`。
-- `queryDpiTxHex` (string, 可选): 读取当前 DPI 的报文。
+- `queryDpiTxHex` (string, 可选): 读取当前 DPI 的报文。声明后配合 `dpiXLoByteOffset` 等偏移启用 DPI 回读——
+  用户在鼠标上按 DPI 键改档，程序界面会自动同步。
+  若设备把 DPI 编码存储（如 CompX 的 `(raw+1)*50`），在 `variables` 里加一条 `"dpiDecode": "($raw + 1) * 50"` 即可换算。
 - `setDpiTxTemplate` (string, 鼠标必填): **切换当前激活档位**的报文模板（不是写 DPI 数值）。
   支持宏变量替换：
   - `{stage}`: 当前激活档位（1-based）；`{stage0}` 为 0-based，两者都提供，无需额外开关
@@ -246,7 +248,6 @@
 |---|---|
 | `protocol.setStagesTxTemplate` | 不引入——硬件为逐档下发，已用批量写入语义替代 |
 | `.fp-driver.cs` 动态 C# 驱动 | 未实现（无热加载机制） |
-| `activeStageByteOffset` / `dpiX/Y Lo/Hi ByteOffset` | 待实现——FDAS 设备目前只能写 DPI，不能读回 |
 | `multiEndpoints`（TWS 多节点电量） | 待实现——FDAS 只支持单电量 |
 | `productString` / `manufacturerString` / `sampleDpiRxHex` / `ratioPresets` | 预留——仅承载，不参与逻辑 |
 | `capabilities.battery.sampleTxHex` | 仅解析 `sampleRxHex` |
