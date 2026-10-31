@@ -10,11 +10,11 @@
 ## 目录 / Table of Contents
 1. [🇨🇳 中文指南与 AI 适配提示词](#-中文指南与-ai-适配提示词)
    - 1.1 推荐 AI Agent 工具
-   - 1.2 复制给 AI Agent 的完整适配提示词
+   - 1.2 复制给 AI Agent 的完整适配提示词 (FDAS v2.0 / .fp-driver.cs 最新标准)
    - 1.3 如何向主线贡献代码
 2. [🌐 English Guide & AI Prompt](#-english-guide--ai-prompt)
    - 2.1 Recommended AI Agent Tools
-   - 2.2 Full Prompt for Your AI Agent
+   - 2.2 Full Prompt for Your AI Agent (FDAS v2.0 / .fp-driver.cs Latest Standard)
    - 2.3 How to Contribute Back
 
 ---
@@ -34,53 +34,98 @@
 
 ---
 
-### 1.2 复制给 AI Agent 的完整适配提示词
+### 1.2 复制给 AI Agent 的完整适配提示词 (软件最新同款)
 
-直接复制以下 Markdown 内容，完整发送给你的 AI Agent：
+在软件「添加设备向导」中点击“复制 AI 适配提示词”即可自动注入你的硬件物理指纹；如果你手动向 AI 发送指令，可直接复制以下完整提示词：
 
 ````markdown
-# 任务：为开源软件「FerrisPulse (灵脉)」专属适配我正在使用的硬件外设
+# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v2.0 / .fp-driver.cs 硬件适配扩展包
 
-你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请你作为专业的系统级硬件逆向与 C# 智能体工程师，帮助我完成当前电脑上连接设备的电量监控与性能适配。
+你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中捕获的硬件现场指纹与通信拓扑，为我输出一份符合 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 标准（向下兼容 FDAS v1.0）的适配规范包（`.fp-adapter.json`）或动态 C# 5.0 驱动脚本扩展包（`.fp-driver.cs`）。
 
-## ⚠️ 第 1 步必读：继承工程经验（杜绝踩坑）
-在动工编写任何代码之前，**必须首先通读工程根目录下的 `docs/AGENT_HANDBOOK.md` 与 `AGENT_RULES.md`**！
-本项目前序 AI 智能体已经沉淀了 11 大底层铁律与血泪经验（包括严格 C# 5.0 / .NET 4.0 语法基准、Win32 键盘 HID 0 权限握手、DWM 原生窗口抗白框状态机、测试全内存反射防句柄锁死等）。请务必全盘继承前序经验，切勿重复踩坑！
+## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）
+你必须严格按以下两阶段开展工作：
 
-## 2. 获取工程源码
-请使用 git 从以下官方仓库克隆最新完整源码：
-- GitHub (首选): https://github.com/Ferris-echo/FerrisPulse.git
-- Gitee (镜像): https://gitee.com/Ferris-echo/ferris-pulse.git
+### 阶段一：硬件物理安全第一与官方 WebHID 源码逆向 (Safety First)
+1. **严厉安全红线：严禁在真机上下发盲测性质的写指令 (如 Cmd 0x07、写未知内存地址)**！
+   - 现代国产无线外设（如 CompX、PixArt 等主控）多将单片机板载 EEPROM / Flash 直接映射为写指令。
+   - 盲猜写指令或写错地址/长度，会瞬间冲毁 2.4G RF 配对表、校验扇区或引导记录，导致接收器硬件彻底死锁变砖！
+2. **官方 WebHID 源码逆向法（首选且唯一推荐的写指令来源，100% 零风险）**：
+   - 现代外设厂商（VGN, ATK, VXE, 迈从, 达摩鲨, 狼蛛, 雷神, 机械师等）90% 均提供官方 Web 驱动（Chrome 浏览器网页端，如 hub.vgn.cn、hub.atk.pro 等）。
+   - 请优先让用户或你在浏览器打开该网页驱动，按 F12 打开开发者工具：在 Sources / Network 面板中检索 `sendReport`、`write`、`0x07`、`0x55`、`rate`、`dpi` 等关键词；
+   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！
+3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。
 
-## 3. 探测我当前物理连接的硬件设备
-请利用你的系统工具（如 PowerShell / Win32 SetupAPI / HID 接口查询等），自动检索我当前电脑接入的外设：
-1. 找出未被识别外设的 Vendor ID (VID)、Product ID (PID)、Usage / UsagePage 以及设备完整物理路径。
-2. 识别该外设的产品品牌、型号与连接形态（2.4G 接收器 / 蓝牙 BLE / 有线 USB）。
+### 阶段二：FDAS v2.0 声明式扩展包与动态微表达式 (Dynamic Calculation)
+FerrisPulse 底层已内置轻量微表达式求值器与 `DriverStateStore` 统一注册表缓存，无需改动主程序即可实现内置包同等待遇：
+1. **FDAS v2.0 多 PID 矩阵与主题契约 (`metadata.brandColor` / `hardware.devices`)**：支持声明有线 USB 与 2.4G 接收器多 PID。
+2. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验。
+3. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `"rateCodeMap": { "125": "0x08", "1000": "0x01", "8000": "0x40" }`
+4. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：支持多步查询序列。
+5. **全套五档批量写入与自定义硬件动作 (`capabilities.customActions`)**：支持 Toggle / Slider / Button 控件。
 
-## 4. 逆向与通信协议检索（发挥你的联网能力）
-请通过联网检索、开源社区逆向成果（如 OpenRGB、libratbag、Linux 内核驱动源码、hidapi、抓包分析等）查询该型号的私有通信报文：
-- **核心目标（必选）**：实现精准电池电量读取（Battery Level 0-100%）与充电状态识别。
-- **扩展目标（如果是鼠标）**：探测并尝试实现 DPI 档位读取/设置、X/Y 轴独立双轴调节、以及回报率（Hz）切换指令。
+## 🛡️ 逃生舱机制：`.fp-driver.cs` 动态 C# 5.0 驱动脚本包与源码深度定制授权
+如果该设备的物理协议极其复杂，超出了声明式 JSON 的表达边界：直接输出继承自 `RazerBatteryTray.HardwareDriverBase` 的 C# 5.0 驱动类，优先级（Priority 300）高于内置驱动。同时也明确授权你直接深入修改 FerrisPulse 本地 C# 源码。
 
-## 5. 遵守项目的开发铁律与架构规范
-代码实现必须严格遵循：
-1. **编译器基准**：严格使用 C# 5.0 语法（严禁使用 C# 6.0+ 语法，如 `$"..."`、`?.`、`nameof`），必须能够使用系统自带 `csc.exe` 通过根目录的 `build.bat` 零报错编译。
-2. **零外部依赖**：仅允许引用 .NET 4.0 核心程序集，通信采用 Win32 HID P/Invoke，严禁引入 NuGet 包或第三方 DLL。
-3. **文件编码安全**：所有新建或修改的源码文件必须严格保存为【UTF-8 with BOM】签名。
-4. **模块化落位**：
-   - 若为已存在品牌（如 Razer, Logitech, Rapoo, Valkyrie 等）：在 `src/Hardware/<Brand>DeviceHelper.cs` 中增加该型号的识别与报文解析。
-   - 若为全新品牌：在 `src/Hardware/` 下新建 `<Brand>DeviceHelper.cs`，并在 `src/Hardware/DeviceManager.cs` 中统一注册接入。
-   - 适配完成后，设备分类、电量与支持的特性无缝对接到主界面 UI（`MainForm`）与 OSD。
+## 🤝 开源生态飞轮：社区反哺指引
+成功适配后请输出《灵脉设备适配成果报告》并引导提交至 GitHub/Gitee Issues 或邮箱投递。
+1. GitHub Issues / PR: https://github.com/Ferris-echo/FerrisPulse/issues
+2. Gitee Issues / PR: https://gitee.com/Ferris-echo/FerrisPulse/issues
+3. 作者个人邮箱直连投递: 2949225840@qq.com 或 2949225840zpf@gmail.com
 
-## 6. 本地编译与回归测试验证
-在源码根目录下执行 `cmd.exe /c "build.bat"` 验证编译是否成功生成 `FerrisPulse.exe`，并运行相关自动化测试确保没有回归问题。
+## 2. 官方源码规范索引
+- GitHub: https://github.com/Ferris-echo/FerrisPulse.git
+- Gitee: https://gitee.com/Ferris-echo/ferris-pulse.git
+- 规范文档: docs/ADAPTER_SPECIFICATION.md
+- 避坑指南: docs/AGENT_HANDBOOK.md & AGENT_RULES.md
 
-## 7. 引导我向作者贡献代码（开源知识飞轮）
-适配成功并完成实测后，请为我整理一份简洁的贡献摘要（包含修改了哪些文件、适配了什么型号、设备 VID/PID 与报文细节），并引导我通过以下途径之一分享给作者合并入官方主线：
-- 方式 A：提交 GitHub Pull Request / Issue (https://github.com/Ferris-echo/FerrisPulse)
-- 方式 B：提交 Gitee Pull Request / Issue (https://gitee.com/Ferris-echo/ferris-pulse)
-- 方式 C：将代码变更或 patch 文件通过邮件/文本形式共享给作者
-作者会将你的适配成果永久纳入官方支持库，并在更新日志（CHANGELOG）与关于页面中为你署名致谢！
+## 3. 当前硬件现场物理指纹（请在下方填入你抓取到的硬件参数）：
+- 设备推测分类: Mouse / Keyboard / Headset
+- 用户参考名称: [你的外设具体型号]
+- 物理硬件 ID: VID = 0x[xxxx], PID = 0x[xxxx]
+- 芯片 ROM 固件原名: [固件原名]
+- 连接物理通道: 2.4G 无线 / USB 有线
+
+## 4. 标准化示例参考（Razer DeathAdder V4 Pro 旗舰双模鼠标 FDAS v2.0 范例）
+```json
+{
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "Razer",
+    "model": "DeathAdder V4 Pro",
+    "category": "Mouse",
+    "brandColor": "#00FF00",
+    "sensorDescription": "Focus Pro 35K Gen-2 · 1-DPI 精准步进 (100 ~ 35,000 DPI)",
+    "author": "FerrisPulse Official"
+  },
+  "hardware": {
+    "vendorId": "0x1532",
+    "productId": "0x00BE",
+    "devices": [
+      { "productId": "0x00BE", "model": "Razer DeathAdder V4 Pro (2.4G)", "transport": "2.4G 无线", "maxRate": 8000 },
+      { "productId": "0x00BF", "model": "Razer DeathAdder V4 Pro (Wired)", "transport": "USB 有线", "maxRate": 8000 }
+    ],
+    "endpointTopology": { "usagePage": "0x0001", "usage": "0x0002", "reportType": "Feature", "reportLength": 91 }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00", "batteryPercentByteOffset": 10, "chargingByteOffset": 9, "chargingBitMask": "0x01",
+      "batteryFormula": "(b[10] * 100) / 255",
+      "sampleRxHex": "00 02 1F 00 00 00 02 07 80 01 CC 00 00 00 00 00 00 00 00 00"
+    },
+    "mouse": {
+      "dpi": { "minDpi": 100, "maxDpi": 35000, "step": 1, "defaultStages": [400, 800, 1600, 3200, 6400], "supportsXyIndependence": true },
+      "pollingRate": { "supportedRates": [125, 250, 500, 1000, 2000, 4000, 8000], "defaultRate": 1000, "maxRate": 8000 }
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "00 00 1F 00 00 00 02 07 80 00 00 00 00 00 00 00 00 00 00 00",
+    "setDpiTxTemplate": "00 00 1F 00 00 00 07 04 05 01 {stage} {dpiX_hi} {dpiX_lo} {dpiY_hi} {dpiY_lo} 00 00",
+    "setPollingRateTxTemplate": "00 00 1F 00 00 00 02 00 40 01 {rateIndex} 00 00 00 00 00",
+    "checksumType": "XorSum"
+  }
+}
+```
 ````
 
 ---
@@ -88,7 +133,7 @@
 ### 1.3 如何向主线贡献代码
 - **GitHub Pull Request**: Fork `https://github.com/Ferris-echo/FerrisPulse`，创建分支并提交 PR。
 - **Gitee Pull Request**: Fork `https://gitee.com/Ferris-echo/ferris-pulse`，提交 PR。
-- **提交 Issue**: 如果你不会使用 Git，可直接在 GitHub / Gitee 的 Issue 页面贴上你修改的代码文件或 diff，作者会代为合入。
+- **提交 Issue**: 如果你不会使用 Git，可直接在 GitHub / Gitee 的 Issue 页面贴上你修改的代码文件或生成的 `.fp-adapter.json`，作者会代为合入。
 
 ---
 
@@ -107,56 +152,37 @@ You can use any local or autonomous coding agent with shell execution, file syst
 
 ---
 
-### 2.2 Full Prompt for Your AI Agent
-
-Copy the following Markdown prompt and paste it directly to your AI Agent:
+### 2.2 Full Prompt for Your AI Agent (FDAS v2.0 / .fp-driver.cs)
 
 ````markdown
-# Task: Adapt My Peripheral Hardware for Open-Source "FerrisPulse"
+# Task: Generate FDAS v2.0 / .fp-driver.cs Hardware Adapter for "FerrisPulse"
 
-Hello! My current peripheral device is not yet natively recognized by "FerrisPulse". As an expert system-level reverse engineer and C# agent engineer, please help me adapt battery level monitoring and performance features for the hardware currently connected to this PC.
+Hello! My current peripheral device is not yet recognized by "FerrisPulse". As a senior system-level hardware reverse engineer and firmware protocol expert, please generate an adapter package conforming to the **FDAS v2.0 (FerrisPulse Device Adapter Specification)** (`.fp-adapter.json`) or dynamic C# 5.0 driver script (`.fp-driver.cs`) based on the captured physical device fingerprint.
 
-## ⚠️ Step 1 (Mandatory): Inherit Project Knowledge & Avoid Known Traps
-Before writing any code, **you MUST thoroughly read `docs/AGENT_HANDBOOK.md` and `AGENT_RULES.md` in the repository root**!
-Previous AI agents have established 11 core golden rules and hard-won lessons (strictly C# 5.0 / .NET Framework 4.0 `csc.exe` baseline, Win32 keyboard HID 0-permission handshake, native DWM anti-flash window state machine, in-memory reflection test assembly to prevent CS0016 file locks, etc.). You must inherit these findings and never repeat known mistakes!
+## ⚠️ Core Workflow: Two-Phase Rigorous Reverse Engineering (Physical Facts First)
 
-## 2. Clone the Source Repository
-Clone the latest source code using git:
-- GitHub (Preferred): https://github.com/Ferris-echo/FerrisPulse.git
-- Gitee (Mirror): https://gitee.com/Ferris-echo/ferris-pulse.git
+### Phase 1: Hardware Safety & Official WebHID Source Inspection (Safety First)
+1. **Strict Safety Red Line: NEVER send speculative raw write commands (e.g. Cmd 0x07, unknown memory offsets) to actual physical hardware!**
+   - Modern gaming controllers (CompX, PixArt MCU) map onboard EEPROM/Flash directly to write commands. Speculative writes can corrupt 2.4G RF pairing tables or calibration sectors, permanently bricking the receiver!
+2. **Official WebHID Source Inspection (Primary & Safe Method)**:
+   - 90% of gaming peripheral vendors (VGN, ATK, VXE, MCHOSE, Darmoshark, AULA, etc.) provide official Web Drivers (Chrome browser, e.g. hub.vgn.cn, hub.atk.pro).
+   - Open the web driver in browser, press F12, and search for `sendReport`, `write`, `0x07`, `rate`, `dpi` in Sources/Network. Extract the exact payload formulas designed by the vendor engineers!
 
-## 3. Probe the Physically Connected Hardware
-Use system tools (e.g., PowerShell, Win32 SetupAPI, HID queries) to inspect devices plugged into this PC:
-1. Identify the unrecognized peripheral's Vendor ID (VID), Product ID (PID), Usage / UsagePage, and physical device path.
-2. Identify product brand, exact model, and transport type (2.4GHz dongle / Bluetooth BLE / USB wired).
+### Phase 2: FDAS v2.0 Declarative Adapter & Dynamic Expressions
+FerrisPulse provides a built-in micro-expression evaluator and unified `DriverStateStore` cache:
+1. Multi-PID matrix & brand theme (`metadata.brandColor` / `hardware.devices`)
+2. Dynamic derived variables (`protocol.variables`)
+3. Vendor polling rate mappings (`protocol.rateCodeMap`)
+4. Multi-step query pipeline (`protocol.queryBatteryPipeline`)
+5. Custom hardware actions (`capabilities.customActions`)
 
-## 4. Reverse-Engineering & Protocol Search
-Use web search and open-source references (such as OpenRGB, libratbag, Linux kernel drivers, hidapi, USB packet captures) to find the proprietary communication packets:
-- **Core Goal (Required)**: Accurate battery percentage reading (0-100%) and charging status.
-- **Extended Goal (If Mouse)**: DPI stage reading/setting, independent X/Y axis DPI, and polling rate (Hz) switching.
-
-## 5. Follow Architectural & Coding Directives
-All code changes must strictly adhere to:
-1. **Compiler Baseline**: Pure C# 5.0 (.NET Framework 4.0). No C# 6.0+ syntax (NO `$"..."`, NO `?.`, NO `nameof`). Must compile cleanly via `build.bat` using Windows built-in `csc.exe`.
-2. **Zero External Dependencies**: Only .NET 4.0 core framework assemblies. Low-level communication uses Win32 HID P/Invoke. No NuGet packages, no third-party DLLs.
-3. **File Encoding Safety**: All new or modified files must be saved with UTF-8 BOM (`EF BB BF`).
-4. **Modular Architecture**:
-   - Existing brand: add model detection & packet parsing in `src/Hardware/<Brand>DeviceHelper.cs`.
-   - New brand: create `src/Hardware/<Brand>DeviceHelper.cs` and register it in `src/Hardware/DeviceManager.cs`.
-   - Connect category, battery, and supported capabilities to `MainForm` UI and OSD.
-
-## 6. Build & Regression Testing
-Run `cmd.exe /c "build.bat"` to ensure `FerrisPulse.exe` compiles with 0 errors and 0 warnings. Run automated PowerShell test suites to ensure zero regressions.
-
-## 7. Guide Me to Contribute Back (Knowledge Flywheel)
-Once verified, summarize the changes (files modified, model name, VID/PID, protocol details) and guide me to share the code with the project author via:
-- Method A: GitHub Pull Request / Issue (https://github.com/Ferris-echo/FerrisPulse)
-- Method B: Gitee Pull Request / Issue (https://gitee.com/Ferris-echo/ferris-pulse)
-- Method C: Share patch file or code diff via email/text
-The author will merge your contribution into official releases and credit you in the CHANGELOG and About dialog!
+## 🛡️ Escape Hatch: Dynamic C# 5.0 Driver Script (`.fp-driver.cs`)
+If the proprietary protocol is too complex for declarative JSON, implement a class inheriting from `RazerBatteryTray.HardwareDriverBase` (Priority 300), which overrides built-in drivers without recompilation.
 ````
 
 ---
 
 ### 2.3 How to Contribute Back
-Submit a Pull Request or Issue on GitHub (`https://github.com/Ferris-echo/FerrisPulse`) or Gitee (`https://gitee.com/Ferris-echo/ferris-pulse`). Even sharing code snippets or diffs in an Issue helps!
+- **GitHub Pull Request**: Fork `https://github.com/Ferris-echo/FerrisPulse`, submit a PR with your `.fp-adapter.json` or `.fp-driver.cs`.
+- **Gitee Pull Request**: Fork `https://gitee.com/Ferris-echo/ferris-pulse`.
+- **Open an Issue**: Attach your JSON or driver code to GitHub/Gitee Issues, and it will be merged into the official release with full credit!

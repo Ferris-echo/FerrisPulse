@@ -23,6 +23,7 @@
 
 ## 📑 目录索引 (Table of Contents)
 - [📖 灵脉诞生记与极客宣言](#-灵脉诞生记与极客宣言-the-philosophy)
+- [🏛️ 系统架构与硬核技术全景 (System Architecture & Highlights)](#-系统架构与硬核技术全景-system-architecture--highlights)
 - [🚀 灵脉全景进化史 (Milestones: v1.0 ➔ v2.2+)](#-灵脉全景进化史-evolution-milestones)
 - [⚡ 六大核心杀手级特性 (Key Features)](#-六大核心杀手级特性-key-features)
 - [📊 外设硬件适配全景兼容矩阵 (Compatibility Matrix)](#-外设硬件适配全景兼容矩阵-hardware-compatibility-matrix)
@@ -48,6 +49,81 @@
 * ❌ **拒绝 Electron / Webview 伪桌面应用**：不使用任何浏览器内核或庞大第三方依赖包；
 * ✅ **坚守纯血 Windows 原生哲学**：全量代码基于 **C# 5.0 与 .NET Framework 4.0** 纯原生开发，调用 Win32 底层 API 与 HID 报文通信；
 * ✅ **极速轻巧与零负担**：软件编译后为极其精悍的单文件，常驻内存仅约 **12.8 MB**，CPU 占用长期 **0.00%**，冷启动 **< 200ms**，解压即用！
+
+---
+
+## 🏛️ 系统架构与硬核技术全景 (System Architecture & Highlights)
+
+灵脉完全采用现代模块化分层解耦架构设计，坚决摒弃单文件巨石化与业务耦合，堪称桌面底层软硬件交互的教科书级实践：
+
+```
+FerrisPulse/
+├── src/
+│   ├── Core/         # Win32 原生 P/Invoke 声明、底层消息循环、双通道自启动与自愈守护
+│   ├── Hardware/     # HID 传输层 (HidTransport)、各品牌私有协议解构、三级驱动注册表、HardwareCommandBus
+│   ├── Models/       # 外设实体状态契约 (MouseBatteryInfo)、Capabilities 能力模型、配置持久化
+│   ├── Services/     # 前台游戏焦点感知引擎 (GameDetector)、8000Hz 动态调度、非阻塞音效
+│   └── UI/           # DWM 原生展开微光引擎、GDI+ 高精度自绘体系、无级平滑缩放、穿透 OSD 3.0
+├── adapters/         # 动态驱动脚本 (*.fp-driver.cs) 与声明式适配包 (*.fp-adapter.json)
+├── tests/            # 全内存反射自动化测试套件 (100+ 项契约测试 100% PASS，防句柄锁死)
+└── build.bat         # 纯原生构建脚本 (调用系统内置 csc.exe，1 秒极速单文件生成)
+```
+
+```mermaid
+flowchart TD
+    subgraph UI_Layer ["🖥️ 表现交互层 (Presentation & Perception)"]
+        Tray["托盘流光电量状态机<br>WM_TASKBARCREATED 自愈"]
+        MainWin["主面板 (DWM 原生平滑展开动效)<br>无级平滑缩放体系 (80%~200%)"]
+        OSD["全屏双开战术 OSD 3.0<br>零焦点穿透防吞枪 & 三锁 HUD"]
+        GameMgr["电竞游戏管理控制台<br>常驻守护 vs 仅前台激活双模式"]
+    end
+
+    subgraph Service_Layer ["⚙️ 智能仲裁调度层 (Arbitration & Services)"]
+        GameEngine["前台游戏感知引擎 (GameDetector)<br>SHQueryUserNotificationState 兜底"]
+        DpiRateScheduler["8000Hz 竞技回报率调度器<br>XY 轴独立 DPI 实时下发与防抖仲裁"]
+    end
+
+    subgraph Bus_Layer ["🔌 驱动总线与命令路由 (HardwareCommandBus)"]
+        Bus["硬件命令总线 (HardwareCommandBus)<br>UI 与底层绝对零硬编码解耦"]
+        Priority300["优先级 300: 动态驱动脚本 (*.fp-driver.cs)<br>C# 5.0 运行时动态编译，复杂逻辑自由扩展"]
+        Priority200["优先级 200: 声明式适配包 (*.fp-adapter.json)<br>FDAS v2.0 规范，轻量微表达式求值器"]
+        Priority100["优先级 100: 原生内置驱动 (BuiltInDrivers)<br>雷蛇 90B / 罗技 HID++ / 漫步者 EC / 索尼 / 蜻蜓 / 迈从"]
+    end
+
+    subgraph Hardware_Layer ["⚡ 底层传输与操作系统层 (OS & Transports)"]
+        HidCore["Win32 重叠异步 I/O (HidTransport)<br>GCHandle 固定内存 · 零权限 HID 0 避让独占锁"]
+        OS_API["Windows 原生系统接口<br>user32 / kernel32 / hid.dll / setupapi.dll / dwmapi.dll"]
+    end
+
+    UI_Layer --> Service_Layer
+    Service_Layer --> Bus_Layer
+    Bus --> Priority300
+    Bus --> Priority200
+    Bus --> Priority100
+    Priority300 --> HidCore
+    Priority200 --> HidCore
+    Priority100 --> HidCore
+    HidCore --> OS_API
+```
+
+### 1. 三级外设驱动总线架构 (`HardwareCommandBus`)
+* **UI 层零硬编码铁律**：主界面及所有交互窗体严禁出现 `Brand == "..."` 的门禁判断。所有硬件能力展示一律由底层 `dev.Capabilities` 动态定义，所有读写指令由 `HardwareCommandBus` 统一分发；
+* **三级优先级注册机制**：
+  1. `*.fp-driver.cs`（Priority 300）：C# 强类型动态编译驱动，适用于拥有复杂状态机、动态时序校验或自研放电曲线的高阶硬件；
+  2. `*.fp-adapter.json`（Priority 200）：FDAS v2.0 规范，JSON 声明式配置，内置微表达式求值器与多步查询管线；
+  3. `BuiltInDrivers`（Priority 100）：内置编译期原生驱动，为出厂二十大品牌提供毫秒级极速响应。
+
+### 2. 100% 反作弊安全的游戏焦点仲裁引擎
+* **零内存读写，零 DLL 注入**：基于标准 Win32 `GetForegroundWindow` 与 `GetWindowThreadProcessId` 进行进程特征比对；
+* **严苛的仲裁机制**：内置 1200ms 窗口切换防抖、全屏独占排他性判断、浏览器与媒体播放器防误触白名单，确保在高烈度竞技中绝不误判、绝无作弊封号风险。
+
+### 3. DWM 原生渲染动效与无级矢量缩放
+* **彻底杜绝浅色底白框闪烁**：摒弃有卡顿瑕疵的 `AnimateWindow` 软件模拟，呼出时采用 `this.RecreateHandle()` 重置呈现状态机，重现 Windows 原生平滑展开缩放微光；
+* **80% ~ 200% 全局矢量缩放**：底层自研 `DpiScaleHelper`，实现控件几何坐标、自绘边框半径与文字字号的动态等比映射，高分屏超清。
+
+### 4. 任务栏双通道自启动与自愈守护状态机
+* **双通道自启动保障**：注册表 Run 键与 Startup 启动快捷方式协同工作，杜绝第三方清理软件误删导致自启动失效；
+* **Explorer 重启自愈**：通过挂载系统底层 `WM_TASKBARCREATED` 广播消息，即便资源管理器（explorer.exe）崩溃重启，灵脉托盘图标亦能在 100ms 内瞬间自愈重建。
 
 ---
 
@@ -111,10 +187,7 @@ flowchart LR
 * **三锁状态浮动 HUD**：实时感知 Caps Lock、Num Lock、Scroll Lock 状态并呈现沉浸式 HUD。
 
 ### 6. 开放外设生态 (FDAS) 与 AI 智能体一站式赋能
-* **三级优先级驱动注册表**：
-  - 优先级 300：`*.fp-driver.cs`（C# 强类型动态编译驱动，支持深度逻辑与专属算法）；
-  - 优先级 200：`*.fp-adapter.json`（JSON 声明式硬件适配包，简单配置即可点亮设备）；
-  - 优先级 100：`BuiltInDrivers`（内置原生核心驱动引擎）。
+* **三级优先级驱动注册表**：支持动态脚本扩展包、声明式 JSON 适配包与内置原生驱动；
 * **做自己的开发者**：外设向导内置一键复制定制版 Prompt，配合中英双语指南让 DeepSeek、Antigravity 等智能体轻松完成新设备逆向适配。
 
 ---
@@ -174,9 +247,10 @@ flowchart TD
 找不到你的设备？**试试自己做自己的开发者！**  
 在灵脉中，我们已经打通了 **AI 智能体专属外设适配链路**。你可以借助本地 AI Agent（如 DeepSeek Harness、Tencent Workbuddy、Google Antigravity、OpenAI Codex 等），让智能体直接阅读我们的工程源码并自动探测物理连接的外设通信报文与电量指令，完成一站式极客适配！
 
-* 🚀 **一键复制定制版 Prompt**：在主界面点击「添加设备」向导，即可一键复制为你的智能体量身定制的硬件逆向提示词；
-* 📖 **工程经验飞轮传承**：提示词强制前置通读 `docs/AGENT_HANDBOOK.md`，使外部智能体全盘继承 13 大底层铁律，杜绝踩坑；
-* 👉 **查看中英双语完整指南：[AI 智能体专属外设适配指南 (docs/AI_DEVICE_ADAPTATION_GUIDE.md)](docs/AI_DEVICE_ADAPTATION_GUIDE.md)**
+* 🚀 **软件一键复制最新定制版 Prompt**：在软件主界面点击「添加设备」向导，即可一键复制包含当前硬件现场物理指纹与端点拓扑的完整 Prompt；
+* 🛡️ **严格两阶段逆向法保障**：强制前置“官方 WebHID 源码逆向”（F12 获取厂商原版 `sendReport` 公式），杜绝盲目写指令导致硬件损坏；
+* 📦 **生成 FDAS v2.0 扩展包**：支持输出声明式 `.fp-adapter.json` 或动态 C# 脚本 `.fp-driver.cs`，直接在软件中导入即可点亮；
+* 👉 **查看完整中英双语最新指南与范例：[AI 智能体专属外设适配指南 (docs/AI_DEVICE_ADAPTATION_GUIDE.md)](docs/AI_DEVICE_ADAPTATION_GUIDE.md)**
 
 ---
 
