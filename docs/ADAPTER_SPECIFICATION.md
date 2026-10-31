@@ -100,7 +100,8 @@
   - `"DirectPercent"`: 字节值直接代表 0~100。
   - `"Max10Scale"`: 字节为 0~10 离散档位，自动乘以 10 转换为百分比。
   - `"XorMask"`: 需要按位取反（如 `val ^ 0xFF`）。
-  - `"VoltageAdc"`: 字节为毫伏电压，需由内置曲线表转换。
+  - `"VoltageAdc"`: **尚未实现**。当前不支持电压换算，请勿使用；
+    需要按电压换算电量的设备，暂时只能通过内置驱动支持。
 - `multiEndpoints` (array of string, 针对 Earbuds 可选): 多耳塞独立电量声明（如 `["Left", "Right", "Case"]`）。
 - `sampleRxHex` (string, 必填): 真实抓包接收报文 Hex 字符串（包含 ReportId），自动化测试将直接回放此报文验证电量断言。
 

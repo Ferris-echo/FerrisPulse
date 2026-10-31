@@ -279,7 +279,7 @@
 
 ### 3.12 FDAS 全品牌通用硬件适配与现场探针逆向机制
 
-为了让 FerrisPulse 能够驱动全球任意品牌、任意芯片主控（Compx、PixArt、SinoWealth、Nordic、Beken、Realtek、WCH 等）且**不改动一行 C# 代码**，FDAS v1.0 架构确立了以下核心工程范式：
+为了让 FerrisPulse 能够驱动全球任意品牌、任意芯片主控（Compx、PixArt、SinoWealth、Nordic、Beken、Realtek、WCH 等）且**不改动一行 C# 代码**，FDAS v2.0 架构确立了以下核心工程范式：
 
 1. **现场探针工具 (`tools/probe_hid_device.ps1`)**：
    - **零依赖与全内存反射**：采用 `[System.IO.File]::ReadAllBytes` 装配 `FerrisPulse.exe`，严禁 `Add-Type -Path` 产生文件句柄互斥锁死。
@@ -317,7 +317,7 @@
 
 6. **动态微表达式引擎 (`ExpressionEvaluator.cs`) 与开源社区生态飞轮**：
    - **彻底废弃宏观硬编码**：严禁将某类芯片或品牌在 C# 中硬编码为所谓“芯片族大一统驱动”，硬件固件千差万别，强行做宏观归类依然会冲毁其他设备的配置扇区。
-   - **微表达式动态求值**：FDAS v1.0 架构内置纯内存微表达式求值器，支持在 JSON 的 `protocol.variables` 中声明派生计算（如 `"(0x55 - $rateCode) & 0xFF"`、`"($dpi / 50) - 1"`、`"$dpiHigh << 2"` 等）或直接在模板中使用内联表达式 `{ (0x55 - rateCode) & 0xFF }`，实现零编译、纯配置热加载驱动任意奇葩算法。
+   - **微表达式动态求值**：FDAS v2.0 架构内置纯内存微表达式求值器，支持在 JSON 的 `protocol.variables` 中声明派生计算（如 `"(0x55 - $rateCode) & 0xFF"`、`"($dpi / 50) - 1"`、`"$dpiHigh << 2"` 等）或直接在模板中使用内联表达式 `{ (0x55 - rateCode) & 0xFF }`，实现零编译、纯配置热加载驱动任意奇葩算法。
    - **硬件安全第一与探针写保护锁**：严禁在下位机真机上盲测写指令（如 `Cmd 0x07` 写未知地址），以防冲毁 2.4G 接收器 RF 配对表导致变砖。探针工具 `tools/probe_hid_device.ps1` 内置物理安全锁，默认拦截未经授权的高危 EEPROM 写入。
    - **首选官方 WebHID 源码逆向**：国内 90% 厂商均提供基于 Chrome WebHID 的网页驱动，按 F12 检索 `sendReport`、`write` 即可直接提取官方原厂验证过的 100% 安全算法。
    - **双轨制逃生舱与生态反哺**：若遇到极特殊协议超出 JSON 表达能力，授权 Agent 直接修改本地 C# 源码并 `build.bat` 验证；并引导用户将成果通过 GitHub/Gitee Issue 或直连作者邮箱（`2949225840@qq.com` / `2949225840zpf@gmail.com`）反哺，收录为官方原生预设。
@@ -457,15 +457,15 @@ powershell -ExecutionPolicy Bypass -File tools/publish_release.ps1 -Version "2.1
 
 ---
 
-## 8. FDAS v1.0 外设适配规范与智能体自动化融合流水线 (Automated Integration)
+## 8. FDAS v2.0 外设适配规范与智能体自动化融合流水线 (Automated Integration)
 
-为了彻底解决新外设逆向成果融合耗时、沟通成本高以及普通用户缺乏逆向环境的痛点，项目确立了 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 规范体系与自动化融合引擎：
+为了彻底解决新外设逆向成果融合耗时、沟通成本高以及普通用户缺乏逆向环境的痛点，项目确立了 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 规范体系与自动化融合引擎：
 
 ### 8.1 架构与运作全景图
 ```
 【用户端】向导探测到未识别设备 ➡️ 点击【📋 复制带硬件指纹的 AI 提示词】（自动注入真实 VID/PID/Usage/报告长度）
    ⬇
-【外部 AI 端】粘贴至 ChatGPT/DeepSeek ➡️ AI 识别芯片方案并输出 FDAS v1.0 规范包 (*.fp-adapter.json)
+【外部 AI 端】粘贴至 ChatGPT/DeepSeek ➡️ AI 识别芯片方案并输出 FDAS v2.0 规范包 (*.fp-adapter.json)
    ⬇
 【项目端】运行自动化融合引擎:
 powershell -ExecutionPolicy Bypass -File tools/integrate_adaptation.ps1 -AdapterFile <path-to-json>

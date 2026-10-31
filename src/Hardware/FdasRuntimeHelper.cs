@@ -1133,6 +1133,10 @@ namespace RazerBatteryTray
                 a.TxTemplate = ExtractJsonString(obj, "txTemplate");
                 list.Add(a);
             }
+            if (list.Count > 0)
+            {
+                Diagnostics.Log("FDAS: 适配包声明了 " + list.Count + " 条自定义动作");
+            }
             return list;
         }
 

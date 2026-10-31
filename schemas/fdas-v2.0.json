@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "title": "FDAS v2.0 - FerrisPulse Device Adapter Specification",
+  "description": "FerrisPulse 外设适配规范 v2.0，向下兼容 v1.0。未识别的字段会被运行时静默忽略。",
+  "type": "object",
+  "required": ["fdasVersion", "metadata", "hardware", "capabilities"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "fdasVersion": {
+      "type": "string",
+      "enum": ["1.0", "2.0"],
+      "description": "规范版本。1.0 与 2.0 均可加载。"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["brand", "model", "category"],
+      "properties": {
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["Mouse", "Keyboard", "Headset", "Earbuds", "Gamepad", "Dongle", "Generic"]
+        },
+        "author": { "type": "string" },
+        "description": { "type": "string" },
+        "brandColor": {
+          "type": "string",
+          "pattern": "^#?[0-9A-Fa-f]{6}$",
+          "description": "v2.0 新增。品牌主题色 #RRGGBB，优先于内置配色表。"
+        },
+        "sensorDescription": { "type": "string", "description": "v2.0 新增。传感器型号描述。" }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "required": ["vendorId", "productId"],
+      "properties": {
+        "vendorId": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
+        "productId": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
+        "productString": { "type": "string" },
+        "manufacturerString": { "type": "string" },
+        "devices": {
+          "type": "array",
+          "description": "v2.0 新增。多 PID 矩阵，把同一型号的有线/无线等形态归并为同一设备身份。缺省时设备身份为 FDAS:{VID}:{PID}。",
+          "items": {
+            "type": "object",
+            "required": ["productId", "model"],
+            "properties": {
+              "productId": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
+              "model": { "type": "string" },
+              "transport": { "type": "string" },
+              "maxRate": { "type": "integer" }
+            }
+          }
+        },
+        "usagePage": { "type": "string" },
+        "usage": { "type": "string" },
+        "reportType": { "type": "string", "enum": ["Interrupt", "Feature"] },
+        "reportLength": { "type": "integer", "minimum": 1 },
+        "readTimeoutMs": { "type": "integer", "minimum": 50, "default": 500 },
+        "endpointTopology": {
+          "type": "object",
+          "description": "与扁平字段等价，运行时按字段名全局匹配，嵌套层级不影响解析。",
+          "properties": {
+            "usagePage": { "type": "string" },
+            "usage": { "type": "string" },
+            "reportType": { "type": "string" },
+            "reportLength": { "type": "integer" },
+            "readTimeoutMs": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "battery": {
+          "type": "object",
+          "required": ["batteryPercentByteOffset"],
+          "properties": {
+            "reportId": { "type": "string", "description": "声明后，报文首字节不等于该 ID 时自动前插。" },
+            "batteryPercentByteOffset": { "type": "integer", "minimum": 0 },
+            "chargingByteOffset": { "type": "integer", "minimum": 0 },
+            "chargingBitMask": { "type": "string" },
+            "batteryFormula": {
+              "type": "string",
+              "enum": ["DirectPercent", "Max10Scale", "XorMask"],
+              "default": "DirectPercent",
+              "description": "VoltageAdc 尚未实现。"
+            },
+            "sampleRxHex": { "type": "string" },
+            "sampleTxHex": { "type": "string" },
+            "multiEndpoints": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "mouse": {
+          "type": "object",
+          "properties": {
+            "minDpi": { "type": "integer", "minimum": 1 },
+            "maxDpi": { "type": "integer", "minimum": 1 },
+            "step": { "type": "integer", "minimum": 1 },
+            "defaultStages": { "type": "array", "items": { "type": "integer" } },
+            "supportsXyIndependence": { "type": "boolean" },
+            "supportedRates": { "type": "array", "items": { "type": "integer" } },
+            "defaultRate": { "type": "integer" },
+            "maxRate": { "type": "integer" },
+            "rateIndexMap": {
+              "type": "object",
+              "description": "回报率 -> 数组下标序号（0-based）。与 rateCodeMap 语义不同，二选一。",
+              "additionalProperties": { "type": "integer" }
+            }
+          }
+        },
+        "customActions": {
+          "type": "array",
+          "description": "v2.0 新增。托盘「自定义动作」子菜单项。",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "type"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "type": { "type": "string", "enum": ["Toggle", "Slider", "Button"] },
+              "activeText": { "type": "string" },
+              "inactiveText": { "type": "string" },
+              "onTxHex": { "type": "string" },
+              "offTxHex": { "type": "string" },
+              "txHex": { "type": "string" },
+              "txTemplate": { "type": "string" },
+              "min": { "type": "integer" },
+              "max": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "properties": {
+        "queryBatteryTxHex": { "type": "string" },
+        "queryBatteryPipeline": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "v2.0 新增。多步握手管线，声明后优先于 queryBatteryTxHex。"
+        },
+        "queryDpiTxHex": { "type": "string" },
+        "setDpiTxTemplate": { "type": "string", "description": "切换当前激活档位。" },
+        "setDpiValueTxTemplate": { "type": "string", "description": "v2.0 新增。写入某档的 DPI 数值。" },
+        "setPollingRateTxTemplate": { "type": "string" },
+        "variables": {
+          "type": "object",
+          "description": "v2.0 新增。动态派生变量，模板中用 {变量名} 引用。",
+          "additionalProperties": { "type": "string" }
+        },
+        "rateCodeMap": {
+          "type": "object",
+          "description": "v2.0 新增。回报率 -> 设备私有编码（字符串形式）。",
+          "additionalProperties": { "type": "string" }
+        },
+        "checksumType": {
+          "type": "string",
+          "enum": ["None", "SumMod256", "XorSum", "VgnCompxSum55"],
+          "default": "None",
+          "description": "SonyInzone 不在适配包层支持，索尼设备走内置通道。"
+        }
+      }
+    }
+  }
+}
