@@ -31,6 +31,16 @@
   - **诚实降级**：当 `[41] = 0x80`（充电中但电量尚未初始化）时，展示「充电中」并将电量标为未知，不渲染 0% 也不沿用上次缓存值。
   - **充电期间不采用冻结电量**：实测 2.4G + USB 充电时 `[41]` 连续 13 分钟恒定 `0xCA`（74%），拔掉 USB 线的瞬间立刻跳到 `0x64`（100%）——充电时固件把百分比冻结在假值上。现充电中一律按电量未知处理且不写硬件缓存，UI 与官方 MCHOSE HUB 一致只报「2.4G · USB 充电中」不报数字，拔线后恢复真实电量显示。
   - 新增回归测试 `tests/test_mchose_k99v3_wired_charging.ps1`（49 项断言），覆盖位域解析、形态字节、PID 白名单、双端点并集、充电冻结保护与 UI 文案。
+- **迈从 (MCHOSE) K99 V3 蓝牙 BLE 形态（公版 `07D7:EFFF`）**：
+  - 新增蓝牙形态识别：`BTHLEDEVICE\..._DEV_VID&0107D7_PID&EFFF_<MAC>\...`。**蓝牙形态用的是公版 VID/PID，不是迈从自有 `0x3837`**，与 2.4G（`0x3033`）/ 有线（`0x2020`）都不同。
+  - **公版 ID 必须叠加名字校验**：`07D7:EFFF` 可能被大量蓝牙键盘共用，因此除 VID/PID 外还要求 `BTHLE\DEV_<MAC>` 父节点的 FriendlyName 含 `MCHOSE`，避免误认其它品牌的同 ID 设备。
+  - **两段式读取**：`BTHLEDEVICE` 服务节点有 VID/PID 但无电量，`BTHLE\DEV_<MAC>` 父节点有电量但无 VID/PID，必须先取 MAC 再回父节点读电量；电量按 `DEVPROP_TYPE_BYTE` 单字节读取。
+  - **名字槽位归一化**：系统上报的 FriendlyName 形如 `MCHOSE K99 V3-1`，末尾 `-N` 是 BLE 通道槽位号，展示前去掉（只去纯数字后缀，`Ultra+` 类不受影响）。
+  - **能力如实降级**：蓝牙形态只暴露标准 GATT 服务（`0x1800`/`0x1801`/`0x180A`/`0x180F`/`0x1812`），无任何厂商集合，DPI 与回报率完全不可读写，能力契约标为 `false`。
+  - **不猜测充电状态**：标准 GATT 电池服务只给百分比，`IsCharging` 恒为 `false`。
+  - **三形态同一 `DeviceId`**：`0x3033` / `0x2020` / `07D7:EFFF` 统一归到 `MCHOSE:3837:3033`，切换连接方式后聚焦记忆不失效。
+  - **性能守卫**：BLE 在线时优先返回并跳过 USB 端点探测，避免逐端点等满 `ReadTimeoutMs`。
+  - 新增回归测试 `tests/test_mchose_k99v3_ble_support.ps1`（50 项断言），覆盖公版 VID/PID 解析、MAC 提取、名字归一化、能力降级、充电位诚实缺省、跨形态 ID 归并与 BLE 优先守卫。
 - **雷柏 (Rapoo) VT3 系列双模电竞鼠标 (`24AE:1412` 等)**（感谢 [@lbyisme](https://github.com/lbyisme) 协议逆向与实机适配贡献 #38，底层协议参考/移植自 Iris `rapoo-tray` MIT 许可项目）：
   - 新增 `RapooProtocol` 纯协议解析与 `RapooDeviceHelper.Status.cs` 实时遥测管道；
   - 严谨解析 19 字节遥测报文（Report ID 0x07），支持 6 档自定义 DPI 阶段（上限由 5 档扩至 6 档）、独立 XY 轴 DPI 调节与硬件端点实时同步；
