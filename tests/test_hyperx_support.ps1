@@ -73,7 +73,11 @@ if (-not (Test-Path $binPath)) {
     cmd /c "$ProjectDir\build.bat" | Out-Null
 }
 
-$asm = [System.Reflection.Assembly]::LoadFrom($binPath)
+# 铁律：严禁用 LoadFrom / LoadFile 加载被测 exe —— 会在 exe 上建立文件锁，
+# 导致紧接着的 build.bat 报 "error CS0016: 未能写入输出文件 ... 另一个程序正在使用此文件"。
+# 必须读成字节后走全内存反射。
+$asmBytes = [System.IO.File]::ReadAllBytes($binPath)
+$asm = [System.Reflection.Assembly]::Load($asmBytes)
 $helperType = $asm.GetType("RazerBatteryTray.HyperXDeviceHelper")
 if ($null -eq $helperType) {
     Write-Host "FAILED: 未能通过反射获取 RazerBatteryTray.HyperXDeviceHelper 类型" -ForegroundColor Red

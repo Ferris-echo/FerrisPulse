@@ -5,7 +5,10 @@ $ErrorActionPreference = "Stop"
 $asmPath = Join-Path $PSScriptRoot "..\FerrisPulse.exe"
 if (-not (Test-Path $asmPath)) { $asmPath = "FerrisPulse.exe" }
 $fullPath = (Resolve-Path $asmPath).Path
-$asm = [System.Reflection.Assembly]::LoadFile($fullPath)
+# 铁律：严禁用 LoadFile 加载被测 exe —— 会建立文件锁，让后续 build.bat 报 CS0016。
+# 读成字节后全内存反射，进程退出即释放，不碰磁盘句柄。
+$asmBytes = [System.IO.File]::ReadAllBytes($fullPath)
+$asm = [System.Reflection.Assembly]::Load($asmBytes)
 
 $tRazer = $asm.GetType("RazerBatteryTray.RazerDeviceHelper")
 if ($tRazer -eq $null) {
