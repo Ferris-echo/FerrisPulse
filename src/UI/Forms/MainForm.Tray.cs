@@ -20,6 +20,8 @@ namespace RazerBatteryTray
 {
     public partial class MainForm : Form
     {
+        private ToolStripMenuItem lightingMenu;
+
         private void ConfigureSubMenuDropDown(ToolStripDropDown dropDown)
         {
             if (dropDown == null) return;
@@ -124,6 +126,114 @@ namespace RazerBatteryTray
                 rateMenu.DropDownItems.Add(sub);
             }
             contextMenu.Items.Add(rateMenu);
+
+            // Submenu: 灯光调节（巴蛇终极版 class=0x0F 协议）
+            // 实测分区：左灯带 LED0-9、右灯带 LED10-13、滚轮 zone01、Logo zone04
+            lightingMenu = new ToolStripMenuItem("灯光调节");
+            ConfigureSubMenuDropDown(lightingMenu.DropDown);
+            string[] presetNames = new string[] { "红", "橙", "黄", "绿", "青", "蓝", "紫", "白" };
+            System.Drawing.Color[] presetColors = new System.Drawing.Color[] {
+                System.Drawing.Color.Red, System.Drawing.Color.Orange, System.Drawing.Color.Yellow, System.Drawing.Color.LimeGreen,
+                System.Drawing.Color.Cyan, System.Drawing.Color.DodgerBlue, System.Drawing.Color.MediumPurple, System.Drawing.Color.White
+            };
+
+            System.Action<ToolStripMenuItem, System.Action<System.Drawing.Color>> fillColorMenu =
+                (parent, apply) => {
+                    for (int ci = 0; ci < presetColors.Length; ci++)
+                    {
+                        System.Drawing.Color picked = presetColors[ci];
+                        System.Action<System.Drawing.Color> applier = apply;
+                        parent.DropDownItems.Add(new ToolStripMenuItem(presetNames[ci], null, (s2, e2) => {
+                            ThreadPool.QueueUserWorkItem(_ => { applier(picked); });
+                        }));
+                    }
+                    parent.DropDownItems.Add(new ToolStripSeparator());
+                    parent.DropDownItems.Add(new ToolStripMenuItem("自定义颜色…", null, (s2, e2) => {
+                        contextMenu.Close();
+                        this.BeginInvoke(new System.Action(() => {
+                            using (ColorDialog dlg = new ColorDialog())
+                            {
+                                dlg.FullOpen = true;
+                                dlg.Color = LightingHelper.LastColor;
+                                if (dlg.ShowDialog() == DialogResult.OK)
+                                {
+                                    System.Drawing.Color chosen = dlg.Color;
+                                    ThreadPool.QueueUserWorkItem(_ => { apply(chosen); });
+                                }
+                            }
+                        }));
+                    }));
+                };
+
+            ToolStripMenuItem allAreaMenu = new ToolStripMenuItem("整只鼠标");
+            fillColorMenu(allAreaMenu, c => LightingHelper.SetAllColor(c));
+            lightingMenu.DropDownItems.Add(allAreaMenu);
+
+            ToolStripMenuItem leftStripMenu = new ToolStripMenuItem("左灯带(整条)");
+            fillColorMenu(leftStripMenu, c => LightingHelper.SetLeftStripColor(c));
+            lightingMenu.DropDownItems.Add(leftStripMenu);
+
+            ToolStripMenuItem leftSegRoot = new ToolStripMenuItem("左灯带分段");
+            for (int si = 0; si < LightingHelper.LeftSegmentCount; si++)
+            {
+                int segIndex = si;
+                string segLabel = "第" + (si + 1) + "段";
+                if (si == 0) segLabel = segLabel + "(近滚轮)";
+                if (si == LightingHelper.LeftSegmentCount - 1) segLabel = segLabel + "(尾部)";
+                ToolStripMenuItem segMenu = new ToolStripMenuItem(segLabel);
+                fillColorMenu(segMenu, c => LightingHelper.SetLeftSegment(segIndex, LightingHelper.LeftSegmentCount, c));
+                leftSegRoot.DropDownItems.Add(segMenu);
+            }
+            lightingMenu.DropDownItems.Add(leftSegRoot);
+
+            ToolStripMenuItem rightStripMenu = new ToolStripMenuItem("右灯带");
+            fillColorMenu(rightStripMenu, c => LightingHelper.SetRightStripColor(c));
+            lightingMenu.DropDownItems.Add(rightStripMenu);
+
+            ToolStripMenuItem wheelMenu = new ToolStripMenuItem("滚轮");
+            fillColorMenu(wheelMenu, c => LightingHelper.SetWheelColor(c));
+            lightingMenu.DropDownItems.Add(wheelMenu);
+
+            ToolStripMenuItem logoMenu = new ToolStripMenuItem("Logo");
+            fillColorMenu(logoMenu, c => LightingHelper.SetLogoColor(c));
+            lightingMenu.DropDownItems.Add(logoMenu);
+
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("光谱循环", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetSpectrum(LightingHelper.ZoneAll); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("呼吸效果", null, (s, e) => {
+                System.Drawing.Color c = LightingHelper.LastColor;
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetBreathing(LightingHelper.ZoneAll, c, 2); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("波浪效果", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetWave(LightingHelper.ZoneAll, 1); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("响应效果", null, (s, e) => {
+                System.Drawing.Color c = LightingHelper.LastColor;
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetReactive(LightingHelper.ZoneAll, c, 2); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            int[] brightSteps = new int[] { 0, 64, 128, 192, 255 };
+            string[] brightLabels = new string[] { "关闭", "25%", "50%", "75%", "100%" };
+            ToolStripMenuItem brightRoot = new ToolStripMenuItem("全局亮度");
+            for (int bi = 0; bi < brightSteps.Length; bi++)
+            {
+                int bv = brightSteps[bi];
+                brightRoot.DropDownItems.Add(new ToolStripMenuItem(brightLabels[bi], null, (s, e) => {
+                    ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetBrightness(LightingHelper.ZoneAll, bv); });
+                }));
+            }
+            lightingMenu.DropDownItems.Add(brightRoot);
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("关闭全部灯光", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetAllOff(); });
+            }));
+            lightingMenu.Visible = false;
+            contextMenu.Items.Add(lightingMenu);
 
             // Submenu: 全屏游戏自动切换 (回报率与 DPI)
             autoGameRateMenu = new ToolStripMenuItem("全屏游戏自动切换");
@@ -619,6 +729,7 @@ namespace RazerBatteryTray
                 {
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
+                    if (lightingMenu != null) lightingMenu.Visible = false;
 
                     var actSleep = GetDeviceToggleAction(primary, 0, "auto_sleep");
                     var actWin = GetDeviceToggleAction(primary, 1, "win_lock");
@@ -711,6 +822,11 @@ namespace RazerBatteryTray
                     {
                         rateMenu.Visible = true;
                         ConfigureSubMenuDropDown(rateMenu.DropDown);
+                        if (lightingMenu != null)
+                        {
+                            lightingMenu.Visible = true;
+                            ConfigureSubMenuDropDown(lightingMenu.DropDown);
+                        }
                         for (int k = 0; k < rateMenu.DropDownItems.Count; k++)
                         {
                             var sub = rateMenu.DropDownItems[k] as ToolStripMenuItem;
@@ -726,6 +842,7 @@ namespace RazerBatteryTray
                     // Other device (Headset, Gamepad)
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
+                    if (lightingMenu != null) lightingMenu.Visible = false;
                     if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
                     if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
                     if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
