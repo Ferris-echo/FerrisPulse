@@ -89,6 +89,21 @@
 - **引擎三 (Vaxee 64B Feature `0x0E 0xA5`)**: Page `0x0B` 电量（`raw * 5%`）、Page `0x10` 充电状态。
 - **引擎四 (怒喵 Angry Miao 62B RACE Feature `0x14`)**: 指令 `0x30CF` 读取 `AM Infinity .97` 电量与充放电状态。
 
+### 1.9 VGN V108 2.4G 机械键盘 (`391D:2A02`, `VgnKeyboardHelper.cs`)
+- **端点**: 接收器 `391D:2A02`（ByTech 复合设备），厂商集合 `UsagePage 0xFF02 / Usage 0x0002`，输入/输出严格 **20/20 字节** 中断通道（`FeatureReportByteLength == 0`）；同设备另有 `0xFF00/0xFF01` 三个 Feature 集合，实测 `HidD_GetFeature` 全部失败，禁止作为电量通道。
+- **帧格式**: `13 <cmd> 01 00 <payloadLen> <payload…> <sum>`，`sum = sum(byte[0..18]) & 0xFF` 写在 `byte[19]`。回包同构，`byte[2] == 0x01` 为方向标志，`byte[4]` 回显 payload 长度。
+- **电量（命令 `0x4A`，payloadLen 2）**:
+  - TX: `13 4A 01 00 02 00 … 60`（接收器实测同时接受 `13 4A 00 00 00 … 5D` 这种裸帧形式）
+  - RX（电池供电）: `13 4A 01 00 02 5A 00 … BA` → `byte[5] = 0x5A = 90%`，`byte[6] = 0x00`
+  - RX（USB-C 充电中，同一台机器实测）: `13 4A 01 00 02 5A 10 … CA` → `byte[6] = 0x10` 充电中；插线瞬间同一电量 90% 仍为 90%，仅状态位翻转，连续 3 次采样完全一致 → 该位是真实状态位，不是无线跳变噪声。
+  - `byte[6]` 语义沿用同族 20 字节编码：**高半字节非 0（典型 `0x10`）= 充电中**，`0x00`/`0x01` = 电池供电；未观测编码必须置 `IsChargingUnknown`，严禁用“满电=充电”或无线跳变位猜测。
+  - 接充电线时键盘仍由同一 `391D:2A02` 接收器应答（实测未枚举出新的有线 PID），因此插线不影响本通道；但接线状态下 `Transport` 仍按接收器判为 2.4G，充电状态以 `byte[6]` 为准而非“有线即充电”。
+- **型号（命令 `0x05`，payloadLen 6）**: TX `13 05 01 00 06 00 … 1F`；RX `13 05 01 00 06 0A 00 00 00 00 30 00 … 59` → `byte[5] = 0x0A` 固定标记，`byte[10] = 0x30` 为 V108 型号码（迈从 Z75S 为 `0x09`，可据此在同 `0x13` 帧族内做型号隔离）。
+- **安全边界**: 只发送只读查询帧（`0x05`/`0x4A`）；设备仅应答查询、从不主动推送（5 秒被动监听无任何帧）。每次发送前仅做**有界** `DrainReports(handle, 20, 6)` 清理滞留帧，不做盲清。
+- **能力诚实**: V108 未实测到可用的 DPI/回报率/灯光写入协议，`Category = Keyboard` 且 `SupportsDpi/SupportsPollingRate = false`；`VgnMouseDriver.CanHandle` 必须排除 `DeviceCategory.Keyboard`，否则 VGN 键盘会继承鼠标驱动的虚假可写能力位。
+- **隔离**: `391D` 与 VGN 蜻蜓 Yjx 通道（`391D:1A03`, `FF01/0010`, ≥65 字节）共用 VID，`FindYjxEndpoint` 依赖 UsagePage/Usage 与 65 字节长度门槛天然排除 V108；V108 侧同样必须校验 `UsagePage == 0xFF02 && Usage == 0x0002 && In/Out >= 20`。
+- **缓存**: `HKCU\Software\RazerBatteryTray\VgnV108Cache`（与 Neon75 的 `VgnKeyboardCache` 隔离，防止两种键盘交替接入时互相覆盖）；接收器在线但键盘不应答时显示休眠缓存电量。
+
 ---
 
 ## 2. 键盘、手柄与无线耳机协议

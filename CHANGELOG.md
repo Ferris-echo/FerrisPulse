@@ -100,6 +100,12 @@
   - 新增 `FlydigiDeviceHelper`，通过 `0xFFA0` Vendor HID 集合发送 GPA6 `5A A5 01 02` 设备信息查询，解析 `0..10` 档电量、充电标志、连接形态与型号；实测 APEX 6 Pro 返回 100% 电量。
 - **迈从 (MCHOSE) G87 V2 三模机械键盘** (#24)：
   - 新增 `MchoseDeviceHelper`，通过官方 SDK 的 `55 05 00 38 38` 性能配置查询读取 `rf_battery` 与 `isCharging`；实机 2.4G 读到 21%，通用电竞鼠标协议显式隔离 `3837:3033`。
+- **VGN V108 三模机械键盘 2.4G 接收器 (`391D:2A02`, ByTech)**（社区贡献者 `@SnivyJ` 本机实机逆向适配）：
+  - 在既有 `VgnKeyboardHelper` 中新增 V108 通道：直连 `UsagePage 0xFF02 / Usage 0x0002` 的严格 20/20 字节厂商中断集合（与 Neon75 的 65 字节 Feature 通道、Yjx 蜻蜓的 `391D:1A03` ≥65 字节通道三方隔离）。
+  - 逆向并实测 `0x13` 帧族：`0x4A` 电量帧 `13 4A 01 00 02 5A 00 … BA`（`byte[5]`=电量 90%，`byte[6]` 高半字节=充电；插上 USB-C 后同机实测 `13 4A 01 00 02 5A 10 … CA`，仅状态位由 `0x00` 翻为 `0x10`，连续 3 次采样一致），`0x05` 型号帧 `13 05 01 00 06 0A 00 00 00 00 30 … 59`（型号码 `0x30` = V108），末字节为前 19 字节累加和。
+  - **能力诚实**：仅声明电量与充电状态，未实测到可用的 DPI/回报率/灯光写入指令，故 `SupportsDpi = false`、`SupportsPollingRate = false`；同步修正 `VgnMouseDriver.CanHandle` 排除 `DeviceCategory.Keyboard`，杜绝 VGN 键盘继承鼠标驱动的虚假可写能力位。
+  - 独立缓存 `HKCU\Software\RazerBatteryTray\VgnV108Cache`（与 Neon75 缓存隔离）；键盘休眠不回包时展示休眠缓存电量并显式标注，不伪造在线/充电状态。
+  - 新增契约测试 `tests/test_vgn_v108_391d_2a02_support.ps1`：35 项断言覆盖真实抓包回放（含插线充电帧）、校验和、字段越界、同 VID 家族隔离与能力位诚实性。
 
 ### 🛠️ 底层总线与自动化测试
 - **通用 HID 总线架构**：新增 `HidTransport`，统一 SetupAPI 枚举、HidD 属性/能力查询与重叠 I/O 超时读写，杜绝同步 `ReadFile` 阻塞 UI 轮询线程。

@@ -971,6 +971,22 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.46 Query VGN V108 (2.4G wireless keyboard receiver, VID 391D / PID 2A02)
+            try
+            {
+                var v108 = VgnKeyboardHelper.QueryVgnV108Info();
+                if (v108 != null && (v108.IsConnected || v108.IsDonglePresent))
+                {
+                    v108.IsCustom = false;
+                    list.Add(v108);
+                    if (v108.BatteryPercent >= 0)
+                    {
+                        UpdateCustomDeviceBattery(v108.DeviceId, v108.BatteryPercent, DateTime.Now);
+                    }
+                }
+            }
+            catch { }
+
             // 2.5 Query VGN
             try
             {
