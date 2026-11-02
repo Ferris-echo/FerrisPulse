@@ -91,6 +91,44 @@ namespace RazerBatteryTray
             return isG87 || isG75 || isZ75s;
         }
 
+        /// <summary>
+        /// 根据 VID/PID 给出迈从设备的权威品类判定。
+        /// 4D 协议族（K7 V2 Ultra+ 等）与旧版 A5 V2 Ultra 都是鼠标；
+        /// G87 V2 / G75 PRO / Z75s 是键盘。
+        /// 用途：修正被误写进注册表的品类。这些复合外设在 USB 描述符里
+        /// 同时暴露键盘与鼠标接口（K7 V2 Ultra+ 的 MI_01 就是 HID Keyboard），
+        /// 用户手动添加设备时很容易被记成 Keyboard；一旦固化进注册表，
+        /// 鼠标驱动的 CanHandle 会因品类不符拒绝接管，DPI 与回报率控件整块消失。
+        /// </summary>
+        public static bool TryGetAuthoritativeCategory(string deviceId, string hardwareFingerprint, out DeviceCategory category)
+        {
+            category = DeviceCategory.Generic;
+            int vid = 0;
+            int pid = 0;
+            bool vidPidOk = HardwareDriverBase.TryExtractVidPidFromString(deviceId, out vid, out pid);
+            if (!vidPidOk)
+            {
+                vidPidOk = HardwareDriverBase.TryExtractVidPidFromString(hardwareFingerprint, out vid, out pid);
+            }
+            if (!vidPidOk) return false;
+
+            if (vid == VendorIdMchose && MchoseMouse4DHelper.IsSupportedPid(pid))
+            {
+                category = DeviceCategory.Mouse;
+                return true;
+            }
+
+            if ((vid == VendorIdMchose && pid == PidG87V2) ||
+                (vid == VendorIdCompX && pid == PidG75Pro) ||
+                (vid == VendorIdZ75s && pid == PidZ75sWireless))
+            {
+                category = DeviceCategory.Keyboard;
+                return true;
+            }
+
+            return false;
+        }
+
         public static string GetModelName(string productString)
         {
             if (!string.IsNullOrEmpty(productString))

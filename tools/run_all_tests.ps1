@@ -3,6 +3,15 @@ $testFiles = Get-ChildItem (Join-Path $PSScriptRoot "..\tests\test_*.ps1")
 $allPassed = $true
 $summary = @()
 
+# 0. 个别测试需要真实硬件往返（每次 0x4D 查询在设备未应答时会把
+#    BusyRetryCount(8) × BusyRetryDelayMs(90) 的重试全部耗完，单次约 4.2 秒），
+#    12 秒全局看门狗对它们必然误杀。这里给它们单独的宽限预算，
+#    其余测试仍保持 12 秒严格看门狗。
+$testTimeouts = @{
+    "test_mchose_onboard_truthfulness.ps1" = 60000
+}
+$defaultTimeoutMs = 12000
+
 # 1. 生产环境注册表防污染快照，严格保护用户真实外设与电竞配置
 $regPath = "HKCU:\Software\FerrisPulse"
 $regBackup = @{}
@@ -29,12 +38,14 @@ try {
         $p = [System.Diagnostics.Process]::Start($psi)
         $stdoutTask = $p.StandardOutput.ReadToEndAsync()
         $stderrTask = $p.StandardError.ReadToEndAsync()
-        $finished = $p.WaitForExit(12000) # 12秒看门狗超时，防止任何测试脚本无休止卡死
+        $budgetMs = $defaultTimeoutMs
+        if ($testTimeouts.ContainsKey($tf.Name)) { $budgetMs = $testTimeouts[$tf.Name] }
+        $finished = $p.WaitForExit($budgetMs) # 看门狗超时，防止任何测试脚本无休止卡死
         if (-not $finished) {
             try { $p.Kill() } catch { }
             $allPassed = $false
-            $summary += "[TIMEOUT (>12s)] " + $tf.Name
-            Write-Host " -> TIMEOUT (>12s): 强制终止防卡死" -ForegroundColor Red
+            $summary += "[TIMEOUT (>$([int]($budgetMs/1000))s)] " + $tf.Name
+            Write-Host " -> TIMEOUT (>$([int]($budgetMs/1000))s): 强制终止防卡死" -ForegroundColor Red
             continue
         }
 
