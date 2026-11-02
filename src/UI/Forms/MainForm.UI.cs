@@ -265,7 +265,7 @@ namespace RazerBatteryTray
             lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblDpiTitle);
 
-            btnDpiStages = new ModernSegmentButton[6];
+            btnDpiStages = new ModernSegmentButton[8];
             for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 int index = i;

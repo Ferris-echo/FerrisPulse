@@ -50,6 +50,27 @@
   - 偏移：`[0]=0x07`, `[2]=当前档位(0-based)`, `[3..4]=DpiX(LE)`, `[5..6]=DpiY(LE)`, `[7]=充电状态(0x01放电/0x02充电)`, `[8]=电量百分比(0..100)`, `[10]=回报率码`, `[13..14]=PID`, `[17]=档位总数`。
 - **EEPROM 读写避让**：特征端点用 `0` 权限打开，EEPROM 写入后保持 800ms 静默期，轮询恒定推移时间戳防 50ms 高频死循环。
 
+### 1.3.1 雷柏 MT760 办公系列 2.4G 接收器 (`RapooDeviceHelper.MT760.cs`)
+- **设备**: `24AE:1870`（Telink TLSR8355 接收器），本机实测为 MT760 系列；同 PID 覆盖 MT760L / MT760 Mini。
+- **物理端点隔离**: 仅 `UsagePage 0xFF00 / Usage 0x000E, InputLen=32, OutputLen=32, FeatureLen=0` 允许接入。
+  - 必须排除同厂 `FF00:0002 (7/7)` 遥测流与 `FF01:0000 (29/29/29)` 键盘厂商通道；严禁仅凭 VID/PID 或 `>= 32` 匹配。
+- **命令帧**: 32 字节 `BA <conn> <op> <len> <addr LE32> [data..]`；2.4G 接收器 `conn=0xA5`（实测 `0xFF` 返回 `00` 不支持）。
+  - `0x02` = 设备忙：只轮询 `HidD_GetInputReport(0xBA)`，**绝不重发指令**。
+- **电量/充电**: 发送 `BA A5 AA 00...`，回复 `01 <state> <level>`：
+  - `state=0x01` 放电、`0x02` 充电；`level=0x7F` 表示充电中电量未稳定，显式标记未知，绝不伪造 100%。
+  - 本机实测回复 `01 01 59` = 89% 放电。
+- **DPI 配置块 (0x0638)**:
+  - 读取 `BA A5 A4 18 38 06 00 00`（24 字节数据）；辅助读取 `BA A5 A4 08 48 06 00 00`（8 字节，重叠校验 `0x0648 = 0x0638 + 16`）。
+  - 数据布局：`[0..13]` 7×LE16 (`DPI/50`)，`[14]=档位数-1`，`[15]=0`，`[16]=当前档-1`，`[17..19]=辅助块 [5..7]`。
+  - 写入 `BA A5 A5 14 38 06 00 00 + 20B`；必须「新鲜基线 → 单次写入 → 回读 20 字节 + 档位模型校验」，失败不自动重写。
+  - 本机实测：800/1000/1200/1600/2400/3200/4000（7 档，当前第 3 档 1200），+50 DPI 写入回读、再恢复 1200 全部通过。
+- **回报率块 (0x0630)**:
+  - 读取 `BA A5 A4 08 30 06 00 00` → 8 字节；`byte[0]=有线编码`、`byte[1]=无线编码`。
+  - 编码：`0x08/0x04/0x02/0x01` = 125/250/500/1000 Hz；官方写入 `BA A5 A5 04 30 06 00 00 + code,code,block[2],block[3]`。
+  - 本机实测：1000Hz → 500Hz → 恢复原始 `02 01 FF FF`，回读通过。
+- **能力契约**: `SupportsBattery/SupportsDpi/SupportsDpiStages/SupportsPollingRate/SupportsHardwareDpiMonitor = true`；**`SupportsXyIndependence = false`**（办公系列每档只有单一 DPI）。
+- **协议来源与致谢**: PyFlat/Device-Battery-Info #36 (@xicor22)、Revisory676/rapoo-mt760-linux、LTbinglingfeng/MT760-driver。
+
 ### 1.4 瓦尔基里 (Valkyrie) 键鼠协议 (`ValkyrieDeviceHelper.cs`)
 - **VID**: `0x374A`（及代工 `0x3151`, `0x347A`）。
 - **0xF7 状态与电量查询**：

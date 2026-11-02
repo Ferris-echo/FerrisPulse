@@ -665,6 +665,31 @@ namespace RazerBatteryTray
                 }
                 catch { }
 
+                // 2.1 Scan Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
+                try
+                {
+                    var rpOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                    if (rpOffice != null && (rpOffice.IsConnected || rpOffice.IsDonglePresent))
+                    {
+                        if (!tempConfigs.Exists(c => c.DeviceId == rpOffice.DeviceId ||
+                            (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == rpOffice.HardwareFingerprint)))
+                        {
+                            var cfg = new CustomDeviceConfig
+                            {
+                                DeviceId = rpOffice.DeviceId,
+                                OriginalName = rpOffice.DeviceName,
+                                CustomName = resolveCustomName(rpOffice.DeviceId, rpOffice.DisplayName, rpOffice.DeviceName),
+                                Category = resolveCategory(rpOffice.DeviceId, DeviceCategory.Mouse),
+                                Transport = "2.4G 无线",
+                                CachedBattery = rpOffice.BatteryPercent,
+                                HardwareFingerprint = rpOffice.HardwareFingerprint
+                            };
+                            tempConfigs.Add(cfg);
+                        }
+                    }
+                }
+                catch { }
+
                 // 2.5 Scan VGN Devices (2.4G / USB)
                 try
                 {

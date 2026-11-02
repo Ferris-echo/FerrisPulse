@@ -28,6 +28,12 @@
   - 新增 `RapooProtocol` 纯协议解析与 `RapooDeviceHelper.Status.cs` 实时遥测管道；
   - 严谨解析 19 字节遥测报文（Report ID 0x07），支持 6 档自定义 DPI 阶段（上限由 5 档扩至 6 档）、独立 XY 轴 DPI 调节与硬件端点实时同步；
   - 接入 Win32 可取消异步重叠 I/O，杜绝 EEPROM 写入与多端点枚举阻塞主线程；完善物理父接口端点智能隔离与休眠断连安全自愈。
+- **雷柏 (Rapoo) MT760 / MT760L / MT760 Mini 办公系列 2.4G 无线鼠标 (`24AE:1870`)**：
+  - 新增 `RapooDeviceHelper.MT760.cs` 与 `RapooOfficeMouseDriver`，通过 `UsagePage 0xFF00 / Usage 0x000E` 的 32 字节 Out/Input 厂商集合发送 `BA A5 AA` 主动查询，解析 `01 <state> <level>` 实现精准电量与充电状态读取；
+  - 支持 7 档 DPI (50–4,000，步进 50) 与 125/250/500/1000Hz 回报率读写；写入严格采用「新鲜基线 → 单次写入 → 回读校验」，`0x02` 忙状态仅轮询 `GetInputReport`，绝不重发指令；
+  - 办公系列无 XY 轴独立能力，显式 `SupportsXyIndependence = false`；端点按 `VID + PID + UsagePage/Usage + 32/32` 精确隔离，排除同厂 7B 遥测与 29B 键盘通道；
+  - 本机实机验证：电量 89%、1200 DPI (3/7)、1000Hz；+50 DPI 与 500Hz 可逆写入回读通过；
+  - 协议参考致谢：PyFlat/Device-Battery-Info #36 (@xicor22)、Revisory676/rapoo-mt760-linux、LTbinglingfeng/MT760-driver。
 - **高斯 (GANSS) GS3108T-PRO 三模机械键盘 (`0C45:8006` 有线 / `0C45:8008` 2.4G)**（感谢 [@lbyisme](https://github.com/lbyisme) 适配贡献 #38）：
   - 新增 `GanssDeviceHelper`，通过 `0x0C45` 通道与 `0x05 / 0x11` 协议帧精准读取无线电量；
   - 物理传输模式隔离：精准识别有线（8006）与 2.4G（8008）模式，有线接入时直接判定常供电状态并隐藏过时电量注脚；

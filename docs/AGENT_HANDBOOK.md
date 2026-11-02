@@ -58,6 +58,7 @@
 4. **8K 接收器中断端点谨慎预排空 (`DrainReports`)**：部分仅暴露 Interrupt In/Out 端点（无 Feature Report）的 8K 接收器（如 ATK F1 Ultimate 2.0 `373B:11D9`），在 `WriteFile` 前执行 `DrainReports` 会打断接收器与鼠标的无线握手状态机，此时应直接写入查询帧并按报表头过滤响应。
 5. **警惕无线链路微状态位伪装充电**：部分接收器（如宏碁 OMR331 `249A:5C2F`）响应帧中的状态字节在未插线时也会随鼠标唤醒/休眠在 `0x01/0x00` 间跳变。未证实为真实 USB 充电位前，切勿盲目绑定为 `isCharging`，以免闪电图标反复横跳。
 6. **物理事实优先，严禁盲扫异构协议或虚标能力**：严禁向同一设备盲目轮番发送多套异构 Feature Report；未实机验证 DPI/回报率写指令的设备，必须显式设置 `SupportsDpi = false`、`SupportsPollingRate = false`，宁缺毋滥。
+7. **0x02 忙状态只轮询 GetInputReport，严禁重发指令**：雷柏 MT760 (`24AE:1870`) 等设备在查询/写配置后返回 status `0x02`；重复 `SetOutputReport` 会打乱固件状态机，必须仅重复 `HidD_GetInputReport(0xBA)`。配置写入统一采用「新鲜基线 → 单次写入 → 回读校验」，失败即视为状态不确定，不自动重写。
 
 ---
 

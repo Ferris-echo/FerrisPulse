@@ -74,6 +74,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new RapooMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new RapooOfficeMouseDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new ValkyrieMouseDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new ValkyrieKeyboardDriver());
@@ -662,6 +664,135 @@ namespace RazerBatteryTray
         {
 
             return RapooDeviceHelper.SetRapooPollingRate(rateHz);
+
+        }
+
+    }
+
+
+
+    public sealed class RapooOfficeMouseDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:RapooOfficeMouse"; } }
+
+        public override string Brand { get { return "Rapoo"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return vid == 0x24AE && pid == 0x1870;
+
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return false;
+
+            if (dev.DeviceId != null && dev.DeviceId.StartsWith("Rapoo:24AE:1870", StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (dev.HardwareFingerprint != null && dev.HardwareFingerprint.StartsWith("HID:24AE:1870", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = true;
+
+            dev.Capabilities.SupportsDpiStages = true;
+
+            dev.Capabilities.SupportsPollingRate = true;
+
+            // MT760 办公系列每档只有单一 DPI，没有 XY 独立双轴能力，严禁虚标。
+            dev.Capabilities.SupportsXyIndependence = false;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = true;
+
+            dev.Capabilities.SupportedPollingRates = new int[] { 125, 250, 500, 1000 };
+
+            dev.Capabilities.MinDpi = 50;
+
+            dev.Capabilities.MaxDpi = 4000;
+
+            dev.Capabilities.DpiStep = 50;
+
+            dev.Capabilities.SensorDescription = "雷柏 MT760 系列办公光学传感器 (50–4,000 DPI，7 档)";
+
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo info = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+
+            if (info != null && (info.IsConnected || info.IsDonglePresent))
+
+            {
+
+                info.Category = DeviceCategory.Mouse;
+
+                PopulateCapabilities(info);
+
+                list.Add(info);
+
+            }
+
+            return list;
+
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+
+        {
+
+            return RapooDeviceHelper.FastQueryOfficeDpi(out dpiX, out dpiY, out stage, out count);
+
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+
+        {
+
+            return RapooDeviceHelper.SetOfficeDpi(dpiX, dpiY, stage);
+
+        }
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+
+        {
+
+            return RapooDeviceHelper.UpdateOfficeHardwareStages(activeStage, stagesX, stagesY);
+
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+
+        {
+
+            return RapooDeviceHelper.SetOfficePollingRate(rateHz);
 
         }
 

@@ -897,6 +897,14 @@ namespace RazerBatteryTray
             }
         }
 
+        private static bool IsRapooOfficeConfig(CustomDeviceConfig cfg)
+        {
+            if (cfg == null) return false;
+            if (!string.IsNullOrEmpty(cfg.DeviceId) && cfg.DeviceId.IndexOf("24AE:1870", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.IndexOf("24AE:1870", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
             BuiltInDrivers.EnsureRegistered();
@@ -951,6 +959,23 @@ namespace RazerBatteryTray
                     rapoo.Category = DeviceCategory.Mouse;
                     rapoo.IsCustom = false;
                     list.Add(rapoo);
+                }
+            }
+            catch { }
+
+            // 2.05 Query Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
+            try
+            {
+                var rapooOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                if (rapooOffice != null && (rapooOffice.IsConnected || rapooOffice.IsDonglePresent))
+                {
+                    rapooOffice.Category = DeviceCategory.Mouse;
+                    rapooOffice.IsCustom = false;
+                    list.Add(rapooOffice);
+                    if (rapooOffice.BatteryPercent >= 0)
+                    {
+                        UpdateCustomDeviceBattery(rapooOffice.DeviceId, rapooOffice.BatteryPercent, DateTime.Now);
+                    }
                 }
             }
             catch { }
@@ -1876,7 +1901,8 @@ namespace RazerBatteryTray
                         }
                         else if (isRapoo)
                         {
-                            var rp = RapooDeviceHelper.QueryRapooDeviceInfo();
+                            bool isOfficeRapoo = IsRapooOfficeConfig(cfg);
+                            var rp = isOfficeRapoo ? RapooDeviceHelper.QueryRapooOfficeDeviceInfo() : RapooDeviceHelper.QueryRapooDeviceInfo();
                             if (rp != null && (rp.IsConnected || rp.IsDonglePresent))
                             {
                                 connected = rp.IsConnected;
@@ -1886,7 +1912,8 @@ namespace RazerBatteryTray
                             else
                             {
                                 connected = false;
-                                batt = RapooDeviceHelper.CachedBatteryPercent > 0 ? RapooDeviceHelper.CachedBatteryPercent : -1;
+                                int cachedRapoo = isOfficeRapoo ? RapooDeviceHelper.CachedOfficeBatteryPercent : RapooDeviceHelper.CachedBatteryPercent;
+                                batt = cachedRapoo > 0 ? cachedRapoo : -1;
                             }
                         }
                         else if (isHyperX)
@@ -2081,7 +2108,7 @@ namespace RazerBatteryTray
                         }
                         else if (isRapoo)
                         {
-                            int cachedRp = RapooDeviceHelper.CachedBatteryPercent;
+                            int cachedRp = IsRapooOfficeConfig(cfg) ? RapooDeviceHelper.CachedOfficeBatteryPercent : RapooDeviceHelper.CachedBatteryPercent;
                             devInfo.BatteryPercent = cachedRp > 0 ? cachedRp : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
                             devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
                         }
