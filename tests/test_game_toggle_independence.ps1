@@ -98,7 +98,11 @@ AssertHas $monitor "if (!autoGameRateEnabled && !autoGameDpiEnabled) return;" "�
 
 $cal = Get-Body $hw "private void PerformStartupDesktopCalibration(MouseBatteryInfo dev)" "private void RestoreDesktopSettingsSynchronous()"
 if ($cal.Length -eq 0) { throw "FAIL: 找不到 PerformStartupDesktopCalibration 方法体" }
-AssertNot $cal "HardwareCommandBus.SetPollingRate" "启动校准不直接写回报率"
+if ($cal.Contains("HardwareCommandBus.SetPollingRate")) {
+    if ($cal.Contains("if (autoGameRateEnabled && desktopPollingRate > 0)")) { Ok "启动校准直写回报率前检查电竞回报率开关" } else { Ng "启动校准直写回报率未过电竞回报率开关门禁" }
+} else {
+    Ok "启动校准不直接写回报率（走同步校准方法）"
+}
 AssertNot $cal "HardwareCommandBus.SetDpi(" "启动校准不直接写 DPI"
 
 $sync = Get-Body $hw "private void RestoreDesktopSettingsSynchronous()" "private void StartGameMonitor()"
