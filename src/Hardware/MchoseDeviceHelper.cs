@@ -73,7 +73,6 @@ namespace RazerBatteryTray
         /// 电量大于 127 会溢出成 >100 被整体判为无效，因此必须按位域解析。
         /// </summary>
         private const int PerformanceBatteryOffset = 40;
-        private const int PerformanceChargingOffset = 41;
         private const int PerformanceBatteryMask = 0x7F;
         private const int PerformanceChargingMask = 0x80;
         /// <summary>传输形态字节：0x01 = USB 有线直连，0x02 = 2.4G 接收器。</summary>

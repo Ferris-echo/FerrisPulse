@@ -3028,7 +3028,7 @@ namespace RazerBatteryTray
                 }
                 else if (wiredWithBattery)
                 {
-                    lblBatteryBig.Font = new Font("Microsoft YaHei UI", 34F, FontStyle.Bold, GraphicsUnit.Point);
+                    DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = info.BatteryPercent + "%";
                     lblBatteryBig.ForeColor = brandAccent;
 
