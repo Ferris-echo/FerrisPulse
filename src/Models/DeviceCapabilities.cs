@@ -42,6 +42,10 @@ namespace RazerBatteryTray
         public string ThemeColorHex { get; set; }
         public string PerformanceCardTitle { get; set; }
 
+        // 充电位语义声明：true 表示该设备的「充电中」标志位只代表「USB 已插上并供电」，
+        // 并不代表电池正在充电；UI 应据此显示「USB 有线」而非「充电中」。
+        public bool ChargingFlagMeansUsbPoweredOnly { get; set; }
+
         private List<CustomDeviceAction> customActions;
         public List<CustomDeviceAction> CustomActions
         {
