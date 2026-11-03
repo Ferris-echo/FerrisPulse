@@ -1009,7 +1009,8 @@ namespace RazerBatteryTray
                             {
                                 this.BeginInvoke(new Action(() => {
                                     calibratedStartupDevices.Clear();
-                                    if (selectedDevice != null) PerformStartupDesktopCalibration(selectedDevice);
+                                    var activeMouse = GetActiveMouseDevice();
+                                    if (activeMouse != null) PerformStartupDesktopCalibration(activeMouse);
                                 }));
                             }
                             catch { }
@@ -2006,6 +2007,13 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                         if (deskRateVal != null) desktopPollingRate = (int)deskRateVal;
 
+                        var deskDpiStageVal = key.GetValue("DesktopDpiStage");
+                        if (deskDpiStageVal != null)
+                        {
+                            desktopDpiStage = (int)deskDpiStageVal;
+                            if (desktopDpiStage < 1 || desktopDpiStage > 5) desktopDpiStage = 0;
+                        }
+
 
 
                         var notifyOsdVal = key.GetValue("GameRateNotifyOsd");
@@ -2247,6 +2255,10 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                 UpdateGameDpiButtonSelection(gameDpiStage);
 
                 UpdateDesktopRateButtonSelection(desktopPollingRate);
+                if (desktopDpiStage > 0)
+                {
+                    HighlightDpiStage(desktopDpiStage);
+                }
 
                 UpdateManageGamesButtonText();
 
@@ -2461,6 +2473,8 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                         key.SetValue("GameTargetDpiStage", gameDpiStage);
 
                         key.SetValue("DesktopPollingRate", desktopPollingRate);
+
+                        key.SetValue("DesktopDpiStage", desktopDpiStage);
 
                         key.SetValue("GameRateNotifyOsd", gameRateNotifyOsd ? 1 : 0);
 

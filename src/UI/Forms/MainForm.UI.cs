@@ -1548,11 +1548,13 @@ namespace RazerBatteryTray
                 // 处于游戏运行中：上方的日常 DPI 仅作为“退出游戏后的恢复预设目标”
                 // 绝不篡改 gameDpiStage，绝不向正在游戏中的鼠标硬件发送 SetDpi 指令打扰游戏
                 desktopDpiStage = targetStage;
+                SaveConfig();
                 UpdatePollingRateDisplayStates();
                 return;
             }
 
             desktopDpiStage = targetStage;
+            SaveConfig();
             var curDev = selectedDevice;
             if (curDev != null)
             {
@@ -1775,9 +1777,13 @@ namespace RazerBatteryTray
             int desktopHighlightRate = (isGamingActive && autoGameRateEnabled) ? desktopPollingRate : effectiveDesktopHz;
             int currentActiveDpi = 0;
             int currentActiveDpiY = 0;
+            int measuredDesktopStage = (selectedDevice != null && selectedDevice.DpiStage > 0)
+                ? selectedDevice.DpiStage
+                : 0;
+            int effectiveDesktopStage = (measuredDesktopStage > 0) ? measuredDesktopStage : ((desktopDpiStage > 0) ? desktopDpiStage : 1);
             int activeStage = (isGamingActive && autoGameDpiEnabled)
                 ? gameDpiStage
-                : ((desktopDpiStage > 0) ? desktopDpiStage : ((selectedDevice != null && selectedDevice.DpiStage > 0) ? selectedDevice.DpiStage : 0));
+                : effectiveDesktopStage;
 
             if (dpiStageList != null && dpiStageList.Count > 0)
             {
@@ -1856,14 +1862,16 @@ namespace RazerBatteryTray
             }
 
             // 4. DPI 档位按钮分段高光联动：未使用时深绿预设 (IsPreset = true)，生效时亮绿激活 (IsPreset = false)
-            int effectiveDesktopStage = (desktopDpiStage > 0) ? desktopDpiStage : ((selectedDevice != null && selectedDevice.DpiStage > 0) ? selectedDevice.DpiStage : 1);
+            int desktopHighlightStage = (isGamingActive && autoGameDpiEnabled)
+                ? (desktopDpiStage > 0 ? desktopDpiStage : effectiveDesktopStage)
+                : effectiveDesktopStage;
             if (btnDpiStages != null)
             {
                 for (int i = 0; i < btnDpiStages.Length; i++)
                 {
                     if (btnDpiStages[i] != null && dpiStageList != null && i < dpiStageList.Count)
                     {
-                        bool isCur = (i == (effectiveDesktopStage - 1));
+                        bool isCur = (i == (desktopHighlightStage - 1));
                         btnDpiStages[i].Selected = isCur;
                         btnDpiStages[i].IsPreset = (isCur && isGamingActive && autoGameDpiEnabled);
                     }

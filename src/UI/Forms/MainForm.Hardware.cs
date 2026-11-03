@@ -331,6 +331,7 @@ namespace RazerBatteryTray
             if (!isGamingActive && newStage > 0)
             {
                 desktopDpiStage = newStage;
+                SaveConfig();
             }
 
             if (dpiOsdEnabled && osdForm != null)
@@ -425,11 +426,13 @@ namespace RazerBatteryTray
             {
                 // 处于游戏运行中时：调节日常 DPI 仅更新退出恢复目标，不改变鼠标当前电竞硬件状态
                 desktopDpiStage = (targetStage > 0) ? targetStage : 1;
+                SaveConfig();
                 UpdatePollingRateDisplayStates();
                 return;
             }
 
             desktopDpiStage = (targetStage > 0) ? targetStage : 1;
+            SaveConfig();
 
             int dpiY = dpi;
             if (targetStage > 0 && curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
@@ -899,7 +902,7 @@ namespace RazerBatteryTray
 
         private void PerformStartupDesktopCalibration(MouseBatteryInfo dev)
         {
-            if (dev == null || dev.Category != DeviceCategory.Mouse) return;
+            if (dev == null || dev.Category != DeviceCategory.Mouse || !IsDeviceSupportingAutoGameRate(dev)) return;
             if (!autoGameRateEnabled && !autoGameDpiEnabled) return;
 
             string devKey = !string.IsNullOrEmpty(dev.DeviceId) ? dev.DeviceId : (dev.Brand ?? "default");
@@ -932,16 +935,84 @@ namespace RazerBatteryTray
                 }
                 else if (!alreadyCalibrated)
                 {
-                    // 仅在开机或设备初次识别就绪时同步硬件物理真实档位，严禁向鼠标覆盖写入默认 DPI
-                    if (dev.DpiStage > 0)
+                    // 开机自启动或设备初次识别就绪时的安全校准
+                    // 1. DPI 安全对齐：
+                    // 若无历史记录（desktopDpiStage <= 0），采纳硬件当前物理真实档位并持久化；
+                    // 若已有配置且 autoGameDpiEnabled 开启，若硬件残留异常档位（如冷启动默认 1 档或关机残留电竞高档），主动校准恢复
+                    if (desktopDpiStage <= 0)
                     {
-                        desktopDpiStage = dev.DpiStage;
+                        if (dev.DpiStage > 0)
+                        {
+                            desktopDpiStage = dev.DpiStage;
+                            SaveConfig();
+                        }
                     }
+                    else if (autoGameDpiEnabled && dev.DpiStage > 0 && dev.DpiStage != desktopDpiStage)
+                    {
+                        int targetStage = desktopDpiStage;
+                        int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 1600;
+                        int targetDpiY = (dev.DpiStagesY != null && dev.DpiStagesY.Length >= targetStage) ? dev.DpiStagesY[targetStage - 1] : targetDpi;
+                        ThreadPool.QueueUserWorkItem(_ => {
+                            for (int attempt = 0; attempt < 3; attempt++)
+                            {
+                                if (HardwareCommandBus.SetDpi(dev, targetDpi, targetDpiY, targetStage))
+                                {
+                                    dev.DpiStage = targetStage;
+                                    dev.Dpi = targetDpi;
+                                    dev.DpiY = targetDpiY;
+                                    try
+                                    {
+                                        this.BeginInvoke(new Action(() => {
+                                            HighlightDpiStage(targetStage);
+                                            UpdatePollingRateDisplayStates();
+                                            UpdateStatusDisplay();
+                                        }));
+                                    }
+                                    catch { }
+                                    break;
+                                }
+                                Thread.Sleep(80);
+                            }
+                        });
+                    }
+
+                    // 2. 回报率安全对齐：
+                    // 若 autoGameRateEnabled 开启且 desktopPollingRate > 0，异步带重试下发 desktopPollingRate
+                    // 彻底解决 2.4G 接收器刚上电枚举、链路未建立或鼠标深睡导致单次写入失败的问题
                     if (autoGameRateEnabled && desktopPollingRate > 0)
                     {
-                        HardwareCommandBus.SetPollingRate(dev, desktopPollingRate);
+                        int targetHz = desktopPollingRate;
+                        ThreadPool.QueueUserWorkItem(_ => {
+                            bool rateSuccess = false;
+                            for (int attempt = 0; attempt < 3; attempt++)
+                            {
+                                if (HardwareCommandBus.SetPollingRate(dev, targetHz))
+                                {
+                                    dev.PollingRate = targetHz;
+                                    rateSuccess = true;
+                                    try
+                                    {
+                                        this.BeginInvoke(new Action(() => {
+                                            UpdateDesktopRateButtonSelection(targetHz);
+                                            UpdatePollingRateDisplayStates();
+                                            UpdateStatusDisplay();
+                                        }));
+                                    }
+                                    catch { }
+                                    break;
+                                }
+                                Thread.Sleep(80);
+                            }
+                            if (rateSuccess)
+                            {
+                                calibratedStartupDevices[devKey] = true;
+                            }
+                        });
                     }
-                    calibratedStartupDevices[devKey] = true;
+                    else
+                    {
+                        calibratedStartupDevices[devKey] = true;
+                    }
                 }
             }
         }
@@ -950,22 +1021,30 @@ namespace RazerBatteryTray
         {
             try
             {
-                // 严禁在日常桌面状态下向硬件盲写档位！仅在游戏运行中遭遇异常退出/关机时才紧急恢复桌面状态
-                if (!isGamingActive) return;
+                var curDev = selectedDevice ?? GetActiveMouseDevice();
+                if (curDev == null || curDev.Category != DeviceCategory.Mouse) return;
 
-                var curDev = GetActiveMouseDevice();
-                if (curDev == null) return;
-
+                // 关机/睡眠安全兜底：
+                // 1. 回报率：若开启电竞回报率优化，且处于游戏活跃中或硬件残留高回报率（> desktopPollingRate），同步下发恢复为桌面回报率
                 if (autoGameRateEnabled && desktopPollingRate > 0)
                 {
-                    HardwareCommandBus.SetPollingRate(curDev, desktopPollingRate);
+                    if (isGamingActive || curDev.PollingRate > desktopPollingRate)
+                    {
+                        HardwareCommandBus.SetPollingRate(curDev, desktopPollingRate);
+                    }
                 }
+
+                // 2. DPI 档位：若开启电竞 DPI 优化，且处于游戏活跃中或硬件残留非桌面档位，同步下发恢复为桌面档位
                 if (autoGameDpiEnabled && desktopDpiStage > 0)
                 {
-                    int targetStage = desktopDpiStage;
-                    if (targetStage < 1 || targetStage > 5) targetStage = 1;
-                    int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 1600;
-                    HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpi, targetStage);
+                    if (isGamingActive || (curDev.DpiStage > 0 && curDev.DpiStage != desktopDpiStage))
+                    {
+                        int targetStage = desktopDpiStage;
+                        if (targetStage < 1 || targetStage > 5) targetStage = 1;
+                        int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 1600;
+                        int targetDpiY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage) ? curDev.DpiStagesY[targetStage - 1] : targetDpi;
+                        HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage);
+                    }
                 }
             }
             catch { }
@@ -1056,13 +1135,13 @@ namespace RazerBatteryTray
                 if (desktopDpiStage <= 0)
                 {
                     desktopDpiStage = (curDev.DpiStage > 0) ? curDev.DpiStage : 1;
+                    SaveConfig();
                 }
                 targetStage = gameDpiStage;
             }
             else
             {
                 targetStage = (desktopDpiStage > 0) ? desktopDpiStage : 1;
-                desktopDpiStage = 0;
             }
 
             if (targetStage < 1 || targetStage > 5) targetStage = 1;
@@ -1275,6 +1354,7 @@ namespace RazerBatteryTray
             if (desktopDpiStage <= 0)
             {
                 desktopDpiStage = (curDev.DpiStage > 0) ? curDev.DpiStage : 1;
+                SaveConfig();
             }
 
             int targetStage = gameDpiStage;
@@ -1338,7 +1418,6 @@ namespace RazerBatteryTray
             int targetDpiY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage) ? curDev.DpiStagesY[targetStage - 1] : targetDpi;
             string brand = curDev.Brand;
             int prevStage = desktopDpiStage;
-            desktopDpiStage = 0; // reset memory
             SyncMonitoredDpiState(targetDpi, targetStage, curDev.DeviceId);
 
             new Thread(() => {
@@ -1743,6 +1822,11 @@ namespace RazerBatteryTray
                 if (selectedDevice != null)
                 {
                     PerformStartupDesktopCalibration(selectedDevice);
+                }
+                var activeMouse = GetActiveMouseDevice();
+                if (activeMouse != null && activeMouse != selectedDevice)
+                {
+                    PerformStartupDesktopCalibration(activeMouse);
                 }
             }
             else
