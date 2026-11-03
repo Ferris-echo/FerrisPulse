@@ -20,6 +20,8 @@ namespace RazerBatteryTray
 {
     public static class HardwareCommandBus
     {
+        public static bool DisableHardwareWriteForTesting { get; set; }
+
         private static readonly object lockTableSync = new object();
         private static readonly Dictionary<string, object> deviceLocks = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
@@ -85,6 +87,7 @@ namespace RazerBatteryTray
         public static bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
         {
             if (dev == null) return false;
+
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
 
@@ -112,6 +115,7 @@ namespace RazerBatteryTray
         public static bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
         {
             if (dev == null || stagesX == null || stagesX.Length == 0) return false;
+
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
 
@@ -148,6 +152,7 @@ namespace RazerBatteryTray
         public static bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
         {
             if (dev == null || rateHz <= 0) return false;
+
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
 

@@ -1871,6 +1871,20 @@ namespace RazerBatteryTray
 
         public static bool SetRazerDpiStage(int targetStage, string targetDeviceId = null)
         {
+            if (MainForm.DisableConfigSaveForTesting ||
+                HardwareCommandBus.DisableHardwareWriteForTesting ||
+                string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            if (!string.IsNullOrEmpty(targetDeviceId) &&
+                (targetDeviceId.StartsWith("TEST", StringComparison.OrdinalIgnoreCase) ||
+                 targetDeviceId.StartsWith("MOCK", StringComparison.OrdinalIgnoreCase) ||
+                 targetDeviceId.IndexOf("TEST_", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return false;
+            }
+
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             lock (hidLock)
@@ -1887,6 +1901,12 @@ namespace RazerBatteryTray
                         SaveHardwareCache();
                         return true;
                     }
+                }
+
+                // ⚠️ 物理硬件保护防线：若显式指定了目标设备但未在线，严禁盲目向系统内其它物理雷蛇设备下发！
+                if (!string.IsNullOrEmpty(normTargetId))
+                {
+                    return false;
                 }
 
                 Guid hidGuid;
@@ -2563,6 +2583,20 @@ namespace RazerBatteryTray
 
         public static bool SetRazerPollingRate(int hz, string targetDeviceId = null)
         {
+            if (MainForm.DisableConfigSaveForTesting ||
+                HardwareCommandBus.DisableHardwareWriteForTesting ||
+                string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (!string.IsNullOrEmpty(targetDeviceId) &&
+                (targetDeviceId.StartsWith("TEST", StringComparison.OrdinalIgnoreCase) ||
+                 targetDeviceId.StartsWith("MOCK", StringComparison.OrdinalIgnoreCase) ||
+                 targetDeviceId.IndexOf("TEST_", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return false;
+            }
+
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             byte rateByte = 0x02; // default 4000

@@ -1562,23 +1562,32 @@ namespace RazerBatteryTray
                 int[] stagesY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length == stagesX.Length) ? curDev.DpiStagesY : stagesX;
                 int targetDpiY = (stagesY != null && stagesY.Length > index) ? stagesY[index] : targetDpi;
                 string devId = curDev.DeviceId;
-                string devBrand = curDev.Brand ?? "Mouse";
+                string devBrand = curDev.Brand != null ? curDev.Brand : "Mouse";
+
+                int prevDpi = curDev.Dpi;
+                int prevDpiY = curDev.DpiY;
+                int prevStage = curDev.DpiStage;
+
+                // 1. 【零延迟乐观 UI 响应】点击瞬间立即更新内存状态、高亮选中档位与状态栏，绝不等待硬件通信
+                curDev.Dpi = targetDpi;
+                curDev.DpiY = targetDpiY;
+                curDev.DpiStage = targetStage;
+                HighlightDpiStage(targetStage);
+                UpdatePollingRateDisplayStates();
+                UpdateStatusDisplay();
+
+                // 2. 避让后台 DpiMonitor 极速轮询 1200ms，避开硬件锁冲突，防止读取瞬态旧报文导致 UI 闪烁回跳
+                SuppressDpiMonitoring(1200);
                 SyncMonitoredDpiState(targetDpi, targetStage, devId);
-                new Thread(() => {
-                    bool ok = HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage);
-                    if (!ok) return;
-                    this.BeginInvoke(new Action(() => {
-                        if (curDev != null)
-                        {
-                            curDev.Dpi = targetDpi;
-                            curDev.DpiY = targetDpiY;
-                            curDev.DpiStage = targetStage;
-                        }
-                        HighlightDpiStage(targetStage);
-                        UpdatePollingRateDisplayStates();
-                        OnDpiChanged(devBrand, targetDpi, targetStage, dpiStageList.Count, devId, targetDpiY);
-                    }));
-                }) { IsBackground = true }.Start();
+
+                // 3. 触发 OSD 提示（若启用）
+                if (dpiOsdEnabled && osdForm != null && (DateTime.Now - lastGameOptOsdTime).TotalMilliseconds >= 2500)
+                {
+                    osdForm.ShowDpi(targetDpi, targetDpiY, targetStage, dpiStageList.Count, devBrand);
+                }
+
+                // 4. 【单任务防抖调度】向后台分发（经由 HardwareCommandBus.SetDpi），若失败则自动回滚原状态，防止多线程排队
+                QueueDpiHardwareDispatch(curDev, targetDpi, targetDpiY, targetStage, devBrand, devId, prevDpi, prevDpiY, prevStage);
             }
             else
             {
@@ -2127,23 +2136,22 @@ namespace RazerBatteryTray
                     // 2. Immediately relayout, re-render and highlight main form DPI buttons
                     RelayoutDpiButtons();
                     HighlightDpiStage(activeStage);
-                    if (btnDpiStages != null)
-                    {
-                        for (int i = 0; i < btnDpiStages.Length; i++)
-                        {
-                            if (btnDpiStages[i] != null) btnDpiStages[i].Invalidate();
-                        }
-                    }
-                    if (cardPerformance != null) cardPerformance.Invalidate();
+                    UpdatePollingRateDisplayStates();
+                    UpdateStatusDisplay();
 
                     string targetDevId = curDev != null ? curDev.DeviceId : null;
                     string devBrand = curDev != null ? curDev.Brand : "Razer";
-                    OnDpiChanged(devBrand, activeDpiX, activeStage, newStagesX.Length, targetDevId, activeDpiY);
-                    UpdatePerformanceSection(curDev, curDev.BrandColor);
-                    UpdateStatusDisplay();
+                    SuppressDpiMonitoring(1500);
+                    SyncMonitoredDpiState(activeDpiX, activeStage, targetDevId);
+
+                    if (dpiOsdEnabled && osdForm != null && (DateTime.Now - lastGameOptOsdTime).TotalMilliseconds >= 2500)
+                    {
+                        osdForm.ShowDpi(activeDpiX, activeDpiY, activeStage, newStagesX.Length, devBrand);
+                    }
 
                     // 3. Persist to hardware in background thread via unified HardwareCommandBus
                     new Thread(() => {
+                        SuppressDpiMonitoring(2000);
                         HardwareCommandBus.UpdateHardwareStages(curDev, activeStage, newStagesX, newStagesY);
                     }) { IsBackground = true }.Start();
                 }

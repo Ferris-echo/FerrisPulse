@@ -535,6 +535,25 @@ namespace RazerBatteryTray
 
         private int desktopDpiStage = 0;
 
+        // DPI 硬件下发单任务防抖调度与后台轮询避让
+        internal class DpiDispatchTarget
+        {
+            public MouseBatteryInfo Device;
+            public int TargetDpi;
+            public int TargetDpiY;
+            public int TargetStage;
+            public int PreviousDpi;
+            public int PreviousDpiY;
+            public int PreviousStage;
+            public string Brand;
+            public string DeviceId;
+        }
+
+        private DpiDispatchTarget pendingDpiTarget = null;
+        private readonly object dpiDispatchLock = new object();
+        private bool isDpiDispatching = false;
+        private long dpiMonitorSuppressUntilTicks = 0;
+
         private bool isGamingActive = false;
 
         private int inGameTickCount = 0;
