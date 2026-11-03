@@ -600,6 +600,10 @@ namespace RazerBatteryTray
             }
             if (selected == null) return;
 
+            // 3554:FA09 是 CompX 公版 PID，KZZI K75 等键盘共用；先做 0x05 状态指纹识别，
+            // 命中则交给 KzziDeviceHelper，避免被误标为 MCHOSE G75 PRO。
+            if (KzziDeviceHelper.TryIdentifyKzziK75(selected)) return;
+
             int battery;
             bool charging;
             bool ok = QueryG75Device(selected, out battery, out charging);

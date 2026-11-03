@@ -4,6 +4,22 @@
 
 ## 🚧 [Unreleased] - 社区多设备深度适配 (索尼 / 罗技 / 怒喵 / ATK / 元派 / 飞智 / 迈从)
 
+### 🖱️ 新品牌接入
+- **因科特 (Ironcat) Zero 系列 2.4G 无线鼠标 (`25A7:FA7C`)**（社区贡献者实机逆向）：
+  - 新增 `IroncatDeviceHelper` 与 `IroncatMouseDriver`：通过 `UsagePage 0xFF02 / 0x0002` 的 17 字节 Feature 通道发送 `08 04 ... 49`，在 `0xFF01 / 0x0000` 的 17 字节 Input 通道接收 `09 04` 应答，解析 0..100% 电量、充电位与大端毫伏电压。
+  - 实机验证充电中 95%（`5F 01`）与充满 100%（`64 00`）两态；同 VID 的 Attack Shark 公版由 `pid_fa7c` 精确隔离，避免通用 64B 引擎越界探测。
+  - 仅开放实测能力：`SupportsBattery = true`，DPI/回报率写指令未验证前保持 `false`，不做虚标。
+
+### ⌨️ KZZI K75 与 BLE 手柄接入
+- **KZZI（珂芝）K75 三模机械键盘 (`3554:FA09`，Compx 公版共用 PID)**：
+  - 新增 `KzziDeviceHelper`：以 `0x05` 状态指纹（`13 05 01 00 0A 02 ... 37 00 01 ... 5D`）把 KZZI 从 MCHOSE G75 PRO / MARVO / AULA / YUNZII 等同 PID 键盘中区分出来，避免误标。
+  - 开源同方案实现已确认该 2.4G 公版协议不提供可信电量；本机 `0x37=55` 与键盘小屏 `40%` 不一致，故 2.4G 下诚实显示“电量需蓝牙”，不虚标。
+  - 切到蓝牙后由 `BleDeviceHelper` 读取标准 BLE 电量：实机 `Kzzi-K75 5.0` 为 100%。
+- **Xbox Wireless Controller (`045E:0B13`, BLE)**：
+  - 新增通用 `BleDeviceHelper` 与 `BlePeripheralDriver`，通过 Windows BLE Battery Service (`0x180F`) 自动读取已连接 BLE 键鼠/手柄电量。
+  - 实机 Xbox 手柄读取 74%；BLE 属性不提供充电位，统一 `IsChargingUnknown = true`，不伪造闪电图标。
+- **隐藏记录兼容**：品牌化卡片（KZZI / Ironcat / MCHOSE 等）不再被旧版 `HID:3554:FA09` 通用指纹隐藏项连带隐藏。
+
 ### 🎧 音频与耳机设备接入
 - **索尼 (Sony) INZONE Buds 真无线降噪电竞耳机 (WF-G700N, `054C:0EC2`)**（感谢 [@jacky50403](https://github.com/jacky50403) 逆向贡献 #22）：
   - 新增 `SonyInzoneHelper`，通过 64 字节 Output Report `0x02` 查询帧发送自增序列号与校验和请求。

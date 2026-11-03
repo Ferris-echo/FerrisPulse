@@ -849,6 +849,9 @@ namespace RazerBatteryTray
             {
                 return false;
             }
+            // Ironcat Zero (25A7:FA7C) 由专属 IroncatDeviceHelper 的 17 字节 Feature 通道接管，通用 64B 引擎禁止越界探测。
+            if (!string.IsNullOrEmpty(path) && path.IndexOf("pid_fa7c", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (!string.IsNullOrEmpty(prod) && prod.IndexOf("ironcat", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
             switch (vid)
             {
