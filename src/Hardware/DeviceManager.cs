@@ -29,6 +29,7 @@ namespace RazerBatteryTray
         private const string PrimaryDeviceValName = "PrimaryDeviceId";
         private const string PriorityOrderValName = "PriorityOrder";
         private const string AutoSwitchValName = "AutoSwitchPriority";
+        private const string TrayLowBatteryFirstValName = "TrayLowBatteryFirst";
         private const string CustomDevicesRegPath = @"Software\RazerBatteryTray\CustomDevices";
         private const string HiddenDevicesRegPath = @"Software\RazerBatteryTray\HiddenDevices";
 
@@ -269,6 +270,38 @@ namespace RazerBatteryTray
                     if (key != null)
                     {
                         key.SetValue(AutoSwitchValName, enabled ? 1 : 0);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool IsTrayLowBatteryFirstEnabled()
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(PrimaryDeviceRegKey, false))
+                {
+                    if (key != null)
+                    {
+                        object v = key.GetValue(TrayLowBatteryFirstValName);
+                        if (v != null) return Convert.ToInt32(v) == 1;
+                    }
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        public static void SetTrayLowBatteryFirstEnabled(bool enabled)
+        {
+            try
+            {
+                using (var key = Registry.CurrentUser.CreateSubKey(PrimaryDeviceRegKey))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(TrayLowBatteryFirstValName, enabled ? 1 : 0, RegistryValueKind.DWord);
                     }
                 }
             }
@@ -1501,7 +1534,43 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.13c Query ASUS Devices (PELTA, Scope II RX, Azoth Omni Keyboards)
+            // 2.13c Query SinoWealth (赛诺韦尔 / Valkyrie 贴牌) 2.4G 鼠标 (VID 258A / PID 010C)
+            try
+            {
+                var swDevices = SinoWealthDeviceHelper.QueryAllSinoWealthDevices();
+                if (swDevices != null && swDevices.Count > 0)
+                {
+                    foreach (var dev in swDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.13d Query ASUS Devices (PELTA, Scope II RX, Azoth Omni Keyboards)
             try
             {
                 var asusDevices = AsusDeviceHelper.QueryAllAsusDevices();
@@ -2294,10 +2363,27 @@ namespace RazerBatteryTray
 
             // 托盘常驻设备全自动轮换规则：
             // list 已严格按用户在设备优先级页面调整的顺序从高到低排列。
-            // 1. 高优先设备在线则展示高优先 (第一个 IsConnected 的设备)；
-            // 2. 高优先设备离线则顺延下一个在线设备；
+            // 1. 若开启“低电量优先”，优先从在线且存在有效电量读数 (BatteryPercent > 0) 的设备中选电量最低者（并列时按手动顺位）；
+            // 2. 否则（或无有效电量读数时）展示第一个在线设备；
             // 3. 如果全部设备都离线，则回退展示第 1 位设备 (list[0])，并展示离线记忆电量！
-            MouseBatteryInfo primary = list.Find(d => d.IsConnected);
+            MouseBatteryInfo primary = null;
+            if (IsTrayLowBatteryFirstEnabled())
+            {
+                int lowestBatt = int.MaxValue;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var cand = list[i];
+                    if (cand != null && cand.IsConnected && cand.BatteryPercent > 0 && cand.BatteryPercent < lowestBatt)
+                    {
+                        lowestBatt = cand.BatteryPercent;
+                        primary = cand;
+                    }
+                }
+            }
+            if (primary == null)
+            {
+                primary = list.Find(d => d.IsConnected);
+            }
             if (primary == null && list.Count > 0)
             {
                 primary = list[0];

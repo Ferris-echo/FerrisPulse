@@ -272,6 +272,8 @@ public static class LogitechDeviceHelper
     public static DateTime CachedLastUpdated = DateTime.MinValue;
     public static bool HasValidHardwareReading = false;
     private static Dictionary<string, int> deviceBatteryCache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<string, string> deviceNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<string, bool> deviceChargingCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
     public static void LoadHardwareCache()
     {
@@ -360,6 +362,28 @@ public static class LogitechDeviceHelper
             return val;
         }
         return -1;
+    }
+
+    public static string GetCachedNameForDevice(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return null;
+        string val;
+        if (deviceNameCache.TryGetValue(deviceId, out val) && !string.IsNullOrEmpty(val))
+        {
+            return val;
+        }
+        return null;
+    }
+
+    public static bool GetCachedChargingForDevice(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return false;
+        bool val;
+        if (deviceChargingCache.TryGetValue(deviceId, out val))
+        {
+            return val;
+        }
+        return false;
     }
 
     private static byte[] SendAndReceive(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs, int outLen = 0, byte matchDevIdx = 0xFF, byte matchFeatIdx = 0xFF, byte matchSwid = 0xFF)
@@ -1096,27 +1120,30 @@ public static class LogitechDeviceHelper
                                         if (rxNameCount != null && rxNameCount.Length >= 5 && rxNameCount[4] > 0)
                                         {
                                             int nameLen = rxNameCount[4];
-                                            byte[] txGetName = new byte[20];
-                                            txGetName[0] = 0x11;
-                                            txGetName[1] = devIdx;
-                                            txGetName[2] = nameFeatIdx;
-                                            txGetName[3] = 0x18; // Func 1: getName, swid 8
-                                            txGetName[4] = 0x00;
-                                            byte[] rxGetName = SendAndReceive(handle, hEvent, txGetName, bestEndpoint.InputReportByteLength, 250, bestEndpoint.OutputReportByteLength, devIdx, nameFeatIdx, 0x08);
-                                            if (rxGetName != null && rxGetName.Length > 4)
+                                            StringBuilder nsb = new StringBuilder();
+                                            for (int offset = 0; offset < nameLen; offset += 16)
                                             {
-                                                StringBuilder nsb = new StringBuilder();
-                                                for (int c = 4; c < rxGetName.Length && (c - 4) < nameLen; c++)
+                                                byte[] txGetName = new byte[20];
+                                                txGetName[0] = 0x11;
+                                                txGetName[1] = devIdx;
+                                                txGetName[2] = nameFeatIdx;
+                                                txGetName[3] = 0x18; // Func 1: getName, swid 8
+                                                txGetName[4] = (byte)offset;
+                                                byte[] rxGetName = SendAndReceive(handle, hEvent, txGetName, bestEndpoint.InputReportByteLength, 250, bestEndpoint.OutputReportByteLength, devIdx, nameFeatIdx, 0x08);
+                                                if (rxGetName == null || rxGetName.Length <= 4) break;
+                                                bool reachedEnd = false;
+                                                for (int c = 4; c < rxGetName.Length && (offset + c - 4) < nameLen; c++)
                                                 {
-                                                    if (rxGetName[c] == 0) break;
+                                                    if (rxGetName[c] == 0) { reachedEnd = true; break; }
                                                     if (rxGetName[c] >= 32 && rxGetName[c] <= 126)
                                                     {
                                                         nsb.Append((char)rxGetName[c]);
                                                     }
                                                 }
-                                                string str = nsb.ToString().Trim();
-                                                if (str.Length > 2) detectedName = str;
+                                                if (reachedEnd) break;
                                             }
+                                            string str = nsb.ToString().Trim();
+                                            if (str.Length > 2) detectedName = str;
                                         }
                                     }
 
@@ -1371,7 +1398,11 @@ public static class LogitechDeviceHelper
                                     }
                                 }
 
-                                string finalName = !string.IsNullOrEmpty(detectedName) ? detectedName : GetModelName(detectedPid, foundName);
+                                string deviceId = "Logitech:" + foundVid.ToString("X4") + ":" + detectedPid.ToString("X4") + (devIdx != 0xFF ? (":" + devIdx) : "");
+                                string cachedDeviceName = GetCachedNameForDevice(deviceId);
+                                string finalName = !string.IsNullOrEmpty(detectedName)
+                                    ? detectedName
+                                    : (!string.IsNullOrEmpty(cachedDeviceName) ? cachedDeviceName : GetModelName(detectedPid, foundName));
 
                                 // 音频类硬件（麦克风 / 音箱）虽然对 HID++ ping 有应答，但没有电池特性。
                                 // 绝不入库：否则会以「鼠标 + 未知电量」污染设备列表。
@@ -1382,10 +1413,14 @@ public static class LogitechDeviceHelper
                                 }
 
                                 DeviceCategory cat = DetectCategory(detectedPid, finalName);
-                                string deviceId = "Logitech:" + foundVid.ToString("X4") + ":" + detectedPid.ToString("X4") + (devIdx != 0xFF ? (":" + devIdx) : "");
 
                                 if (deviceOnline)
                                 {
+                                    if (!string.IsNullOrEmpty(detectedName))
+                                    {
+                                        deviceNameCache[deviceId] = finalName;
+                                    }
+
                                     LogitechEndpoint ep = new LogitechEndpoint
                                     {
                                         DeviceId = deviceId,
@@ -1414,11 +1449,12 @@ public static class LogitechDeviceHelper
                                     CachedDeviceName = finalName;
                                     HasValidHardwareReading = true;
                                     deviceBatteryCache[deviceId] = batteryPercent;
+                                    deviceChargingCache[deviceId] = isCharging;
                                     SaveHardwareCache();
                                 }
 
                                 int displayBattery = (batteryPercent >= 0) ? batteryPercent : GetCachedBatteryForDevice(deviceId);
-                                bool displayCharging = (batteryPercent >= 0) ? isCharging : CachedIsCharging;
+                                bool displayCharging = (batteryPercent >= 0) ? isCharging : GetCachedChargingForDevice(deviceId);
 
                                 if (deviceOnline || isDongle)
                                 {
@@ -1468,7 +1504,7 @@ public static class LogitechDeviceHelper
                                         results.Add(info);
                                         if (!isDongle) break;
                                     }
-                                    else if (isDongle && devIdx == 0x01 && results.Count == 0)
+                                    else if (isDongle && devIdx == 0x01)
                                     {
                                         results.Add(info);
                                     }

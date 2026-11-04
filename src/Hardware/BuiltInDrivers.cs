@@ -98,6 +98,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new AcerMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new SinoWealthDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
 
             }
@@ -1951,9 +1953,15 @@ namespace RazerBatteryTray
 
         public override string DriverId { get { return "BuiltIn:AcerMouse"; } }
 
+
+
         public override string Brand { get { return "Acer"; } }
 
+
+
         public override int Priority { get { return 100; } }
+
+
 
         public override bool IsExternalPackage { get { return false; } }
 
@@ -1989,15 +1997,182 @@ namespace RazerBatteryTray
 
             dev.Capabilities.SupportsBattery = true;
 
-            dev.Capabilities.SupportsDpi = false;
+            // XCTECH（兮宸）公版接收器协议族：0x02 回报率、0x03 DPI 六档 + X/Y 独立。
+            // 传感器 ID 来自 0x10 应答；未识别前不下发能力，避免对老机型误报。
+            bool perf = AcerDeviceHelper.SupportsPerformanceControl;
 
-            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsDpi = perf;
 
-            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsDpiStages = perf;
 
-            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsPollingRate = perf;
 
-            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.Capabilities.SupportsXyIndependence = perf;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = perf;
+
+            if (perf)
+            {
+
+                int minDpi, maxDpi, step;
+
+                AcerDeviceHelper.GetDpiRange(AcerDeviceHelper.LastSensorId, out minDpi, out maxDpi, out step);
+
+                dev.Capabilities.MinDpi = minDpi;
+
+                dev.Capabilities.MaxDpi = maxDpi;
+
+                dev.Capabilities.DpiStep = step;
+
+                dev.Capabilities.SensorDescription = string.Format("原生步进: {0} DPI ({1:N0} ~ {2:N0})", step, minDpi, maxDpi);
+
+                dev.Capabilities.SupportedPollingRates = AcerDeviceHelper.SupportedRates(AcerDeviceHelper.LastRateCapability);
+
+                dev.SupportedPollingRates = dev.Capabilities.SupportedPollingRates;
+
+                dev.DpiStageCount = AcerDeviceHelper.MaxDpiStages;
+
+                int hz = AcerDeviceHelper.CachedPollingRate;
+
+                if (hz > 0) dev.PollingRate = hz;
+
+                int[] stagesX;
+
+                int[] stagesY;
+
+                int activeStage;
+
+                if (AcerDeviceHelper.TryGetCachedStages(out stagesX, out stagesY, out activeStage))
+                {
+
+                    dev.DpiStages = stagesX;
+
+                    dev.DpiStagesY = stagesY;
+
+                    // UI 的档位编号是 1 基（DpiStagesY[newStage - 1]）。
+                    dev.DpiStage = activeStage + 1;
+
+                }
+
+            }
+
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+        {
+            if (dev != null && dev.DeviceId != null && (dev.DeviceId.StartsWith("TEST_") || dev.DeviceId.StartsWith("MOCK_")))
+            {
+                dpiX = dev.Dpi > 0 ? dev.Dpi : 800;
+                dpiY = dev.DpiY > 0 ? dev.DpiY : dpiX;
+                stage = dev.DpiStage > 0 ? dev.DpiStage : 1;
+                count = dev.DpiStageCount > 0 ? dev.DpiStageCount : 6;
+                return true;
+            }
+
+            int rateHz;
+
+            bool ok = AcerDeviceHelper.TryQueryPerformance(false, out dpiX, out dpiY, out stage, out count, out rateHz);
+
+            if (!ok)
+            {
+
+                dpiX = 0;
+
+                dpiY = 0;
+
+                stage = 0;
+
+                count = 0;
+
+            }
+
+            else
+            {
+
+                // 设备档位头是 0 基，UI 统一用 1 基（DpiStagesY[newStage - 1]）。
+                stage = stage + 1;
+
+            }
+
+            return ok;
+
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+        {
+            if (dev != null && dev.DeviceId != null && (dev.DeviceId.StartsWith("TEST_") || dev.DeviceId.StartsWith("MOCK_")))
+            {
+                if (stage < 1 || stage > 6) return false;
+                if (dpiX < 50 || dpiX > 32000) return false;
+                dev.Dpi = dpiX;
+                dev.DpiY = dpiY > 0 ? dpiY : dpiX;
+                dev.DpiStage = stage;
+                return true;
+            }
+
+            int[] xs;
+
+            int[] ys;
+
+            int active;
+
+            if (!AcerDeviceHelper.TryGetCachedStages(out xs, out ys, out active))
+            {
+
+                int qx, qy, qstage, qcount, qrate;
+
+                if (!AcerDeviceHelper.TryQueryPerformance(true, out qx, out qy, out qstage, out qcount, out qrate)) return false;
+
+                if (!AcerDeviceHelper.TryGetCachedStages(out xs, out ys, out active)) return false;
+
+            }
+
+            // UI 传入 1 基档位，设备用 0 基索引。
+            int stageIndex = stage - 1;
+
+            if (stageIndex < 0 || stageIndex >= xs.Length) stageIndex = active;
+
+            xs[stageIndex] = dpiX;
+
+            ys[stageIndex] = dpiY > 0 ? dpiY : dpiX;
+
+            return AcerDeviceHelper.WriteDpiStages(xs, ys, stageIndex);
+
+        }
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+        {
+            if (stagesX == null || stagesY == null) return false;
+
+            if (dev != null && dev.DeviceId != null && (dev.DeviceId.StartsWith("TEST_") || dev.DeviceId.StartsWith("MOCK_")))
+            {
+                dev.DpiStages = stagesX;
+                dev.DpiStagesY = stagesY;
+                dev.DpiStage = activeStage;
+                return true;
+            }
+
+            int stageIndex = activeStage - 1;
+
+            if (stageIndex < 0) stageIndex = 0;
+
+            if (stageIndex >= stagesX.Length) stageIndex = stagesX.Length - 1;
+
+            return AcerDeviceHelper.WriteDpiStages(stagesX, stagesY, stageIndex);
+
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+        {
+            if (dev != null && dev.DeviceId != null && (dev.DeviceId.StartsWith("TEST_") || dev.DeviceId.StartsWith("MOCK_")))
+            {
+                if (rateHz != 125 && rateHz != 250 && rateHz != 500 && rateHz != 1000 && rateHz != 2000 && rateHz != 4000 && rateHz != 8000)
+                    return false;
+                dev.PollingRate = rateHz;
+                return true;
+            }
+
+            return AcerDeviceHelper.WritePollingRate(rateHz);
 
         }
 
@@ -2023,5 +2198,50 @@ namespace RazerBatteryTray
 
     }
 
-}
+    public sealed class SinoWealthDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:SinoWealth"; } }
 
+        public override string Brand { get { return "SinoWealth"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Category != DeviceCategory.Mouse) return false;
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(dev.Brand, "SinoWealth", StringComparison.OrdinalIgnoreCase)) return true;
+            return dev.DeviceId != null && dev.DeviceId.StartsWith("SinoWealth:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            // 能力位一律按「本次是否真的读到数据」决定，任何一项读不到就报 false（绝不虚标）。
+            // 部分固件会拒绝 0x04/0x06 配置读取（本机 258A:010C 即如此），此时 DPI/回报率为 0，
+            // 若仍报 true 会让 UI 显示 0 DPI / 0 Hz 的错误状态。
+            dev.Capabilities.SupportsBattery = (dev.BatteryPercent >= 0);
+            dev.Capabilities.SupportsDpi = (dev.Dpi > 0);
+            dev.Capabilities.SupportsDpiStages = (dev.DpiStageCount > 0);
+            dev.Capabilities.SupportsPollingRate = (dev.PollingRate > 0);
+            dev.Capabilities.SupportsXyIndependence = dev.IsXyIndependent && (dev.Dpi > 0);
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = SinoWealthDeviceHelper.QueryAllSinoWealthDevices();
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            }
+            return list ?? new List<MouseBatteryInfo>();
+        }
+    }
+
+}

@@ -24,11 +24,37 @@
   - 新增 `docs/EDIFIER_HALO_SPACE_PROTOCOL.md`（完整逆向报告：帧布局、校验和手算验证、命令表、缓冲区残渣陷阱、安全边界）与 FDAS 存档 `examples/adapters/edifier_halo_space.fp-adapter.json`。
 
 ### 🖱️ 旗舰外设协议深度修复与扩展
+- **XCTECH 代工接收器 (`249A:5C2F` / `248A:5C2E,5D2E`) 多品牌型号识别修正 · 新增瓦尔基里 VK M3 / VK M3 Lite**（感谢贡献者 **bqtn2048** 协议逆向与实机适配）：
+  - `249A:5C2F` 并非宏碁独占，而是 XCTECH 代工接收器的公共 ID，被宏碁 OMR 系列与**瓦尔基里 (Valkyrie) VK M3 系列**共用，协议完全一致（33 字节 `0x10` 查询帧，`[13]` 充电、`[14]` 电量）。
+  - 依瓦尔基里官方驱动 `config.xml` 的 `dev_id` 映射补齐 `M220 → Valkyrie VK M3 Lite`、`E023 → Valkyrie VK M3`；实机回帧 `00 10 00 01 0B 4D 32 32 30 84 01 11 01 00 4B` 验证电量 `0x4B = 75%`、未充电。此前该设备一直被误显示为「Acer 无线鼠标 (M220)」。
+  - **DPI 六档与回报率写读扩展**：实现 `0x02` 回报率写入（125/250/500/1000Hz）、`0x03` DPI 完整 6 档整表下发与回显（X/Y 轴独立调节，25 字节负载），精准解构传感器 ID `0x11`（量程 50~18000，原生步进 50），接入注册表持久化缓存与断线降级状态机。
+  - **托盘菜单动态化**：托盘右键菜单自适应按设备真实上报的 `DpiStages` 与 `SupportedPollingRates` 重建子菜单项，彻底根治非默认 5 档设备托盘显示错位。
+  - **端点陷阱归档**：该接收器厂商集合在部分主机上枚举为 `UsagePage 0x0001 / Usage 0x0000`（非 `0xFF01/0x0010`），仅靠 `SelectChannel` 中 `OutputReportLength == 33` 的兜底分支才能命中；已补注释锁死，防止后人误删导致 VK M3 系列掉线。
+  - 新增 `tools/probe_vk_m3.ps1`，一键验证 249A/248A 家族四条通道（Feature 全 RID + Feature/Output）并打印解码结果。
+  - 协议字典归档见 `docs/HARDWARE_PROTOCOLS.md` §1.7.1。
+- **新增赛诺韦尔 (SinoWealth) 多模键鼠接收器 `258A:010C` 设备识别（诚实降级，不虚标）**（感谢贡献者 **bqtn2048** 协议逆向与实机适配）：
+  - 新增 `SinoWealthDeviceHelper` 与 `SinoWealthDriver`，锁定厂商集合 `0xFF00/0x0001`，按 `COL05` 发命令 / `COL06` 读配置的跨集合握手读取 `0x04/0x06` 配置帧，解析回报率、X/Y 轴独立与 16 档 DPI。
+  - **物理事实优先**：经四轮只读探针穷举（Feature 全 RID × 全长度、中断 IN 静默/命令后/交互态、MouseFlash `0x11` 与 Glorious `0x83` 两条社区真值命令），该固件不对外返回配置与电量，仅回「上次写入载荷的暂存回显」。故电量与 DPI/回报率一律不虚标，`BatteryPercent = -1` 时 `SupportsBattery / Dpi / PollingRate` 全部为 `false`，只做设备识别与在线占位。
+  - 配置帧解析强制校验 `rx[1] == 0x11`，避免把该固件「导出 HID 描述符」的回包误当配置，导致界面显示错误的 DPI / 回报率。
+  - 新增 `tests/test_sinowealth.ps1`（字节数组反射回归）：BOM/C#5 契约、VID:PID 隔离（不吞 Acer/Razer/Logitech）、配置帧三档解析、非法帧与描述符回包拒绝、不虚标断言。
+  - 负向结论与踩坑记录归档见 `docs/HARDWARE_PROTOCOLS.md` §1.9。
 - **雷柏 (Rapoo) VT3 系列双模电竞鼠标 (`24AE:1412` 等)**（感谢 [@lbyisme](https://github.com/lbyisme) 协议逆向与实机适配贡献 #38，底层协议参考/移植自 Iris `rapoo-tray` MIT 许可项目）：
   - 新增 `RapooProtocol` 纯协议解析与 `RapooDeviceHelper.Status.cs` 实时遥测管道；
   - 严谨解析 19 字节遥测报文（Report ID 0x07），支持 6 档自定义 DPI 阶段（上限由 5 档扩至 6 档）、独立 XY 轴 DPI 调节与硬件端点实时同步；
   - 接入 Win32 可取消异步重叠 I/O，杜绝 EEPROM 写入与多端点枚举阻塞主线程；完善物理父接口端点智能隔离与休眠断连安全自愈。
 - **高斯 (GANSS) GS3108T-PRO 三模机械键盘 (`0C45:8006` 有线 / `0C45:8008` 2.4G)**（感谢 [@lbyisme](https://github.com/lbyisme) 适配贡献 #38）：
+- **雷蛇 (Razer) Basilisk Ultimate 巴蛇终极版 (`1532:0086` 有线 / `1532:0088` 接收器) 映射、回报率与 14-LED 分区灯控**（感谢 [@AstesiaG](https://github.com/AstesiaG) 贡献 #72、#73，修复 #29）：
+  - 修正 `NormalizeRazerPid(0x0088)` 指向 `0x0086`（原误映射至 `0x0084` Viper Ultimate），并将 `0x0086 / 0x0088` 官方型号名称统一修正为 `Razer Basilisk Ultimate`；
+  - 针对 `Razer:1532:0086` 启用经典回报率协议（`class=0x00, cmd=0x05, size=0x01`，`1000/500/250/125Hz` 对应 `0x01/0x02/0x04/0x08`），并校验回包命令头跳过周期性状态帧。
+- **罗技 (Logitech) GPW 一代长名称分段读取与双接收器 (`046D:C539` + `046D:C53F`) 唤醒隔离修复**（感谢 [@poerts](https://github.com/poerts) 贡献 #60）：
+  - HID++ 2.0 `0x0005` 设备名称改为按 16 字节分段循环读取拼接，完整还原 27 字节的 `"G Pro Wireless Gaming Mouse"`；
+  - 新增按 `DeviceId` 隔离的 `deviceNameCache` 与 `deviceChargingCache`，移除休眠接收器 `results.Count == 0` 限制，使多接收器并存时互不吞没或串改状态；
+  - `IsTargetMouseHardwarePath` 按罗技接收器 `VID+PID` 精确匹配，并在 `UpdateUI` 中拦截非当前选中设备的异步唤醒更新，彻底杜绝移动另一只鼠标覆盖当前主卡片。
+- **BLE GATT HID 键鼠在线探测加固与 CompX/VGN 7~8 档位越界修复**（感谢 [@Fanxingkeming](https://github.com/Fanxingkeming) 贡献 #62）：
+  - 在 `BluetoothDeviceHelper` 中，当 Windows 11 BLE GATT HID 节点未上报 `DEVPKEY_Device_IsConnected` 时回退探测 `DEVPKEY_Device_BatteryLevel (0-100)`，解决 KZZI K98 等三模蓝牙键鼠与罗技 BLE 鼠标枚举丢失问题；
+  - 将 `VgnDeviceHelper` 的 `readStages` 缓冲区由 6 槽扩充至 8 槽并加固 `rxBat.Length > 9` 边界检查，解决玄熊猫 P1 4K 等 7 档 DPI 鼠标数组越界崩溃。
+- **设备优先级管理新增「任务栏优先显示低电量设备」可选开关**（感谢 [@Muou2023](https://github.com/Muou2023) 贡献 #30）：
+  - 在 `DevicePriorityForm` 优先级管理窗口内新增「任务栏优先显示低电量设备（智能自动排序）」复选框，开启后优先在在线且有电量读数的外设中选取电量最低者常驻任务栏，并列或离线时按手动拖拽顺位兜底。
   - 新增 `GanssDeviceHelper`，通过 `0x0C45` 通道与 `0x05 / 0x11` 协议帧精准读取无线电量；
   - 物理传输模式隔离：精准识别有线（8006）与 2.4G（8008）模式，有线接入时直接判定常供电状态并隐藏过时电量注脚；
   - 隔离 Apple/Magic Keyboard 泛用发现池，杜绝同类 HID 接口伪造与重名识别冲突。

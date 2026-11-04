@@ -21,6 +21,7 @@ namespace RazerBatteryTray
     public class DevicePriorityForm : DpiAwareForm
     {
         private PriorityReorderControl reorderControl;
+        private ModernCheckBox chkLowBatteryFirst;
         private ModernButton btnSave;
         private ModernButton btnCancel;
 
@@ -30,7 +31,7 @@ namespace RazerBatteryTray
         {
             this.Text = "设备优先级管理 (拖拽排序)";
             int initClientW = (int)(444 * dpiScale);
-            int initClientH = (int)(482 * dpiScale);
+            int initClientH = (int)(512 * dpiScale);
             this.ClientSize = new Size(initClientW, initClientH);
             this.BackColor = Color.FromArgb(18, 19, 23);
             this.ForeColor = Color.White;
@@ -57,6 +58,16 @@ namespace RazerBatteryTray
             lblTip.Size = new Size(initClientW - (pad * 2), (int)(40 * dpiScale));
             lblTip.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.Controls.Add(lblTip);
+
+            chkLowBatteryFirst = new ModernCheckBox();
+            chkLowBatteryFirst.Text = "任务栏优先显示低电量设备（智能自动排序）";
+            chkLowBatteryFirst.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
+            chkLowBatteryFirst.ForeColor = Color.FromArgb(220, 230, 245);
+            chkLowBatteryFirst.Checked = DeviceManager.IsTrayLowBatteryFirstEnabled();
+            chkLowBatteryFirst.Location = new Point(pad, (int)(80 * dpiScale));
+            chkLowBatteryFirst.Size = new Size(initClientW - (pad * 2), (int)(24 * dpiScale));
+            chkLowBatteryFirst.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            this.Controls.Add(chkLowBatteryFirst);
 
             int btnW = (int)(110 * dpiScale);
             int btnH = (int)(34 * dpiScale);
@@ -94,12 +105,13 @@ namespace RazerBatteryTray
                 foreach (var it in reorderControl.Items) ids.Add(it.DeviceId);
                 DeviceManager.SavePriorityList(ids);
                 if (ids.Count > 0) DeviceManager.SetConfiguredPrimaryDeviceId(ids[0]);
+                DeviceManager.SetTrayLowBatteryFirstEnabled(chkLowBatteryFirst != null && chkLowBatteryFirst.Checked);
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             };
             this.Controls.Add(btnSave);
 
-            int listTop = (int)(82 * dpiScale);
+            int listTop = (int)(110 * dpiScale);
             int listH = btnY - listTop - (int)(14 * dpiScale);
             reorderControl = new PriorityReorderControl();
             reorderControl.DpiScale = dpiScale;

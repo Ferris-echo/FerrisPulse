@@ -440,6 +440,28 @@ namespace RazerBatteryTray
 
             {
 
+                if (devId.StartsWith("Logitech:", StringComparison.OrdinalIgnoreCase))
+
+                {
+
+                    string[] lgParts = devId.Split(':');
+
+                    if (lgParts.Length >= 3 && lgParts[1].Length == 4 && lgParts[2].Length == 4)
+
+                    {
+
+                        string vidTok = "VID_" + lgParts[1];
+
+                        string pidTok = "PID_" + lgParts[2];
+
+                        return path.IndexOf(vidTok, StringComparison.OrdinalIgnoreCase) >= 0 &&
+
+                               path.IndexOf(pidTok, StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    }
+
+                }
+
                 if (path.IndexOf("VID_046D", StringComparison.OrdinalIgnoreCase) >= 0) return true;
 
             }
@@ -528,9 +550,27 @@ namespace RazerBatteryTray
 
             {
 
-                var cur = lastInfo ?? selectedDevice;
+                var cur = selectedDevice ?? lastInfo;
 
                 if (cur == null || !cur.IsConnected) return;
+
+
+
+                if (!string.Equals(mouseWakeCacheDeviceId, cur.DeviceId, StringComparison.OrdinalIgnoreCase))
+
+                {
+
+                    lock (mouseDeviceWakeMatchCache)
+
+                    {
+
+                        mouseDeviceWakeMatchCache.Clear();
+
+                    }
+
+                    mouseWakeCacheDeviceId = cur.DeviceId;
+
+                }
 
 
 
@@ -630,7 +670,27 @@ namespace RazerBatteryTray
 
                                 UpdateTrayIcon(cur.BatteryPercent, cur.IsCharging, cur.IsConnected, false);
 
-                                try { this.BeginInvoke(new Action(() => UpdateUI(cur, false))); } catch { }
+                                try
+
+                                {
+
+                                    this.BeginInvoke(new Action(() =>
+
+                                    {
+
+                                        if (selectedDevice == null || string.Equals(selectedDevice.DeviceId, cur.DeviceId, StringComparison.OrdinalIgnoreCase))
+
+                                        {
+
+                                            UpdateUI(cur, false);
+
+                                        }
+
+                                    }));
+
+                                }
+
+                                catch { }
 
 
 

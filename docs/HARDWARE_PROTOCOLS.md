@@ -83,11 +83,48 @@
 - **协议**: 发送 33 字节 `00 10 00...`，回复 `00 10 00 01 0B <4字节 ASCII dev_id 如 "R332"> <fw_lo> <fw_hi> ... [14]=battery(0..100)`。
 - **注意**: 无线接收器下 `byte[15]` 会在未插线时随唤醒/休眠在 `0x01/0x00` 间漂移，无线通道下强制 `isCharging = false`。
 
+#### 1.7.1 XCTECH 代工接收器为**多品牌共用**（瓦尔基里 VK M3 系列，实机验证）
+- **背景**: `249A:5C2F` 并非宏碁独占 ID。该 ID 由 XCTECH 代工，同时供宏碁 OMR 系列与**瓦尔基里 (Valkyrie) VK M3 系列**使用，**协议完全一致**，仅 `dev_id` 不同。（依据：`C:\Program Files (x86)\VK M3 Series\config.xml` 中 `<mode value="1" desc="2.4G" vid="249A" pid="5C2F" />`。）
+- **型号映射（`GetModelNameFromDevId`）**: `M220 → Valkyrie VK M3 Lite`、`E023 → Valkyrie VK M3`。
+- **实机回帧（VK M3 Lite / `M220`，电量 75%、未充电）**:
+  ```
+  TX: 00 10 00 00 ...(33B)
+  RX: 00 10 00 01 0B 4D 32 32 30 84 01 11 01 00 4B 00 ...
+      [4]=0x0B 负载长度  [5..8]="M220"  [13]=0x00 未充电  [14]=0x4B=75%
+  ```
+- **DPI 档位与回报率控制协议**:
+  - `0x02` 回报率下发：`00 02 00 01 01 <flag> 00...`（`0x08`=125, `0x04`=250, `0x02`=500, `0x01`=1000, `0x10`=2000）；
+  - `0x03` DPI 六档下发：25 字节负载，`[0]=(activeStage << 4) | (header & 0x0F)`，接 6 组 `[Xlo, Xhi, Ylo, Yhi]`，`[32]` 为 8 位累加和。
+  - 传感器映射：`0x11` 为 PAW3395/3311 系列，量程 50~18000 DPI，步进 50。
+- **⚠️ 端点陷阱（改动前必读）**: 该接收器在部分主机上厂商集合枚举为 `UsagePage 0x0001 / Usage 0x0000`，**并非** `0xFF01 / 0x0010`。此时仅靠 `SelectChannel` 中「`OutputReportLength == 33`」的兜底分支才能命中，**该兜底分支不可删除**，否则 VK M3 系列会直接掉线。
+- **工具**: `tools/probe_vk_m3.ps1` 可一键验证 249A/248A 家族的四条通道（Feature 全 RID + Feature/Output）并打印解码结果。
+
 ### 1.8 OpenMouse / All-in-One 通用电竞协议引擎 (`UniversalGamingDeviceHelper.cs`)
 - **引擎一 (CompX / PixArt 64B Feature `0x83`)**: 发送 `00 00 00 02 02 00 83...`，轮询 `GetFeature` 跳过 `0xA0` 等待帧，匹配 `A1 00 02 02 00 83 [chg] [pct]`（覆盖 Lamzu, Pulsar, WLmouse, Attack Shark, Ajazz, Darmoshark, Glorious, Ninjutso, RAWM, Incott, Finalmouse, Keychron, Dareu 等）。
 - **引擎二 (Beken / ATK / Endgame Gear 16/17B `0x08 0x04`)**: `0x55` 互补校验和，解析电量、充电与毫伏电压。
 - **引擎三 (Vaxee 64B Feature `0x0E 0xA5`)**: Page `0x0B` 电量（`raw * 5%`）、Page `0x10` 充电状态。
 - **引擎四 (怒喵 Angry Miao 62B RACE Feature `0x14`)**: 指令 `0x30CF` 读取 `AM Infinity .97` 电量与充放电状态。
+
+---
+
+### 1.9 赛诺韦尔 (SinoWealth) 多模键鼠接收器 `258A:010C` (`SinoWealthDeviceHelper.cs`)
+- **定位**: `0x258A` 是 SinoWealth **芯片厂商** ID，被大量贴牌键鼠共用（达尔优 / 多彩 / 狼蛛 / 红龙等）。`010C` 是多模键鼠套装接收器：`MI_00` = 键盘、`MI_01` = 鼠标 + 厂商集合（COL03/05/06）。
+- **厂商集合布局（实机 `Get-PnpDevice` + 探针枚举）**:
+  | 集合 | 特征 | 用途 |
+  |---|---|---|
+  | COL03 | `In=4  Out=0  Feat=0`  | 4 字节输入，**无可用 Feature** |
+  | COL05 | `In=0  Out=0  Feat=6`  | `0x05` 短命令（写入生效） |
+  | COL06 | `In=8  Out=0  Feat=520`| `0x04/0x06` 配置 / 描述符导出 |
+- **写入通道实测**: 仅 `0x05` 开头的 6 字节载荷被固件接受（`05 11 00 00 00 00` → `SetFeature = True`）；`00 00 02 02 00 83`（Glorious 258A 方案的电量查询）**被拒**。
+- **读回实测（本机固件）**: 所有 `0x04/0x06` 读取返回的都是**上一次写入载荷的暂存回显 + 静态固件块**（含 `"BY Tech"` 字符串与键盘 Report Descriptor），**不是配置**：
+  ```
+  基线（未发任何命令）: 05 11 00 00 00 00 06 00 00 0A 03 30 00 30 00 ...
+  发命令之后          : 05 11 00 00 00 00 06 00 00 0A 03 30 00 30 00 ...   （一字不差）
+  ```
+  故 `ParseConfig` **强制校验 `rx[1] == 0x11`**，否则会把描述符导出回包误当配置解析。
+- **电量结论（重要，勿重复踩坑）**: 本机固件在 Feature 报告（全 RID `0x00~0x0F`、长度 `16~520`）与中断 IN 管道（静默 / 命令后 / 鼠标持续交互 12s）四条路径上**均不回电量**。已穷举验证的手段：MouseFlash `0x11` 配置命令、Glorious 258A `0x83` 电量命令（含 `0x05` 前缀变体）、裸 RID 触发中断 IN、`HidD_GetInputReport` 快照。**结论：该机型不对外暴露电量**。
+- **诚实降级**: 因此本驱动 `BatteryPercent = -1` ⇒ `SupportsBattery / SupportsDpi / SupportsPollingRate` 全部 `false`，只做设备识别与在线占位，绝不虚标数值。
+- **README/Issue 参考**: 若日后拿到可用抓包，只需在 `ParseConfig` 内补一个 `BatteryOffset` 常量即可点亮电量。
 
 ---
 

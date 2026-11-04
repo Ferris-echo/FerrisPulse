@@ -272,6 +272,7 @@ flowchart TD
 
 | 极客贡献者 | 核心适配设备 / 缺陷修复与功能贡献简解 |
 | :--- | :--- |
+| **bqtn2048** (邮箱贡献) | 适配瓦尔基里 **Valkyrie VK M3 / VK M3 Lite** 鼠标（XCTECH 兮宸协议，六档 DPI 与 1000Hz 回报率读写）与 **SinoWealth 258A:010C** 多模接收器识别；优化托盘右键动态档位生成 |
 | **[@Q-LL](https://github.com/Q-LL)** | 适配索尼 **PULSE Explore** 耳机、**DualSense Edge** 手柄与 **ATK V75X** 键盘；纠正雷蛇 **Viper V2 Pro** 识别偏差；重构 Win32 底层异步重叠 I/O 引擎 (`HidTransport.cs`) |
 | **[@lbyisme](https://github.com/lbyisme)** | 适配雷柏 **VT3 系列** 鼠标（19B 遥控帧与 XY 独立 DPI）、高斯 **GS3108T-PRO** 键盘与盖世小鸡 **启星 2 / Nova 2** 双模手柄 |
 | **[@Bestkilling](https://github.com/Bestkilling)** | 适配 **VGN Neon75** 键盘（65B 中断 `0xF7` 状态帧与 Bit7 校验和），彻底消除拔线虚电 100% 充电假死 Bug，确立 0x3151 冲突隔离 |
@@ -289,6 +290,10 @@ flowchart TD
 | **[@leviswhite527](https://github.com/leviswhite527)** | 适配 **怒喵 AM Infinity .97** 客制化键盘（62B RACE 协议）与 **ATK A9 AIR / X1 V2** 8K 鼠标（攻克 8K 接收器异步读写） |
 | **[@lililixxx1](https://github.com/lililixxx1)** | 适配雷蛇 **Viper V3 HyperSpeed** 板载按键映射协议与底层 Hardware 驱动命令架构 |
 | **[@HI473](https://github.com/HI473)** | 贡献多显示器跨屏工作区最大交集与越界贴边防遮挡核心算法，优化多屏拖拽呈现 |
+| **[@Fanxingkeming](https://github.com/Fanxingkeming)** | 修复 Windows 11 下 BLE GATT HID 键鼠（如 KZZI K98）缺省 `IsConnected` 导致丢设备及 CompX/VGN 8 档 DPI 越界崩溃 (#62) |
+| **[@AstesiaG](https://github.com/AstesiaG)** | 修复雷蛇 **Basilisk Ultimate (巴蛇终极版, `1532:0086/0088`)** PID 映射与回报率协议 (#73)，适配 14-LED 物理矩阵分区调光与托盘控制子菜单 (#72) |
+| **[@poerts](https://github.com/poerts)** | 修复罗技 **G PRO Wireless (GPW 一代)** 0x0005 名称分段读取、双接收器 (`C539`+`C53F`) 状态隔离与异设备唤醒主卡片防覆盖 (#60) |
+| **[@Muou2023](https://github.com/Muou2023)** | 贡献多外设任务栏托盘「优先显示低电量设备」智能自动排序仲裁策略 (#30) |
 | **社区贡献者“yaphets”** | 适配 **迈从 G75 PRO** 与 **G87 V2** 机械键盘，确立 CompX 公版隔离与 20 字节 Report 0x13 命令字 |
 | **社区群友“冰城” (Bingcheng)** | 适配 **迈从 A5 V2 Ultra** 鼠标（电量、XY 轴独立 DPI 与 8K 回报率）；攻破 **罗技 G PRO X Wireless** 耳机 0x1F20 ADC 毫伏放电曲线算法 |
 | **社区群友“无情卍空虚” (“d”)** | 适配 **赛睿 Arctis Nova 5 / Nova 5X** 无线耳机，攻破 0x00B0 报文状态查询与解析 |

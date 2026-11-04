@@ -94,7 +94,7 @@ namespace RazerBatteryTray
                 case 0x0090: return 0x008F; // Naga V2 Pro Dongle -> Wired
                 case 0x0092: return 0x0091; // Naga Pro Dongle -> Wired
                 case 0x00A3: return 0x00A2; // DeathAdder V2 Pro Dongle -> Wired
-                case 0x0088: return 0x0084; // Viper Ultimate Dongle -> Wired
+                case 0x0088: return 0x0086; // Basilisk Ultimate Dongle -> Wired
                 case 0x007B: return 0x007A; // Basilisk Ultimate Dongle -> Wired
                 case 0x007D: return 0x007C; // DeathAdder V2 Mini Dongle -> Wired
                 case 0xB007: return 0xB007; // DeathAdder V4 HyperSpeed
@@ -353,7 +353,7 @@ namespace RazerBatteryTray
             { 0x00A7, "Razer Viper Mini Signature Edition" },
             { 0x00A8, "Razer Viper Mini Signature Edition" },
             { 0x0084, "Razer Viper Ultimate" },
-            { 0x0088, "Razer Viper Ultimate" },
+            { 0x0088, "Razer Basilisk Ultimate" },
             { 0x0078, "Razer Viper Mini" },
             { 0x0071, "Razer Viper 8KHz" },
             { 0x0070, "Razer Viper" },
@@ -392,7 +392,7 @@ namespace RazerBatteryTray
             { 0x00AB, "Razer Basilisk V3 Pro" },
             { 0x00B8, "Razer Basilisk V3" },
             { 0x0085, "Razer Basilisk X HyperSpeed" },
-            { 0x0086, "Razer Basilisk X HyperSpeed" },
+            { 0x0086, "Razer Basilisk Ultimate" },
             { 0x007A, "Razer Basilisk Ultimate" },
             { 0x007B, "Razer Basilisk Ultimate" },
             { 0x0064, "Razer Basilisk" },
@@ -1407,7 +1407,7 @@ namespace RazerBatteryTray
                                                     stState.DpiStageCount = stageCount;
                                                     stState.DpiStages = stageList;
                                                     stState.DpiStagesY = stageListY;
-                                                    stState.PollingRate = pollingRate;
+                                                    if (pollingRate > 0) stState.PollingRate = pollingRate;
                                                     stState.ActiveTransactionId = successfulTid;
                                                     stState.LastUpdated = DateTime.Now;
                                                     stState.ConsecutiveFailures = 0;
@@ -2598,17 +2598,31 @@ namespace RazerBatteryTray
             }
 
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
+            bool useClassicPolling = string.Equals(normTargetId, "Razer:1532:0086", StringComparison.OrdinalIgnoreCase);
 
-            byte rateByte = 0x02; // default 4000
-            switch (hz)
+            byte rateByte = useClassicPolling ? (byte)0x01 : (byte)0x02; // classic default 1000Hz, modern default 4000Hz
+            if (useClassicPolling)
             {
-                case 8000: rateByte = 0x01; break;
-                case 4000: rateByte = 0x02; break;
-                case 2000: rateByte = 0x04; break;
-                case 1000: rateByte = 0x08; break;
-                case 500:  rateByte = 0x10; break;
-                case 250:  rateByte = 0x20; break;
-                case 125:  rateByte = 0x40; break;
+                switch (hz)
+                {
+                    case 1000: rateByte = 0x01; break;
+                    case 500:  rateByte = 0x02; break;
+                    case 250:  rateByte = 0x04; break;
+                    case 125:  rateByte = 0x08; break;
+                }
+            }
+            else
+            {
+                switch (hz)
+                {
+                    case 8000: rateByte = 0x01; break;
+                    case 4000: rateByte = 0x02; break;
+                    case 2000: rateByte = 0x04; break;
+                    case 1000: rateByte = 0x08; break;
+                    case 500:  rateByte = 0x10; break;
+                    case 250:  rateByte = 0x20; break;
+                    case 125:  rateByte = 0x40; break;
+                }
             }
 
             lock (hidLock)
@@ -2617,7 +2631,7 @@ namespace RazerBatteryTray
                 if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
                     byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                    if (TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid))
+                    if (TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid, useClassicPolling))
                     {
                         st.PollingRate = hz;
                         st.LastUpdated = DateTime.Now;
@@ -2685,7 +2699,8 @@ namespace RazerBatteryTray
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
                                                 st = GetOrCreateState(curNormId);
                                                 byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                                                if (TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, rateByte, preferredTid))
+                                                bool curUseClassicPolling = string.Equals(curNormId, "Razer:1532:0086", StringComparison.OrdinalIgnoreCase);
+                                                if (TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, rateByte, preferredTid, curUseClassicPolling))
                                                 {
                                                     st.DevicePath = devicePath;
                                                     st.ReportLength = caps.FeatureReportByteLength;
@@ -2720,13 +2735,13 @@ namespace RazerBatteryTray
             return false;
         }
 
-        private static bool TrySetRazerPollingRateByPath(string path, int reportLength, bool prepended, byte rateByte, byte preferredTid = 0x1F)
+        private static bool TrySetRazerPollingRateByPath(string path, int reportLength, bool prepended, byte rateByte, byte preferredTid = 0x1F, bool useClassicPolling = false)
         {
             IntPtr handle = CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
             try
             {
-                return TrySetRazerPollingRateByHandle(handle, reportLength, prepended, rateByte, preferredTid);
+                return TrySetRazerPollingRateByHandle(handle, reportLength, prepended, rateByte, preferredTid, useClassicPolling);
             }
             finally
             {
@@ -2734,23 +2749,31 @@ namespace RazerBatteryTray
             }
         }
 
-        private static bool TrySetRazerPollingRateByHandle(IntPtr handle, int reportLength, bool prepended, byte rateByte, byte preferredTid = 0x1F)
+        private static bool TrySetRazerPollingRateByHandle(IntPtr handle, int reportLength, bool prepended, byte rateByte, byte preferredTid = 0x1F, bool useClassicPolling = false)
         {
             int offset = prepended ? 1 : 0;
-            byte[] args = new byte[] { 0x01, rateByte };
+            byte cmdId = useClassicPolling ? (byte)0x05 : (byte)0x40;
+            byte dataSize = useClassicPolling ? (byte)0x01 : (byte)0x02;
+            byte[] args = useClassicPolling ? new byte[] { rateByte } : new byte[] { 0x01, rateByte };
             byte[] tids = GetAdaptiveTransactionIds(preferredTid);
 
             foreach (byte tid in tids)
             {
-                byte[] req = CreateRazerReport(tid, 0x00, 0x40, 0x02, reportLength, prepended, args);
+                byte[] req = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, args);
                 if (HidD_SetFeature(handle, req, req.Length))
                 {
-                    Thread.Sleep(15);
-                    byte[] resp = new byte[reportLength];
-                    if (prepended) resp[0] = 0x00;
-                    if (HidD_GetFeature(handle, resp, resp.Length) && resp[offset + 0] == 0x02)
+                    for (int attempt = 0; attempt < 4; attempt++)
                     {
-                        return true;
+                        Thread.Sleep(15);
+                        byte[] resp = new byte[reportLength];
+                        if (prepended) resp[0] = 0x00;
+                        if (HidD_GetFeature(handle, resp, resp.Length) &&
+                            resp[offset + 0] == 0x02 &&
+                            resp[offset + 6] == 0x00 &&
+                            resp[offset + 7] == cmdId)
+                        {
+                            return true;
+                        }
                     }
                 }
             }

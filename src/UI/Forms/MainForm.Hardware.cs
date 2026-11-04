@@ -3086,6 +3086,14 @@ namespace RazerBatteryTray
 
         private void UpdateUI(MouseBatteryInfo info, bool showTipIfManual)
         {
+            // 非当前选中设备的更新（例如被抢占的旧定时唤醒回调、异设备被动唤醒通知）不得篡改主卡片与性能面板。
+            // 仅当调用方传入的就是当前选中设备（或无选中设备）时才渲染主界面。
+            if (info != null && selectedDevice != null &&
+                !string.Equals(info.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             if (info == null)
             {
                 isMouseSleeping = false;

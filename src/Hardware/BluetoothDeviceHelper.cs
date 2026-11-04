@@ -400,7 +400,39 @@ namespace RazerBatteryTray
 
                         uint propType, req;
 
-                        if (!SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0) || connBuf[0] == 0)
+                        bool pnpConnected = SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0) && connBuf[0] != 0;
+
+                        if (!pnpConnected)
+
+                        {
+
+                            // BLE GATT HID 节点（如 HID over LE 键鼠）在 Windows 11 下常不写入 DEVPKEY_Device_IsConnected，
+
+                            // 但只要设备当前在线握手，内核就会暴露有效的 DEVPKEY_Device_BatteryLevel (0-100)。
+
+                            byte[] batProbe = new byte[16];
+
+                            uint batType, batReq;
+
+                            if (SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_BatteryLevel, out batType, batProbe, (uint)batProbe.Length, out batReq, 0) && batReq >= 1)
+
+                            {
+
+                                int lvl = batProbe[0];
+
+                                if (lvl >= 0 && lvl <= 100)
+
+                                {
+
+                                    pnpConnected = true;
+
+                                }
+
+                            }
+
+                        }
+
+                        if (!pnpConnected)
 
                         {
 
@@ -1109,6 +1141,14 @@ namespace RazerBatteryTray
 
                 battery = bestBattery;
 
+                if (!isConnected)
+
+                {
+
+                    isConnected = true;
+
+                }
+
             }
 
 
@@ -1203,7 +1243,7 @@ namespace RazerBatteryTray
 
                     cat = DeviceCategory.Mouse;
 
-                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kb"))
+                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kzzi") || lower.Contains("kb"))
 
                     cat = DeviceCategory.Keyboard;
 

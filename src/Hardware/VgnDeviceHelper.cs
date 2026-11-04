@@ -1134,7 +1134,7 @@ namespace RazerBatteryTray
                 int detectedMid = 0;
                 int foundStage = -1;
                 int foundVoltageMv = -1;
-                int[] readStages = new int[] { -1, -1, -1, -1, -1, -1 };
+                int[] readStages = new int[] { -1, -1, -1, -1, -1, -1, -1, -1 };
                 int foundPollingRate = -1;
                 int foundStageCount = -1;
 
@@ -1232,7 +1232,7 @@ namespace RazerBatteryTray
                                                                 }
                                                                 rxBat = null;
                                                             }
-                                                            if (rxBat != null && rxBat.Length > 8)
+                                                            if (rxBat != null && rxBat.Length > 9)
                                                             {
                                                                 int bVal = rxBat[6];
                                                                 if (bVal >= 0 && bVal <= 100)
@@ -1282,7 +1282,7 @@ namespace RazerBatteryTray
 
                                                             // 6. 读取各档位的真实 DPI 值（地址 0x0c 起每档 4 字节 [low, low, flags, ck]），档位数取自硬件而非硬编码
                                                             int hwStageCount = (foundStageCount > 0) ? foundStageCount : 6;
-                                                            for (int st = 0; st < hwStageCount && st < 8; st++)
+                                                            for (int st = 0; st < hwStageCount && st < readStages.Length; st++)
                                                             {
                                                                 byte[] rxSt = null;
                                                                 for (int stRetry = 0; stRetry < 2; stRetry++)

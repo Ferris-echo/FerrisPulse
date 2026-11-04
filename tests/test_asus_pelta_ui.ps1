@@ -37,6 +37,7 @@ try {
     Assert ((Control 'statusMenuItem').Text -match '充电状态未知') 'tray does not misreport unknown as discharging'
     $desc.ProductId=0x1AB5
     $info=$build.Invoke($null,@($desc,-1,$false,$true,[DateTime]::Now))
+    $t.GetField('selectedDevice',$flags).SetValue($form,$info)
     $update.Invoke($form,@($info,$false)) | Out-Null
     Assert ((Control 'lblDeviceName').Text -match 'SCOPE II RX') 'wired keyboard identified'
     Assert ((Control 'lblBatteryBig').Text -notmatch '-1|100%') 'no fabricated wired battery'
