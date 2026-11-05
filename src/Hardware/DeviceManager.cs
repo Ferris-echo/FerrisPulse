@@ -988,6 +988,19 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.1 Query Rapoo VT-series 2.4G receiver 24AE:1851 (0xBA protocol, no feature endpoint)
+            try
+            {
+                var rapooVt = RapooVt1851DeviceHelper.QueryDevice();
+                if (rapooVt != null)
+                {
+                    rapooVt.Category = DeviceCategory.Mouse;
+                    rapooVt.IsCustom = false;
+                    list.Add(rapooVt);
+                }
+            }
+            catch { }
+
             // 2.45 Query VGN (2.4G wireless keyboard receiver, VID 3151 / PID 5038)
             try
             {

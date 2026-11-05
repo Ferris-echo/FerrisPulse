@@ -74,6 +74,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new RapooMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new RapooVt1851MouseDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new ValkyrieMouseDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new ValkyrieKeyboardDriver());
@@ -664,6 +666,122 @@ namespace RazerBatteryTray
         {
 
             return RapooDeviceHelper.SetRapooPollingRate(rateHz);
+
+        }
+
+    }
+
+
+
+    public sealed class RapooVt1851MouseDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:RapooVt1851Mouse"; } }
+
+        public override string Brand { get { return "Rapoo"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return RapooVt1851DeviceHelper.IsSupportedDevice(vid, pid);
+
+        }
+
+
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null || dev.DeviceId == null) return false;
+
+            return dev.DeviceId.StartsWith("RapooVT:24AE:1851", StringComparison.OrdinalIgnoreCase);
+
+        }
+
+
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            RapooVt1851DeviceHelper.PopulateCapabilities(dev);
+
+        }
+
+
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo info = RapooVt1851DeviceHelper.QueryDevice();
+
+            if (info != null)
+
+            {
+
+                PopulateCapabilities(info);
+
+                list.Add(info);
+
+            }
+
+            return list;
+
+        }
+
+
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+
+        {
+
+            return RapooVt1851DeviceHelper.FastQueryDpi(dev, out dpiX, out dpiY, out stage, out count);
+
+        }
+
+
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+
+        {
+
+            return RapooVt1851DeviceHelper.SetDpi(dev, dpiX, dpiY, stage);
+
+        }
+
+
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+
+        {
+
+            return RapooVt1851DeviceHelper.UpdateHardwareStages(dev, activeStage, stagesX, stagesY);
+
+        }
+
+
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+
+        {
+
+            return RapooVt1851DeviceHelper.SetPollingRate(dev, rateHz);
 
         }
 
