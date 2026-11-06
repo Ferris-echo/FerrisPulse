@@ -677,6 +677,49 @@ namespace RazerBatteryTray
             return false;
         }
 
+        // 373B:11D9 is shared by several ATK mice. The model is identified through
+        // the receiver's read-only CID/MID command before showing an A9 name.
+        public static byte[] BuildAtkReceiverIdentityRequest()
+        {
+            byte[] report = new byte[17];
+            report[0] = 0x08;
+            report[1] = 0x10;
+            byte[] payload = new byte[15];
+            payload[0] = 0x10;
+            report[16] = CalculateWeChecksum(0x08, payload);
+            return report;
+        }
+
+        public static bool IsAtkA9UltimateIdentity(byte[] report)
+        {
+            if (report == null || report.Length != 17 || report[0] != 0x08 || report[1] != 0x10 ||
+                report[2] != 0 || report[3] != 0 || report[4] != 0 || report[5] < 2 || report[5] > 10 ||
+                report[6] != 1 || report[7] != 3) return false;
+            int sum = 0;
+            for (int i = 0; i < report.Length; i++) sum += report[i];
+            return (sum & 0xFF) == 0x55;
+        }
+
+        private static bool QueryAtkA9UltimateIdentity(string devicePath)
+        {
+            IntPtr handle = IntPtr.Zero;
+            try
+            {
+                handle = HidTransport.Open(devicePath);
+                if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
+                if (!HidTransport.WriteReport(handle, BuildAtkReceiverIdentityRequest(), 17, 500)) return false;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] reply;
+                    if (!HidTransport.ReadReportExact(handle, 17, 350, out reply)) return false;
+                    if (IsAtkA9UltimateIdentity(reply)) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+            finally { HidTransport.Close(handle); }
+        }
+
         #endregion
 
         #region 协议引擎三：Vaxee 64字节专用控制引擎
@@ -1201,6 +1244,8 @@ namespace RazerBatteryTray
                 bool isChg;
                 int mv;
                 bool ok = QueryAtkBekenOutputBattery(devicePath, out batt, out isChg, out mv);
+                bool isA9Ultimate = ok && pid == 0x11D9 && QueryAtkA9UltimateIdentity(devicePath);
+                string modelName = isA9Ultimate ? "ATK A9 Ultimate" : product.ModelName;
                 seenKeys.Add(deviceKey);
 
                 int cachedBatt;
@@ -1211,14 +1256,14 @@ namespace RazerBatteryTray
 
                 if (ok && batt > 0 && batt <= 100)
                 {
-                    DriverStateStore.SaveBatteryState("Gaming:" + deviceKey, batt, isChg, product.ModelName);
+                    DriverStateStore.SaveBatteryState("Gaming:" + deviceKey, batt, isChg, modelName);
                 }
 
                 MouseBatteryInfo info = new MouseBatteryInfo();
                 info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", vid, pid);
                 info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", vid, pid);
                 info.DriverId = "BuiltIn:UniversalGaming";
-                info.DeviceName = product.ModelName;
+                info.DeviceName = modelName;
                 info.Brand = product.Brand;
                 info.Category = product.Category;
                 info.Transport = "2.4G 无线 / 极速回报";
