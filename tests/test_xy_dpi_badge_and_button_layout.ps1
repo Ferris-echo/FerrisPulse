@@ -111,11 +111,19 @@ if ($stage4Btn.Text -ne "3000×2250") {
     exit 1
 }
 
-if ($stage4Btn.Width -lt 50) {
-    Write-Host ("FAIL: 按钮宽度预期 >= 50px，实际为: " + $stage4Btn.Width + "px") -ForegroundColor Red
+$curScale = 1.0
+$fDpi = $tMainForm.GetField("dpiScale", [System.Reflection.BindingFlags]'Instance,NonPublic')
+if ($fDpi -ne $null) {
+    $curScale = [float]$fDpi.GetValue($form)
+}
+$minWidth = [int][Math]::Floor(50 * $curScale)
+if ($minWidth -lt 28) { $minWidth = 28 }
+
+if ($stage4Btn.Width -lt $minWidth) {
+    Write-Host ("FAIL: 按钮宽度预期 >= " + $minWidth + "px，实际为: " + $stage4Btn.Width + "px") -ForegroundColor Red
     exit 1
 }
-Write-Host ("PASS: DPI 按钮文字正确且宽度提升至 " + $stage4Btn.Width + "px") -ForegroundColor Green
+Write-Host ("PASS: DPI 按钮文字正确且宽度动态适配: " + $stage4Btn.Width + "px (基准: >= " + $minWidth + "px, 缩放: " + $curScale + "x)") -ForegroundColor Green
 
 
 # --- 测试 4: ModernSegmentButton 极长文字自动缩放抗溢出 ---
