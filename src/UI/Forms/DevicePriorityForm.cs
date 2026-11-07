@@ -51,7 +51,7 @@ namespace RazerBatteryTray
             this.Controls.Add(lblTitle);
 
             var lblTip = new Label();
-            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位。第 1 位设备默认常驻任务栏（离线时自动顺延下一位在线设备）。点击「✕」可将设备从列表移除。";
+            lblTip.Text = "按住右侧把手上下拖动卡片可调整顺位。第 1 位设备默认常驻任务栏（离线时自动顺延）。勾选下方开关可在任意设备电量低于 30% 时自动置顶预警。";
             lblTip.Font = new Font("Microsoft YaHei UI", 8.5F);
             lblTip.ForeColor = Color.FromArgb(145, 155, 175);
             lblTip.Location = new Point(pad, (int)(38 * dpiScale));
@@ -59,13 +59,14 @@ namespace RazerBatteryTray
             lblTip.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.Controls.Add(lblTip);
 
+            int chkX = pad + (int)(13 * dpiScale);
             chkLowBatteryFirst = new ModernCheckBox();
-            chkLowBatteryFirst.Text = "任务栏优先显示低电量设备（智能自动排序）";
+            chkLowBatteryFirst.Text = "低电量设备优先显示（电量≤30%）";
             chkLowBatteryFirst.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
             chkLowBatteryFirst.ForeColor = Color.FromArgb(220, 230, 245);
             chkLowBatteryFirst.Checked = DeviceManager.IsTrayLowBatteryFirstEnabled();
-            chkLowBatteryFirst.Location = new Point(pad, (int)(80 * dpiScale));
-            chkLowBatteryFirst.Size = new Size(initClientW - (pad * 2), (int)(24 * dpiScale));
+            chkLowBatteryFirst.Location = new Point(chkX, (int)(80 * dpiScale));
+            chkLowBatteryFirst.Size = new Size(initClientW - pad - chkX, (int)(24 * dpiScale));
             chkLowBatteryFirst.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.Controls.Add(chkLowBatteryFirst);
 

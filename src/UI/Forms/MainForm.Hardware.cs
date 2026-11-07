@@ -39,7 +39,21 @@ namespace RazerBatteryTray
 
         public static int CalculateAdaptiveDpiPollInterval(double idleSeconds, bool isSleeping, string brand)
         {
+            return CalculateAdaptiveDpiPollInterval(idleSeconds, isSleeping, brand, false, 0);
+        }
+
+        public static int CalculateAdaptiveDpiPollInterval(double idleSeconds, bool isSleeping, string brand, bool isGamingActive, long burstUntilTicks = 0)
+        {
             if (isSleeping) return 2000;
+            bool isBurstActive = (burstUntilTicks > 0 && DateTime.UtcNow.Ticks < burstUntilTicks);
+            if (isGamingActive || isBurstActive)
+            {
+                if (!string.IsNullOrEmpty(brand) && (brand.Equals("Rapoo", StringComparison.OrdinalIgnoreCase) || brand.Equals("雷柏", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return 200;
+                }
+                return 50;
+            }
             if (idleSeconds >= 30.0) return 1000;
             if (!string.IsNullOrEmpty(brand) && (brand.Equals("Rapoo", StringComparison.OrdinalIgnoreCase) || brand.Equals("雷柏", StringComparison.OrdinalIgnoreCase)))
             {
@@ -205,6 +219,7 @@ namespace RazerBatteryTray
 
                                 if (prevDpi != -1 && (dpi != prevDpi || stage != prevStage))
                                 {
+                                    System.Threading.Interlocked.Exchange(ref dpiMonitorBurstUntilTicks, DateTime.UtcNow.Ticks + TimeSpan.FromSeconds(5).Ticks);
                                     int candDpi = -1;
                                     int candStage = -1;
                                     pendingDpiCandidates.TryGetValue(key, out candDpi);
@@ -264,7 +279,8 @@ namespace RazerBatteryTray
                     // - 彻底休眠态 (问不到了 / 硬件已入睡): 彻底停发一切 2.4G 报文，进入 2000ms 事件挂起静默
                     bool isDeepSleeping = monitorTargets.Count == 0 || anyTargetSleeping || (!anySuccess && idleSec >= 30.0);
                     string primaryBrand = (selectedDevice != null && !string.IsNullOrEmpty(selectedDevice.Brand)) ? selectedDevice.Brand : "Razer";
-                    int pollSleep = CalculateAdaptiveDpiPollInterval(idleSec, isDeepSleeping, primaryBrand);
+                    long burstTicks = System.Threading.Interlocked.Read(ref dpiMonitorBurstUntilTicks);
+                    int pollSleep = CalculateAdaptiveDpiPollInterval(idleSec, isDeepSleeping, primaryBrand, isGamingActive, burstTicks);
 
                     if (isDeepSleeping)
                     {
@@ -344,7 +360,8 @@ namespace RazerBatteryTray
 
             if (dpiOsdEnabled && osdForm != null)
             {
-                if ((DateTime.Now - lastGameOptOsdTime).TotalMilliseconds >= 2500)
+                bool isGameOptProtect = osdForm.IsDualOptimizationMode && ((DateTime.Now - lastGameOptOsdTime).TotalMilliseconds < 2500);
+                if (!isGameOptProtect)
                 {
                     osdForm.ShowDpi(newDpi, curDpiY, newStage, stageCount, brand);
                 }
@@ -1213,13 +1230,41 @@ namespace RazerBatteryTray
             lastMonitoredLogitechStage = targetStage;
         }
 
+        private GameProfile GetActiveGameProfile()
+        {
+            if (monitoredGameProcesses == null || monitoredGameProcesses.Count == 0 || gameProfiles == null || gameProfiles.Count == 0)
+                return null;
+            for (int i = 0; i < monitoredGameProcesses.Count; i++)
+            {
+                string g = monitoredGameProcesses[i];
+                if (string.IsNullOrEmpty(g)) continue;
+                string pNameOnly = g.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? g.Substring(0, g.Length - 4) : g;
+                try
+                {
+                    Process[] matched = Process.GetProcessesByName(pNameOnly);
+                    if (matched != null && matched.Length > 0)
+                    {
+                        for (int k = 0; k < matched.Length; k++) matched[k].Dispose();
+                        string lowerExe = g.ToLowerInvariant();
+                        if (!lowerExe.EndsWith(".exe")) lowerExe += ".exe";
+                        GameProfile prof;
+                        if (gameProfiles.TryGetValue(lowerExe, out prof)) return prof;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
         private void ApplyGameOptimization(bool isEntering)
         {
             var curDev = GetActiveMouseDevice();
             if (curDev == null) return;
 
             string brand = curDev.Brand;
-            int targetHz = isEntering ? gamePollingRate : desktopPollingRate;
+            GameProfile activeProfile = isEntering ? GetActiveGameProfile() : null;
+            int targetHz = isEntering ? ((activeProfile != null && activeProfile.CustomPollingRate > 0) ? activeProfile.CustomPollingRate : gamePollingRate) : desktopPollingRate;
 
             int targetStage;
             int prevStage = desktopDpiStage;
@@ -1230,7 +1275,7 @@ namespace RazerBatteryTray
                     desktopDpiStage = (curDev.DpiStage > 0) ? curDev.DpiStage : 1;
                     SaveConfig();
                 }
-                targetStage = gameDpiStage;
+                targetStage = (activeProfile != null && activeProfile.CustomDpiStage >= 1 && activeProfile.CustomDpiStage <= 5) ? activeProfile.CustomDpiStage : gameDpiStage;
             }
             else
             {
@@ -1450,7 +1495,8 @@ namespace RazerBatteryTray
                 SaveConfig();
             }
 
-            int targetStage = gameDpiStage;
+            GameProfile activeProf = GetActiveGameProfile();
+            int targetStage = (activeProf != null && activeProf.CustomDpiStage >= 1 && activeProf.CustomDpiStage <= 5) ? activeProf.CustomDpiStage : gameDpiStage;
             if (targetStage < 1 || targetStage > 5) targetStage = 1;
 
             int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 800;

@@ -56,6 +56,11 @@ namespace RazerBatteryTray
             set { osdStyle = value; }
         }
 
+        public bool IsDualOptimizationMode
+        {
+            get { return isDualOptimizationMode; }
+        }
+
         public void UpdateDpiScale(float scale)
         {
             if (scale < DpiScaleHelper.MinScale) scale = DpiScaleHelper.MinScale;

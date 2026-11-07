@@ -406,36 +406,6 @@ namespace RazerBatteryTray
 
                         {
 
-                            // BLE GATT HID 节点（如 HID over LE 键鼠）在 Windows 11 下常不写入 DEVPKEY_Device_IsConnected，
-
-                            // 但只要设备当前在线握手，内核就会暴露有效的 DEVPKEY_Device_BatteryLevel (0-100)。
-
-                            byte[] batProbe = new byte[16];
-
-                            uint batType, batReq;
-
-                            if (SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_BatteryLevel, out batType, batProbe, (uint)batProbe.Length, out batReq, 0) && batReq >= 1)
-
-                            {
-
-                                int lvl = batProbe[0];
-
-                                if (lvl >= 0 && lvl <= 100)
-
-                                {
-
-                                    pnpConnected = true;
-
-                                }
-
-                            }
-
-                        }
-
-                        if (!pnpConnected)
-
-                        {
-
                             continue;
 
                         }
@@ -668,7 +638,17 @@ namespace RazerBatteryTray
 
                                 string devMac = string.Format("{0:X12}", dev.Address);
 
-                                if (string.Equals(devMac, mac, StringComparison.OrdinalIgnoreCase))
+                                bool matchesMac = string.Equals(devMac, mac, StringComparison.OrdinalIgnoreCase);
+
+                                bool matchesName = (!string.IsNullOrEmpty(hintName) && !string.IsNullOrEmpty(dev.szName) &&
+
+                                    (string.Equals(dev.szName, hintName, StringComparison.OrdinalIgnoreCase) ||
+
+                                     dev.szName.IndexOf(hintName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+
+                                     hintName.IndexOf(dev.szName, StringComparison.OrdinalIgnoreCase) >= 0));
+
+                                if (matchesMac || matchesName)
 
                                 {
 
@@ -758,7 +738,7 @@ namespace RazerBatteryTray
 
                                 string fn = Encoding.Unicode.GetString(nameBuf, 0, (int)req).TrimEnd('\0', ' ', '\t');
 
-                                if (!string.IsNullOrEmpty(fn) && (string.Equals(fn, hintName, StringComparison.OrdinalIgnoreCase) || fn.StartsWith(hintName, StringComparison.OrdinalIgnoreCase) || hintName.StartsWith(fn, StringComparison.OrdinalIgnoreCase)))
+                                if (!string.IsNullOrEmpty(fn) && (string.Equals(fn, hintName, StringComparison.OrdinalIgnoreCase) || fn.IndexOf(hintName, StringComparison.OrdinalIgnoreCase) >= 0 || hintName.IndexOf(fn, StringComparison.OrdinalIgnoreCase) >= 0))
 
                                 {
 
@@ -1141,14 +1121,6 @@ namespace RazerBatteryTray
 
                 battery = bestBattery;
 
-                if (!isConnected)
-
-                {
-
-                    isConnected = true;
-
-                }
-
             }
 
 
@@ -1275,7 +1247,71 @@ namespace RazerBatteryTray
 
 
 
-            return result;
+            // 归一化聚合 TWS 耳机与蓝牙音频设备，防止同一副耳机展示多个分身节点
+
+            var deduped = new List<CustomDeviceConfig>();
+
+            var seenAudioNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+
+
+            for (int i = 0; i < result.Count; i++)
+
+            {
+
+                var cur = result[i];
+
+                if (cur.Category == DeviceCategory.Earbuds || cur.Category == DeviceCategory.Headset)
+
+                {
+
+                    string key = (cur.OriginalName ?? cur.CustomName ?? "").Trim();
+
+                    if (!string.IsNullOrEmpty(key))
+
+                    {
+
+                        if (seenAudioNames.Contains(key))
+
+                        {
+
+                            int existingIdx = deduped.FindIndex(delegate(CustomDeviceConfig x) {
+
+                                return string.Equals(x.OriginalName ?? x.CustomName, key, StringComparison.OrdinalIgnoreCase);
+
+                            });
+
+                            if (existingIdx >= 0)
+
+                            {
+
+                                if (cur.CachedBattery > 0 && deduped[existingIdx].CachedBattery <= 0)
+
+                                {
+
+                                    deduped[existingIdx] = cur;
+
+                                }
+
+                            }
+
+                            continue;
+
+                        }
+
+                        seenAudioNames.Add(key);
+
+                    }
+
+                }
+
+                deduped.Add(cur);
+
+            }
+
+
+
+            return deduped;
 
         }
 

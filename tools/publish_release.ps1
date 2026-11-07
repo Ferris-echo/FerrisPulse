@@ -17,6 +17,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
     [string]$Title = "",
+    [string]$Body = "",
     [string[]]$Changelog = @()
 )
 
@@ -131,7 +132,7 @@ if (-not (Test-Path $zipPath)) {
 
 # 7. Git 提交、打 Tag 并双推
 Write-Host "`n[6/7] 提交 Git 代码与 Tag，同步推送到 GitHub & Gitee..." -ForegroundColor Yellow
-git add src/Properties/AssemblyInfo.cs version.json tools/build_release_zip.ps1 tools/publish_release.ps1 .gitignore CHANGELOG.md
+git add -A
 $gitDiff = git status --porcelain
 if ($gitDiff) {
     git commit -m "chore(release): bump version to $tag"
@@ -146,11 +147,14 @@ git push gitee main --tags
 # 8. 双平台发布 Release
 Write-Host "`n[7/7] 调用双平台 API 创建 Release 并上传二进制资产..." -ForegroundColor Yellow
 
-$releaseBody = ""
+$releaseBody = if ($Body) { $Body } else { "" }
+if (-not $releaseBody) {
 if ($Changelog.Count -gt 0) {
     $releaseBody = "### 🌟 更新日志`n`n" + (($Changelog | ForEach-Object { "* " + $_ }) -join "`n")
 } else {
     $releaseBody = "### 🌟 FerrisPulse $tag 正式版`n`n* 本次更新包含最新稳定性与功能优化。"
+}
+
 }
 
 # 8.1 GitHub Release 创建与资产上传

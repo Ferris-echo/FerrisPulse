@@ -3,10 +3,10 @@
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
 //   现代化左右双栏电竞游戏进程控制台：
-//   1. 宽屏左右双栏布局 (左栏运行应用库 + 实时搜索过滤；右栏守护名单 + 策略控制)
-//   2. Windows 原生 API 进程高清图标提取与内存高速缓存 (22x22 高清展示)
-//   3. 与设备优先级管理页完全统一的矢量级微型添加 [+] 与删除 [✕] 按键设计
-//   4. 进程存活常驻 vs 仅前台窗口激活双策略切换、全屏兜底探测与数据解耦回调
+//   1. 宽屏左右双栏布局 (左栏运行应用库 + 实时搜索过滤 + 后台静默自适应自动刷新；右栏生效游戏列表 + 专属策略控制)
+//   2. Windows 原生 API 进程高清图标提取、内存高速缓存与本地磁盘永久化存储
+//   3. 与设备优先级管理页完全统一的矢量级微型添加 [+] 与删除 [✕] 按键设计，删除与清空具备二次确认框
+//   4. 列表精准展示实际生效数值（如“3000DPI · 8000Hz”与“跟随默认预设”），进程存活常驻 vs 仅前台窗口激活双策略切换
 // 依赖关系: Controls.ModernProcessListControl, Controls.ModernButton, Controls.ModernCheckBox,
 //           Controls.RoundedCard, Models.RunningProcessItem, Core.NativeMethods
 //
@@ -34,10 +34,14 @@ namespace RazerBatteryTray
         private List<string> monitoredList;
         private bool fallbackEnabled;
         private int currentMode; // 0 = 仅前台激活模式, 1 = 进程存活常驻模式 (推荐)
-        private Action<List<string>, bool, int> onSaveCallback;
+        private Dictionary<string, GameProfile> gameProfiles;
+        private int[] availableDpis;
+        private int[] availableRates;
+        private Action<List<string>, bool, int, Dictionary<string, GameProfile>> onSaveProfileCallback;
 
-        // In-memory icon cache for process executables (prevents disk I/O lag and memory leaks)
+        // In-memory icon and title cache for process executables (prevents disk I/O lag and memory leaks)
         private static readonly Dictionary<string, Image> processIconCache = new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, string> processTitleCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         private List<RunningProcessItem> rawRunningProcesses = new List<RunningProcessItem>();
 
@@ -58,19 +62,39 @@ namespace RazerBatteryTray
         private Panel pnlModeCard;
         private ModernCheckBox chkFallback;
         private ModernButton btnClose;
+        private Timer autoRefreshTimer;
+        private bool isRefreshing = false;
 
         public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, Action<List<string>, bool> callback)
-            : this(scale, initialList, initialFallback, 1, (list, fb, mode) => { if (callback != null) callback(list, fb); })
+            : this(scale, initialList, initialFallback, 1, null, (list, fb, mode, profs) => { if (callback != null) callback(list, fb); })
         {
         }
 
         public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode, Action<List<string>, bool, int> callback)
+            : this(scale, initialList, initialFallback, initialMode, null, (list, fb, mode, profs) => { if (callback != null) callback(list, fb, mode); })
+        {
+        }
+
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode,
+                                      Dictionary<string, GameProfile> initialProfiles,
+                                      Action<List<string>, bool, int, Dictionary<string, GameProfile>> callback)
+            : this(scale, initialList, initialFallback, initialMode, initialProfiles, null, null, callback)
+        {
+        }
+
+        public GameProcessManagerForm(float scale, List<string> initialList, bool initialFallback, int initialMode,
+                                      Dictionary<string, GameProfile> initialProfiles,
+                                      int[] dpiValues, int[] pollingRates,
+                                      Action<List<string>, bool, int, Dictionary<string, GameProfile>> callback)
             : base(scale)
         {
             this.monitoredList = initialList != null ? new List<string>(initialList) : new List<string>();
             this.fallbackEnabled = initialFallback;
             this.currentMode = (initialMode == 0) ? 0 : 1;
-            this.onSaveCallback = callback;
+            this.gameProfiles = initialProfiles != null ? new Dictionary<string, GameProfile>(initialProfiles, StringComparer.OrdinalIgnoreCase) : new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
+            this.availableDpis = dpiValues;
+            this.availableRates = pollingRates;
+            this.onSaveProfileCallback = callback;
 
             InitializeFormUI();
         }
@@ -209,7 +233,7 @@ namespace RazerBatteryTray
 
             // ================= 4. Right Column: Monitored Games & Strategy =================
             lblMonitoredTitle = new Label();
-            lblMonitoredTitle.Text = "📋 已生效的电竞守护列表";
+            lblMonitoredTitle.Text = "📋 已生效的游戏列表";
             lblMonitoredTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
             lblMonitoredTitle.ForeColor = Color.FromArgb(0, 230, 118);
             lblMonitoredTitle.Location = new Point(rightColX, S(54));
@@ -232,8 +256,21 @@ namespace RazerBatteryTray
             {
                 if (monitoredList.Count > 0)
                 {
-                    monitoredList.Clear();
-                    RefreshMonitoredList();
+                    DialogResult dr = MessageBox.Show(this,
+                        "确定要清空全部已生效的游戏列表吗？\n清空后将同步移除所有关联的游戏专属策略配置。",
+                        "清空确认 · FerrisPulse",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+
+                    if (dr == DialogResult.Yes)
+                    {
+                        monitoredList.Clear();
+                        if (gameProfiles != null)
+                        {
+                            gameProfiles.Clear();
+                        }
+                        RefreshMonitoredList();
+                    }
                 }
             };
             this.Controls.Add(btnClearAll);
@@ -247,6 +284,7 @@ namespace RazerBatteryTray
             ctlMonitoredList.Size = new Size(rightColW, S(246));
             ctlMonitoredList.OnActionClicked += (item) => RemoveGameProcess(item.ProcessName);
             ctlMonitoredList.OnItemDoubleClicked += (item) => RemoveGameProcess(item.ProcessName);
+            ctlMonitoredList.OnSettingsClicked += (item) => OpenGameProfileSetting(item.ProcessName);
             this.Controls.Add(ctlMonitoredList);
 
             // Section: Strategy Mode (shifted down to S(330))
@@ -381,6 +419,12 @@ namespace RazerBatteryTray
 
             RefreshRunningProcesses();
             RefreshMonitoredList();
+
+            // Setup Background Auto-Refresh Timer for Running Applications (2 seconds)
+            autoRefreshTimer = new Timer();
+            autoRefreshTimer.Interval = 2000;
+            autoRefreshTimer.Tick += (s, e) => AutoRefreshRunningProcesses();
+            autoRefreshTimer.Start();
         }
 
         protected override void OnApplyDpiScale(float scale)
@@ -468,6 +512,22 @@ namespace RazerBatteryTray
             }
         }
 
+        private string GetDpiDisplayString(int stage)
+        {
+            if (stage < 1 || stage > 5) return "默认DPI";
+            int dpiVal = 0;
+            if (availableDpis != null && stage - 1 < availableDpis.Length && availableDpis[stage - 1] > 0)
+            {
+                dpiVal = availableDpis[stage - 1];
+            }
+            else
+            {
+                int[] fallback = new int[] { 800, 1600, 2400, 3200, 4000 };
+                dpiVal = fallback[stage - 1];
+            }
+            return dpiVal.ToString() + "DPI";
+        }
+
         private void RefreshMonitoredList()
         {
             List<ProcessListItem> items = new List<ProcessListItem>();
@@ -475,19 +535,67 @@ namespace RazerBatteryTray
             {
                 string exeName = monitoredList[i];
                 Image ico = GetCachedProcessIcon(exeName);
+                GameProfile prof = null;
+                if (gameProfiles != null) gameProfiles.TryGetValue(exeName, out prof);
+
                 string title = exeName;
-                string sub = "已纳入电竞性能守护名单";
+                if (prof != null && !string.IsNullOrEmpty(prof.FriendlyTitle))
+                {
+                    title = prof.FriendlyTitle;
+                }
+                else
+                {
+                    string ct = GetCachedProcessTitle(exeName);
+                    if (!string.IsNullOrEmpty(ct)) title = ct;
+                }
+
+                string sub;
+                if (prof != null && prof.IsCustomConfigured)
+                {
+                    string dpiPart = GetDpiDisplayString(prof.CustomDpiStage);
+                    string ratePart = (prof.CustomPollingRate > 0) ? (prof.CustomPollingRate + "Hz") : "默认回报率";
+                    sub = "专属策略: " + dpiPart + " · " + ratePart;
+                }
+                else
+                {
+                    sub = "跟随默认预设";
+                }
 
                 // Check if matching window title exists from running processes
                 for (int j = 0; j < rawRunningProcesses.Count; j++)
                 {
                     if (string.Equals(rawRunningProcesses[j].ProcessName, exeName, StringComparison.OrdinalIgnoreCase))
                     {
-                        title = rawRunningProcesses[j].WindowTitle;
-                        sub = exeName + " · 实时运行中";
-                        if (ico == null && rawRunningProcesses[j].IconImage != null)
+                        string liveTitle = rawRunningProcesses[j].WindowTitle;
+                        if (!string.IsNullOrEmpty(liveTitle))
                         {
-                            ico = rawRunningProcesses[j].IconImage;
+                            title = liveTitle;
+                            processTitleCache[exeName] = liveTitle;
+                            SaveProcessTitleToDisk(exeName, liveTitle);
+
+                            if (prof == null)
+                            {
+                                prof = new GameProfile(exeName);
+                                if (gameProfiles == null) gameProfiles = new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
+                                gameProfiles[exeName] = prof;
+                            }
+                            prof.FriendlyTitle = liveTitle;
+                        }
+
+                        if (prof != null && prof.IsCustomConfigured)
+                        {
+                            string dpiPart = GetDpiDisplayString(prof.CustomDpiStage);
+                            string ratePart = (prof.CustomPollingRate > 0) ? (prof.CustomPollingRate + "Hz") : "默认回报率";
+                            sub = "专属策略: " + dpiPart + " · " + ratePart + " · 实时运行中";
+                        }
+                        else
+                        {
+                            sub = "跟随默认预设 · 实时运行中";
+                        }
+                        if (rawRunningProcesses[j].IconImage != null)
+                        {
+                            if (ico == null) ico = rawRunningProcesses[j].IconImage;
+                            SaveProcessIconToDisk(exeName, rawRunningProcesses[j].IconImage);
                         }
                         break;
                     }
@@ -500,7 +608,7 @@ namespace RazerBatteryTray
 
             if (lblMonitoredTitle != null)
             {
-                lblMonitoredTitle.Text = string.Format("📋 已生效的电竞守护列表 ({0} 款)", monitoredList.Count);
+                lblMonitoredTitle.Text = string.Format("📋 已生效的游戏列表 ({0} 款)", monitoredList.Count);
             }
         }
 
@@ -517,15 +625,61 @@ namespace RazerBatteryTray
                 if (!cur.EndsWith(".exe")) cur += ".exe";
                 if (cur == lower) return;
             }
+            string capturedTitle = null;
+            for (int rIdx = 0; rIdx < rawRunningProcesses.Count; rIdx++)
+            {
+                if (string.Equals(rawRunningProcesses[rIdx].ProcessName, lower, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(rawRunningProcesses[rIdx].ProcessName, exeName, StringComparison.OrdinalIgnoreCase))
+                {
+                    capturedTitle = rawRunningProcesses[rIdx].WindowTitle;
+                    if (rawRunningProcesses[rIdx].IconImage != null)
+                    {
+                        SaveProcessIconToDisk(lower, rawRunningProcesses[rIdx].IconImage);
+                    }
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(capturedTitle))
+            {
+                processTitleCache[lower] = capturedTitle;
+                SaveProcessTitleToDisk(lower, capturedTitle);
+
+                GameProfile prof;
+                if (gameProfiles == null) gameProfiles = new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
+                if (!gameProfiles.TryGetValue(lower, out prof) || prof == null)
+                {
+                    prof = new GameProfile(lower);
+                    gameProfiles[lower] = prof;
+                }
+                prof.FriendlyTitle = capturedTitle;
+            }
+
             monitoredList.Add(lower);
             RefreshMonitoredList();
         }
 
-        private void RemoveGameProcess(string exeName)
+        public void RemoveGameProcess(string exeName)
+        {
+            RemoveGameProcess(exeName, true);
+        }
+
+        public void RemoveGameProcess(string exeName, bool promptConfirm)
         {
             if (string.IsNullOrEmpty(exeName)) return;
             string lower = exeName.ToLowerInvariant();
             if (!lower.EndsWith(".exe")) lower += ".exe";
+
+            if (promptConfirm)
+            {
+                DialogResult dr = MessageBox.Show(this,
+                    string.Format("确定要将 \"{0}\" 从生效的游戏列表中移除吗？\n移除后该游戏将不再自动触发电竞性能优化，其专属配置也将同步清除。", exeName),
+                    "移除确认 · FerrisPulse",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (dr != DialogResult.Yes) return;
+            }
 
             for (int i = 0; i < monitoredList.Count; i++)
             {
@@ -536,6 +690,12 @@ namespace RazerBatteryTray
                     monitoredList.RemoveAt(i);
                     break;
                 }
+            }
+
+            // 同步清理该游戏的专属硬件配置策略 (GameProfile)，杜绝配置残留泄漏
+            if (gameProfiles != null && gameProfiles.ContainsKey(lower))
+            {
+                gameProfiles.Remove(lower);
             }
             RefreshMonitoredList();
         }
@@ -559,10 +719,24 @@ namespace RazerBatteryTray
                             {
                                 using (Icon ico = Icon.ExtractAssociatedIcon(fullPath))
                                 {
-                                    if (ico != null && !processIconCache.ContainsKey(fn))
+                                    if (ico != null)
                                     {
-                                        processIconCache[fn] = ico.ToBitmap();
+                                        Image bmp = ico.ToBitmap();
+                                        processIconCache[fn] = bmp;
+                                        SaveProcessIconToDisk(fn, bmp);
                                     }
+                                }
+                            }
+                            catch { }
+
+                            try
+                            {
+                                var vi = FileVersionInfo.GetVersionInfo(fullPath);
+                                if (!string.IsNullOrEmpty(vi.FileDescription))
+                                {
+                                    string desc = vi.FileDescription.Trim();
+                                    processTitleCache[fn] = desc;
+                                    SaveProcessTitleToDisk(fn, desc);
                                 }
                             }
                             catch { }
@@ -573,11 +747,102 @@ namespace RazerBatteryTray
             }
         }
 
+        private void OpenGameProfileSetting(string exeName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return;
+            string lower = exeName.ToLowerInvariant();
+            if (!lower.EndsWith(".exe")) lower += ".exe";
+
+            GameProfile prof = null;
+            if (gameProfiles != null) gameProfiles.TryGetValue(lower, out prof);
+            if (prof == null) prof = new GameProfile(lower);
+
+            Image icon = GetCachedProcessIcon(lower);
+            string title = !string.IsNullOrEmpty(prof.FriendlyTitle) ? prof.FriendlyTitle : lower;
+            if (title == lower)
+            {
+                string ct = GetCachedProcessTitle(lower);
+                if (!string.IsNullOrEmpty(ct)) title = ct;
+            }
+
+            for (int i = 0; i < rawRunningProcesses.Count; i++)
+            {
+                if (string.Equals(rawRunningProcesses[i].ProcessName, lower, StringComparison.OrdinalIgnoreCase))
+                {
+                    title = rawRunningProcesses[i].WindowTitle;
+                    if (icon == null) icon = rawRunningProcesses[i].IconImage;
+                    break;
+                }
+            }
+
+            int[] dpis = (availableDpis != null && availableDpis.Length > 0) ? availableDpis : new int[] { 800, 1600, 2400, 3200, 4000 };
+            int[] rates = (availableRates != null && availableRates.Length > 0) ? availableRates : new int[] { 125, 500, 1000, 2000, 4000, 8000 };
+
+            using (var dlg = new GameProfileSettingForm(dpiScale, lower, title, icon, prof, dpis, rates, (updatedProf) =>
+            {
+                if (gameProfiles == null) gameProfiles = new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
+                gameProfiles[lower] = updatedProf;
+                RefreshMonitoredList();
+            }))
+            {
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void AutoRefreshRunningProcesses()
+        {
+            if (this.IsDisposed || !this.Visible || isRefreshing) return;
+
+            try
+            {
+                isRefreshing = true;
+                List<RunningProcessItem> latest = GetRunningUserApplications();
+                if (HasProcessListChanged(rawRunningProcesses, latest))
+                {
+                    rawRunningProcesses = latest;
+                    ApplySearchFilter();
+                    RefreshMonitoredList();
+                }
+            }
+            catch { }
+            finally
+            {
+                isRefreshing = false;
+            }
+        }
+
+        private static bool HasProcessListChanged(List<RunningProcessItem> oldList, List<RunningProcessItem> newList)
+        {
+            if (oldList == null || newList == null) return true;
+            if (oldList.Count != newList.Count) return true;
+            for (int i = 0; i < oldList.Count; i++)
+            {
+                if (oldList[i].Pid != newList[i].Pid ||
+                    !string.Equals(oldList[i].ProcessName, newList[i].ProcessName, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(oldList[i].WindowTitle, newList[i].WindowTitle, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (autoRefreshTimer != null)
+            {
+                autoRefreshTimer.Stop();
+                autoRefreshTimer.Dispose();
+                autoRefreshTimer = null;
+            }
+        }
+
         private void SaveAndClose()
         {
-            if (onSaveCallback != null)
+            if (onSaveProfileCallback != null)
             {
-                onSaveCallback(monitoredList, chkFallback != null ? chkFallback.Checked : fallbackEnabled, currentMode);
+                onSaveProfileCallback(monitoredList, chkFallback != null ? chkFallback.Checked : fallbackEnabled, currentMode, gameProfiles);
             }
             this.DialogResult = DialogResult.OK;
             this.Close();
@@ -694,7 +959,11 @@ namespace RazerBatteryTray
                         if (ico != null)
                         {
                             Image bmp = ico.ToBitmap();
-                            if (!string.IsNullOrEmpty(exeName)) processIconCache[exeName] = bmp;
+                            if (!string.IsNullOrEmpty(exeName))
+                            {
+                                processIconCache[exeName] = bmp;
+                                SaveProcessIconToDisk(exeName, bmp);
+                            }
                             return bmp;
                         }
                     }
@@ -705,11 +974,130 @@ namespace RazerBatteryTray
             return null;
         }
 
-        private static Image GetCachedProcessIcon(string exeName)
+        public static string GetIconCacheDirectory()
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FerrisPulse", "GameIcons");
+            if (!Directory.Exists(dir))
+            {
+                try { Directory.CreateDirectory(dir); } catch { }
+            }
+            return dir;
+        }
+
+        public static void SaveProcessIconToDisk(string exeName, Image icon)
+        {
+            if (string.IsNullOrEmpty(exeName) || icon == null) return;
+            try
+            {
+                string cacheDir = GetIconCacheDirectory();
+                string safeName = Path.GetFileName(exeName).ToLowerInvariant();
+                if (safeName.EndsWith(".exe")) safeName = safeName.Substring(0, safeName.Length - 4);
+                string filePath = Path.Combine(cacheDir, safeName + ".png");
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    icon.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    File.WriteAllBytes(filePath, ms.ToArray());
+                }
+            }
+            catch { }
+        }
+
+        public static Image LoadProcessIconFromDisk(string exeName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return null;
+            try
+            {
+                string cacheDir = GetIconCacheDirectory();
+                string safeName = Path.GetFileName(exeName).ToLowerInvariant();
+                if (safeName.EndsWith(".exe")) safeName = safeName.Substring(0, safeName.Length - 4);
+                string filePath = Path.Combine(cacheDir, safeName + ".png");
+                if (File.Exists(filePath))
+                {
+                    byte[] bytes = File.ReadAllBytes(filePath);
+                    using (MemoryStream ms = new MemoryStream(bytes))
+                    {
+                        using (Image img = Image.FromStream(ms))
+                        {
+                            return new Bitmap(img);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static Image GetCachedProcessIcon(string exeName)
         {
             if (string.IsNullOrEmpty(exeName)) return null;
             Image img;
             if (processIconCache.TryGetValue(exeName, out img)) return img;
+
+            Image diskImg = LoadProcessIconFromDisk(exeName);
+            if (diskImg != null)
+            {
+                processIconCache[exeName] = diskImg;
+                return diskImg;
+            }
+            return null;
+        }
+
+        public static string GetTitleCacheDirectory()
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FerrisPulse", "GameTitles");
+            if (!Directory.Exists(dir))
+            {
+                try { Directory.CreateDirectory(dir); } catch { }
+            }
+            return dir;
+        }
+
+        public static void SaveProcessTitleToDisk(string exeName, string title)
+        {
+            if (string.IsNullOrEmpty(exeName) || string.IsNullOrEmpty(title)) return;
+            try
+            {
+                string cacheDir = GetTitleCacheDirectory();
+                string safeName = Path.GetFileName(exeName).ToLowerInvariant();
+                if (safeName.EndsWith(".exe")) safeName = safeName.Substring(0, safeName.Length - 4);
+                string filePath = Path.Combine(cacheDir, safeName + ".txt");
+                File.WriteAllText(filePath, title, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        public static string LoadProcessTitleFromDisk(string exeName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return null;
+            try
+            {
+                string cacheDir = GetTitleCacheDirectory();
+                string safeName = Path.GetFileName(exeName).ToLowerInvariant();
+                if (safeName.EndsWith(".exe")) safeName = safeName.Substring(0, safeName.Length - 4);
+                string filePath = Path.Combine(cacheDir, safeName + ".txt");
+                if (File.Exists(filePath))
+                {
+                    string t = File.ReadAllText(filePath, Encoding.UTF8);
+                    if (!string.IsNullOrEmpty(t)) return t.Trim();
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static string GetCachedProcessTitle(string exeName)
+        {
+            if (string.IsNullOrEmpty(exeName)) return null;
+            string t;
+            if (processTitleCache.TryGetValue(exeName, out t) && !string.IsNullOrEmpty(t)) return t;
+
+            string diskT = LoadProcessTitleFromDisk(exeName);
+            if (!string.IsNullOrEmpty(diskT))
+            {
+                processTitleCache[exeName] = diskT;
+                return diskT;
+            }
             return null;
         }
     }

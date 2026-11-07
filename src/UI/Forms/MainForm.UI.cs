@@ -2331,10 +2331,21 @@ namespace RazerBatteryTray
 
         private void OpenGameProcessManager()
         {
-            var dlg = new GameProcessManagerForm(dpiScale, monitoredGameProcesses, fallbackFullscreenEnabled, gameOptMode, (updatedList, fb, mode) => {
+            var curDev = GetActiveMouseDevice();
+            int[] dpis = dpiStageValues;
+            int[] rates = (curDev != null && curDev.Capabilities != null && curDev.Capabilities.SupportedPollingRates != null)
+                ? curDev.Capabilities.SupportedPollingRates
+                : new int[] { 125, 500, 1000, 2000, 4000, 8000 };
+
+            var dlg = new GameProcessManagerForm(dpiScale, monitoredGameProcesses, fallbackFullscreenEnabled, gameOptMode,
+                gameProfiles, dpis, rates, (updatedList, fb, mode, updatedProfiles) => {
                 monitoredGameProcesses = new List<string>(updatedList);
                 fallbackFullscreenEnabled = fb;
                 gameOptMode = mode;
+                if (updatedProfiles != null)
+                {
+                    gameProfiles = new Dictionary<string, GameProfile>(updatedProfiles, StringComparer.OrdinalIgnoreCase);
+                }
                 SaveConfig();
                 UpdateManageGamesButtonText();
             });

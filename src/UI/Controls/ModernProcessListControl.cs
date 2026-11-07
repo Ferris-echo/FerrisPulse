@@ -55,12 +55,14 @@ namespace RazerBatteryTray
         public string EmptyPlaceholderText { get; set; }
 
         public event Action<ProcessListItem> OnActionClicked;
+        public event Action<ProcessListItem> OnSettingsClicked;
         public event Action<ProcessListItem> OnItemDoubleClicked;
         public event Action<ProcessListItem> OnItemSelected;
 
         private List<ProcessListItem> items = new List<ProcessListItem>();
         private int hoveredIndex = -1;
         private int hoveredActionIndex = -1;
+        private int hoveredSettingsIndex = -1;
         private int selectedIndex = -1;
         private int scrollY = 0;
         private ToolTip itemToolTip;
@@ -160,10 +162,11 @@ namespace RazerBatteryTray
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (hoveredIndex != -1 || hoveredActionIndex != -1)
+            if (hoveredIndex != -1 || hoveredActionIndex != -1 || hoveredSettingsIndex != -1)
             {
                 hoveredIndex = -1;
                 hoveredActionIndex = -1;
+                hoveredSettingsIndex = -1;
                 lastTooltipItemIndex = -1;
                 if (itemToolTip != null) itemToolTip.SetToolTip(this, null);
                 Invalidate();
@@ -174,6 +177,7 @@ namespace RazerBatteryTray
         {
             int newHover = -1;
             int newActionHover = -1;
+            int newSettingsHover = -1;
 
             int itemH = GetItemHeight();
             int totalH = GetTotalItemHeight();
@@ -181,7 +185,7 @@ namespace RazerBatteryTray
             int maxScroll = GetMaxScroll();
             int rightMargin = maxScroll > 0 ? S(10) : S(4);
             int cardW = Width - padX * 2 - rightMargin;
-            int btnW = Math.Max(14, S(22));
+            int btnW = Math.Max(16, S(24));
 
             for (int i = 0; i < items.Count; i++)
             {
@@ -199,17 +203,35 @@ namespace RazerBatteryTray
                     {
                         newActionHover = i;
                     }
+                    else if (ActionType == ProcessListActionType.Delete)
+                    {
+                        int setBtnX = btnX - btnW - S(6);
+                        Rectangle setBtnRect = new Rectangle(setBtnX, btnY, btnW, btnW);
+                        if (setBtnRect.Contains(pt))
+                        {
+                            newSettingsHover = i;
+                        }
+                    }
                     break;
                 }
             }
 
-            if (newHover != hoveredIndex || newActionHover != hoveredActionIndex)
+            if (newHover != hoveredIndex || newActionHover != hoveredActionIndex || newSettingsHover != hoveredSettingsIndex)
             {
                 hoveredIndex = newHover;
                 hoveredActionIndex = newActionHover;
-                this.Cursor = (newActionHover != -1) ? Cursors.Hand : Cursors.Default;
+                hoveredSettingsIndex = newSettingsHover;
+                this.Cursor = (newActionHover != -1 || newSettingsHover != -1) ? Cursors.Hand : Cursors.Default;
 
-                if (newHover != lastTooltipItemIndex)
+                if (newSettingsHover != -1)
+                {
+                    if (itemToolTip != null) itemToolTip.SetToolTip(this, "⚙ 点击配置该游戏的专属性能策略 (DPI与回报率)");
+                }
+                else if (newActionHover != -1)
+                {
+                    if (itemToolTip != null) itemToolTip.SetToolTip(this, ActionType == ProcessListActionType.Delete ? "从守护名单中移除" : "添加到守护名单");
+                }
+                else if (newHover != lastTooltipItemIndex)
                 {
                     lastTooltipItemIndex = newHover;
                     if (newHover >= 0 && newHover < items.Count)
@@ -238,7 +260,7 @@ namespace RazerBatteryTray
                 int maxScroll = GetMaxScroll();
                 int rightMargin = maxScroll > 0 ? S(10) : S(4);
                 int cardW = Width - padX * 2 - rightMargin;
-                int btnW = Math.Max(14, S(22));
+                int btnW = Math.Max(16, S(24));
 
                 for (int i = 0; i < items.Count; i++)
                 {
@@ -253,9 +275,16 @@ namespace RazerBatteryTray
                         int btnY = itemY + (itemH - btnW) / 2;
                         Rectangle btnRect = new Rectangle(btnX, btnY, btnW, btnW);
 
+                        int setBtnX = btnX - btnW - S(6);
+                        Rectangle setBtnRect = new Rectangle(setBtnX, btnY, btnW, btnW);
+
                         if (btnRect.Contains(e.Location))
                         {
                             if (OnActionClicked != null) OnActionClicked(items[i]);
+                        }
+                        else if (ActionType == ProcessListActionType.Delete && setBtnRect.Contains(e.Location))
+                        {
+                            if (OnSettingsClicked != null) OnSettingsClicked(items[i]);
                         }
                         else
                         {
@@ -400,16 +429,25 @@ namespace RazerBatteryTray
                 }
 
                 // Right: Action Button [+] or [✕]
-                int btnW = Math.Max(14, S(22));
+                int btnW = Math.Max(16, S(24));
                 int btnX = padX + cardW - btnW - S(8);
                 int btnY = itemY + (itemH - btnW) / 2;
                 Rectangle btnRect = new Rectangle(btnX, btnY, btnW, btnW);
 
                 DrawActionButton(g, btnX, btnY, btnW, isActionHovered);
 
+                int leftmostActionX = btnX;
+                if (ActionType == ProcessListActionType.Delete)
+                {
+                    int setBtnX = btnX - btnW - S(6);
+                    bool isSetHovered = (i == hoveredSettingsIndex);
+                    DrawSettingsButton(g, setBtnX, btnY, btnW, isSetHovered);
+                    leftmostActionX = setBtnX;
+                }
+
                 // Middle: Two-line Title & Subtitle
                 int textX = iconX + iconSize + S(8);
-                int maxTextW = btnX - textX - S(6);
+                int maxTextW = leftmostActionX - textX - S(6);
 
                 if (maxTextW > 20)
                 {
@@ -458,6 +496,59 @@ namespace RazerBatteryTray
                     using (SolidBrush tBrush = new SolidBrush(Color.FromArgb(60, 75, 100)))
                     {
                         g.FillPath(tBrush, tPath);
+                    }
+                }
+            }
+        }
+
+        private void DrawSettingsButton(Graphics g, int btnX, int btnY, int btnW, bool isHovered)
+        {
+            Rectangle rect = new Rectangle(btnX, btnY, btnW, btnW);
+            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rect, Math.Max(2, S(4))))
+            {
+                Color bg = isHovered ? Color.FromArgb(28, 48, 68) : Color.FromArgb(20, 26, 36);
+                Color border = isHovered ? Color.FromArgb(56, 189, 248) : Color.FromArgb(38, 48, 68);
+                Color gearColor = isHovered ? Color.FromArgb(56, 189, 248) : Color.FromArgb(160, 180, 205);
+
+                using (SolidBrush brush = new SolidBrush(bg))
+                {
+                    g.FillPath(brush, path);
+                }
+                using (Pen pen = new Pen(border, 1f))
+                {
+                    g.DrawPath(pen, path);
+                }
+
+                // Mathematical 100% Centered High-Precision Vector Gear
+                float cx = btnX + btnW / 2.0f;
+                float cy = btnY + btnW / 2.0f;
+                float rOuter = btnW * 0.32f;
+                float rInner = btnW * 0.20f;
+                float rHole = btnW * 0.08f;
+
+                using (GraphicsPath gearPath = new GraphicsPath())
+                {
+                    gearPath.FillMode = FillMode.Alternate;
+                    PointF[] pts = new PointF[24];
+                    for (int i = 0; i < 6; i++)
+                    {
+                        double deg = i * 60.0;
+                        double a1 = (deg - 16.0) * Math.PI / 180.0;
+                        double a2 = (deg - 8.0) * Math.PI / 180.0;
+                        double a3 = (deg + 8.0) * Math.PI / 180.0;
+                        double a4 = (deg + 16.0) * Math.PI / 180.0;
+
+                        pts[i * 4 + 0] = new PointF((float)(cx + rInner * Math.Cos(a1)), (float)(cy + rInner * Math.Sin(a1)));
+                        pts[i * 4 + 1] = new PointF((float)(cx + rOuter * Math.Cos(a2)), (float)(cy + rOuter * Math.Sin(a2)));
+                        pts[i * 4 + 2] = new PointF((float)(cx + rOuter * Math.Cos(a3)), (float)(cy + rOuter * Math.Sin(a3)));
+                        pts[i * 4 + 3] = new PointF((float)(cx + rInner * Math.Cos(a4)), (float)(cy + rInner * Math.Sin(a4)));
+                    }
+                    gearPath.AddPolygon(pts);
+                    gearPath.AddEllipse(cx - rHole, cy - rHole, rHole * 2.0f, rHole * 2.0f);
+
+                    using (SolidBrush gearBrush = new SolidBrush(gearColor))
+                    {
+                        g.FillPath(gearBrush, gearPath);
                     }
                 }
             }

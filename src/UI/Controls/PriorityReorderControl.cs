@@ -403,11 +403,31 @@ namespace RazerBatteryTray
                 using (var rp = new Pen(rBorder, isTop ? 1.5f : 1.0f)) g.DrawPath(rp, rPath);
             }
 
-            using (var rf = DpiScaleHelper.CreateScaledFont("Segoe UI", 8.8F, FontStyle.Bold, DpiScale))
+            using (var rf = DpiScaleHelper.CreateScaledFont("Segoe UI", 9.0F, FontStyle.Bold, DpiScale))
             {
                 string rStr = rank.ToString();
-                TextRenderer.DrawText(g, rStr, rf, rankRect, rFg,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                float emSize = rf.SizeInPoints * 96.0f / 72.0f;
+                float cx = rx + rankSize / 2.0f;
+                float cy = ry + rankSize / 2.0f;
+
+                using (GraphicsPath numPath = new GraphicsPath())
+                {
+                    numPath.AddString(rStr, rf.FontFamily, (int)rf.Style, emSize, new PointF(0, 0), StringFormat.GenericTypographic);
+                    RectangleF b = numPath.GetBounds();
+                    float dx = cx - (b.Left + b.Width / 2.0f);
+                    float dy = cy - (b.Top + b.Height / 2.0f);
+
+                    using (Matrix mat = new Matrix())
+                    {
+                        mat.Translate(dx, dy);
+                        numPath.Transform(mat);
+                    }
+
+                    using (SolidBrush numBrush = new SolidBrush(rFg))
+                    {
+                        g.FillPath(numBrush, numPath);
+                    }
+                }
             }
         }
 
