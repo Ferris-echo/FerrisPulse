@@ -318,12 +318,16 @@ namespace RazerBatteryTray
                                                 string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
                                                 string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 
+                                                // 判定顺序铁律：先按「实际业务端点」认键鼠，最后才退回 Dongle 名称。
+                                                // 一批 2.4G 复合接收器（如前行者 X87 的 0C45:FEFE）产品串本来就叫 "2.4G Dongle"，
+                                                // 但其键盘/鼠标集合同时在线；若 isDongle 优先，会把在用的键盘误判成「接收器」，
+                                                // 分类、卡片高度与 UI 分支全部跑偏。
                                                 DeviceCategory devCat = DeviceCategory.Generic;
                                                 if (isGamepad) devCat = DeviceCategory.Gamepad;
                                                 else if (isHeadset) devCat = DeviceCategory.Headset;
-                                                else if (isDongle) devCat = DeviceCategory.Dongle;
                                                 else if (isKeyboard) devCat = DeviceCategory.Keyboard;
                                                 else if (isMouse) devCat = DeviceCategory.Mouse;
+                                                else if (isDongle) devCat = DeviceCategory.Dongle;
 
                                                 var existing = result.Find(r => r.DeviceId == "HID:" + key);
                                                 if (existing != null)

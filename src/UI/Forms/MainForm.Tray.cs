@@ -884,11 +884,18 @@ namespace RazerBatteryTray
                         isBasiliskUltimate = true;
                     }
 
+                    // Chroma 扩展矩阵设备（如 Basilisk V3 Pro）与巴蛇终极版共用灯光子菜单：
+                    // 终极版走旧的 LightingHelper 分区指令，Chroma 设备额外注入控制台入口。
+                    bool chromaCapable = IsCurrentDeviceChromaCapable();
+                    bool showLightingMenu = isBasiliskUltimate || chromaCapable;
+
                     if (lightingMenu != null)
                     {
-                        lightingMenu.Visible = isBasiliskUltimate;
-                        if (isBasiliskUltimate)
+                        lightingMenu.Visible = showLightingMenu;
+                        if (showLightingMenu)
                         {
+                            EnsureRazerConsoleMenuItem(lightingMenu);
+                            if (razerConsoleMenuItem != null) razerConsoleMenuItem.Visible = chromaCapable;
                             ConfigureSubMenuDropDown(lightingMenu.DropDown);
                         }
                     }

@@ -158,3 +158,121 @@
    - **协议**: 帧头 `2E AA EC <cmd> <len_hi> <len_lo>`，载荷逐字节 `XOR 0xA5` 掩码，校验和为从下标 1 起算的 8 位累加和。
    - **指令**: `0xD0` 读电量（`0x86 ^ 0xA5 = 35%`）、`0xC9` 读 UTF-8 名称、`0xC6` 固件版本。
    - **注意**: 2.4G 无线模式下一旦接充电线会被设备端硬件强制关机，诚实缺省 `isCharging = false`，不臆造充电标志。
+
+### 2.4 前行者 (EWEADN) X87 三模机械键盘 (`0C45:FEFE`, `EweadnDeviceHelper.cs`)
+- **设备形态**: 松翰 (Sonix) 方案 2.4G **复合接收器**，`USB\VID_0C45&PID_FEFE`，`BusReportedDeviceDesc = "2.4G Dongle"`。
+  同时枚举出键盘、鼠标、多媒体与两个厂商私有集合，共 9 个 HID 集合：
+
+  | MI | UsagePage/Usage | In/Out | 用途 |
+  |---|---|---|---|
+  | MI_00 | `0x0001/0x0006` | 9 / 2 | 键盘标准集合（本 Helper 认定的键盘业务通道） |
+  | MI_01 | `0x0001/0x0002` | 6 / 0 | 鼠标集合（接收器内另一设备） |
+  | MI_02 | `0x0001` 多集合 + `0x000C/0x0001` + `0xFFFF/0x0001` | 2~16 / 0 | 多媒体、系统控制、厂商 4 字节集合 |
+  | MI_03 | `0xFF60/0x0061` | 33 / 33 | VIA 风格配置通道（键位表 + 灯效矩阵） |
+  | MI_04 | `0xFF59/0x0061` | 65 / 65 | 私有通道（仅发固定信标） |
+
+- **精确四元组隔离**：该公版接收器与其他 `0C45` 设备共享 VID，识别必须联合校验
+  `VID + PID + UsagePage/Usage + 精确 Input/Output 报告长度`，且键盘通道优先认 `\kbd` 后缀、MIS_00 兜底。
+
+- **⚠️ 电量不可读（2026-11-07 本机穷举实测结论，勿再重复盲扫）**：
+  1. `0xFF60/0x61` 33 字节通道：命令字 `0x00..0xFF` 全扫，仅应答两类分块数据——`type 0x12` 键位映射表
+     （负载为 `29/3A/3B/3C...` 等 HID usage 码，即 ESC/F1/F2/F3），`type 0x33` RGB 灯效矩阵。
+     分块头 `00 55 <type> <len> <offLo> <offMid> <offHi> 00 00 <payload>`，按 offset 可完整重组，**blob 内无电量字段**。
+     注意此通道是「按需分块 dump」：一次触发后表传完即停，重复触发不会重发，容易误判为「无应答」。
+  2. `0xFF59/0x61` 65 字节通道：只自发固定信标 `00 0F 01 01 11 00 00`，内容恒定、与按键无关，无电量语义。
+  3. `0xFFFF/0x0001` 4 字节集合（report id 5）：12~20 秒被动监听零帧。
+  4. 所有集合的 `FeatureReportByteLength = 0`，即接收器完全不暴露 Feature Report。
+  5. 无任何 `UsagePage 0x06 / Usage 0x20`（Battery Strength）标准电量集合：
+     对全部 9 个集合调用 `HidP_GetUsageValue(0/2, 0x06, 0, 0x20)` 均返回
+     `0xC0110003`（`HIDP_STATUS_USAGE_NOT_FOUND`），即固件根本没有声明该用法。
+     对照：雷蛇 Basilisk V3 Pro 的私有通道同样返回该错误（其电量走私有报文），
+     说明此返回码不能反证「设备有电量」，只能证明标准 HID 路径不通。
+  6. 官方驱动 EHUB (`resources/ry/iot_manager/*.exe`) 静态扫描：`percent` / `battery` / `Power`
+     等关键字全部命中 Rust 依赖库噪声（`percent-encoding`、`is_power_of_two` 等），
+     **无任何电量相关业务代码**；`app.asar` 内的 JS 也不含 HID 通讯层。
+     即官方自身未实现 X87 电量显示，这与上述协议层结论一致。
+- **本仓库的实现立场**：按「物理事实优先，严禁虚标能力」铁律，2.4G 形态下不填任何常量或估算电量值。
+
+### ✅ 电量在**蓝牙 (BLE) 模式**下可得（`EweadnBleBatteryHelper.cs`）
+
+X87 是三模键盘，电量只在蓝牙模式下由**标准 GATT** 提供，与厂商私有 HID 无关：
+
+- **Service** `0x180F` Battery Service；**Characteristic** `0x2A19` Battery Level（1 字节 0~100）
+- 配对记录（本机实测）：
+  `HKLM\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices\cc415e28335e`
+  的 `LEName = "X87-5.0-BT2"`、`VID = 3141 (0x0C45)`、`PID = 65278 (0xFEFE)`、`REV = 0138`
+  —— 与 USB 接收器完全一致；`LmpVersion = 12`（蓝牙 5.x）
+- Windows 为其枚举出节点
+  `BTHLEDEVICE\{0000180F-...}_DEV_VID&010C45_PID&FEFE_REV&0138_CC415E28335E`
+- 实现：`EweadnBleBatteryHelper` 先读注册表定位已配对 MAC，再用 WinRT
+  `BluetoothLEDevice.FromBluetoothAddressAsync` → `GetGattServicesForUuidAsync` →
+  `GetCharacteristicsForUuidAsync` → `ReadValueAsync` 取 `0x2A19`，60 秒缓存。
+  为保持零外部依赖与 .NET 4.0 兼容，WinRT 全程按名称反射调用，任何失败一律返回 `-1`。
+- **行为**：`QueryBattery()` 返回 ≥0 时设备条目显示电量且 `SupportsBattery = true`、`Transport = "蓝牙"`；
+  返回 `-1`（2.4G/有线模式，或蓝牙未连接）时 `SupportsBattery = false`、电量保持 `-1` 显示「不可读」。
+
+### 形态与能力判定（与官方驱动对齐）
+
+| 形态 | VID:PID | 端点特征 | 电量 |
+|---|---|---|---|
+| 2.4G 接收器 | `0C45:FEFE` | `0xFF59/0x61`(65B) + `0xFF60/0x61`(33B)，**无 `0xFF68`** | 不可读（固件不转发） |
+| 键盘本体 USB 直连 | `0C45:8006` | 必须含 `0xFF68/0x61` 才支持官方驱动协议 | 需升级到支持驱动的固件后可读 |
+| 蓝牙 BLE | `X87-5.0-BT2` (`cc415e28335e`) | 标准 GATT `0x180F` / `0x2A19` | **可直接读取** |
+
+`EweadnDeviceHelper` 提供两个如实反映能力的方法：
+- `IsKeyboardBodyPresent()` —— 键盘本体（`0x8006`）是否在线
+- `HasDriverCapableInterface()` —— 是否具备官方驱动要求的 `0xFF68/0x61` 端点
+
+### 官方驱动的排查结论（避免后人重复投入）
+
+| 来源 | 结论 |
+|---|---|
+| **官方网页驱动 C `hub.eweadn.cn`（主驱动，决定性）** | 该驱动区分两种形态并自带能力判定：**键盘本体 USB 直连 = `VID 0x0C45 / PID 0x8006 / productName "X87"`**，且端点列表中必须存在 **`UsagePage 0xFF68 / Usage 0x0061`** 才算「支持驱动」；若找到 `0x8006` 却**缺**该端点，驱动直接弹窗「键盘和接收器的固件不支持驱动，请点击确定升级固件」（函数 `kSe`）。另有 `RSe`：同一 `0xFF60/0x61` 端点出现 **≥2 次**也会提示升级。**本机实测**：接收器 `0C45:FEFE` 的 9 个端点里只有 `0xFF59/0x61` 与 `0xFF60/0x61`，**无 `0xFF68/0x61`**；键盘本体 `0C45:8006` 当前不在线（正使用 2.4G）。⇒ 当前固件形态下官方驱动自己也会判定为「不支持・需升级」，与本仓库在 2.4G 上探不到电量的实测完全吻合。该驱动的电量字段位于鼠标协议 `decodeGetBasics`/`handleBatteryChange`（`byte[6]`：bit7=充电、低 7 位=电量；事件码 5），属 `0xFF68` 家族，本接收器取不到 |
+| 官方网页驱动 A `eweadn.i-game.tech` | 设备表只含 `vendorId` `0x28E9`/`0x056D` 与 `0x31xx` 系列；检索 `0xFEFE`/`0x0C45` **零命中**，不覆盖本接收器。其 `getPoorNum` 电量协议（帧 `[cmd,00,00,0x38,crcLo,crcHi,00,00,00,payload]`，sum 累加校验；应答 `n[7]`=百分比、`n[8]`=0未充/1充电/2充满、`n[9]`=低电标志）适用于那些型号 |
+| 官方网页驱动 B `eweadn.driveall.cn` | 设备表**含** `{vendorId:3141, productId:65278, usagePage:0xFF60, usage:97}`，但其组帧为 `buildPkt_Init → [0xAA, cmd, len, offLo, offHi]`（reportId 固定 0，主用 `0xFF68` 家族），初始化命令 16/17/19/20/23 解析字段只有版本/宏上限/N键/扫描率/稳定度/组合键/MAC/分区/回报率/自动校准/灯效，**无电量字段** |
+| 官方桌面驱动 EHUB `iot_manager` | `percent`/`battery` 关键字全部命中 Rust 依赖库噪声，无电量业务代码 |
+| 本接收器 `FF60/61` 通道 | 对**任意写入都只做逐字节回环回显**：`TX 00 55 8F 00 E4 … ⇒ RX 00 55 8F 00 E4 …`；换用 `0xAA` 协议、`getPoorNum` 的 `0x8F`/`0x1F`、`25~33`/`250~255` 候选命令码，无一产生真实数据应答。偶发非零数据块属主动上报的键位表(`type 0x12`)/灯效矩阵(`type 0x33`)，不随电量变化 |
+
+## 3. 雷蛇 Chroma 扩展矩阵灯效 (`RazerChromaHelper.cs`)
+
+适用于 Basilisk V3 Pro 系列（`1532:00AA` 有线 / `1532:00AB` 2.4G 接收器 / `00CC`·`00CD` 35K /
+`00C4`·`00C5` Basilisk V3 35K / `0099` Basilisk V3）。与 OpenRazer `razerchromacommon.c` 双向印证并本机实测。
+
+- **通道**: 91 字节 **Feature Report**（`UsagePage 0x0001 / Usage 0x0002`），必须走 `HidD_SetFeature` / `HidD_GetFeature`。
+  该系列无 Interrupt 通道，切勿用 `WriteFile` 下发。
+- **帧结构**: `[2]=事务ID 0x1F`，`[6]=dataSize`，`[7]=class`，`[8]=cmd`，`[9..]=args`，`[89]=CRC(XOR of [3..87])`。
+- **LED 物理分区**（本机逐个 LED ID 实测）：`0x00` 整只联动 / `0x01` 滚轮 / `0x04` Logo / `0x0A` 底部环绕灯带。
+  **注意**：OpenRazer 头文件的 `BACKLIGHT_LED = 0x05` 在此型号上回 `0x03 FAILURE`，底光实为 `0x0A`；
+  `0x02/0x03/0x05..0x09/0x0B..` 均不存在。
+- **灯效**（class `0x0F`，cmd `0x02`，`args[0]=VARSTORE 0x01`，`args[1]=LED ID`）：
+
+  | 效果 | dataSize | args 布局 |
+  |---|---|---|
+  | 关闭 | `0x06` | `01 <led> 00 00 00 00` |
+  | 静态 | `0x09` | `01 <led> 01 00 00 01 R G B` |
+  | 呼吸 | `0x09` | `01 <led> 02 01 00 <speed 1-4> R G B` |
+  | 光谱 | `0x06` | `01 <led> 03 00 00 00` |
+  | 波浪 | `0x06` | `01 <led> 04 <dir 0-2> 28 00` |
+  | 响应 | `0x09` | `01 <led> 05 00 <speed 1-4> 01 R G B` |
+
+  **星光 `0x07` 在此型号回 `0x05 NOT_SUPPORTED`，故未实现。**
+- **亮度**: 写 `class 0x0F cmd 0x04`，args `01 <led> <0-255>`。
+- **滚轮物理机构**（class `0x02`，`args[0]=VARSTORE`）：
+  - 模式：写 `cmd 0x14` args `01 <0=Tactile 段落 / 1=FreeSpin 无阻尼>`；读 `cmd 0x94`。
+  - 滚轮加速：写 `cmd 0x16` args `01 <0/1>`；读 `cmd 0x96`。
+  - 智能滚轮 Smart Reel：写 `cmd 0x17` args `01 <0/1>`；读 `cmd 0x97`。
+- **⚠️ 应答状态机（本仓库实测踩坑，务必遵守）**：
+  - `response[1]` 状态位：`0x00` New Command（已收下未完成）/ `0x01` Busy / `0x02` Successful /
+    `0x03` Failure / `0x04` Timeout / `0x05` Not Supported。
+  - **`0x00` 与 `0x01` 必须继续 `GetFeature` 轮询，禁止重发 `SetFeature`** —— 重发只会把同一份工作再排队一次，
+    设备永远轮不到执行，表现为「直连脚本单发成功、循环连发全失败」。
+  - **应答必须回显本次请求的 `[7]` class 与 `[8]` cmd**，否则是别的并发命令（如 DPI 轮询 `26 04 86`）留在
+    同一条 Feature 响应队列里的陈旧应答，必须丢弃并继续轮询，不能当作本次结果。
+  - Chroma 与 DPI 读写共用同一端点，必须共用 `HardwareCommandBus.GetDeviceLock`，否则并发会串包。
+  - **`0x94`/`0x96`/`0x97`（滚轮三开关）回读载荷可信**：有线 `00AA` 模式实测「写 1 读 1、写 0 读 0」精确跟随，
+    应答 `args[1]`（即 `response[10]`）就是当前值。故本仓库提供 `QueryScrollMode` / `QueryScrollAcceleration` /
+    `QuerySmartReel` 与批量 `SyncScrollState`，对话框打开时读取设备真实状态而非显示默认值。
+    > 踩坑记录：早期在 2.4G `00AB` 模式下误判「回读不可信」，真因是同一轮询里 DPI 查询的陈旧应答串进了
+    > 同一条 Feature 响应队列。加上 class/cmd 回显校验后，两种模式下回读都恢复正常。
+  - **`0x84`（亮度回读）不可用**：有线 `00AA` 模式下稳定回 `0x03 FAILURE`，故不提供亮度 Query，
+    只在本地缓存最后写入值。

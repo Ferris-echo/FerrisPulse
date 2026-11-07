@@ -4,6 +4,47 @@
 
 ## 🚧 [Unreleased] - 社区多设备深度适配 (索尼 / 罗技 / 怒喵 / ATK / 元派 / 飞智 / 迈从)
 
+### 🖱️ 雷蛇 Chroma 灯效与滚轮物理机构（本机 1532:00AB 实机验证）
+- **新增 `RazerChromaHelper` + `RazerLightingDialog` + `MainForm.RazerLighting`**，为 Basilisk V3 Pro 系列
+  (`1532:00AA` 有线 / `1532:00AB` 2.4G 接收器 / `00CC`·`00CD` 35K / `00C4`·`00C5` Basilisk V3 35K / `0099` Basilisk V3)
+  复刻官方 Synapse 的 Chroma 扩展矩阵灯效：
+  - 灯效：静态纯色、呼吸、光谱循环、波浪、响应（按键余辉），作用目标可选**整只联动 / 滚轮 / Logo / 底部环绕灯带**四个物理分区。
+  - 亮度：`0x0F 0x04` 全局亮度 0~100%。
+  - 滚轮物理机构（Basilisk V3 Pro 专属，仅在该型号的设备菜单中出现）：**智能滚轮 Smart Reel 开关**、
+    **滚轮加速开关**、**段落阻尼 ↔ 无阻尼自由滚动**切换。
+  - 入口挂在托盘右键「灯光调节」子菜单顶部，能力判定统一走 `RazerChromaHelper.IsSupportedDeviceId`，UI 层零 VID/PID 硬编码。
+- **逆向踩坑与修正（均已写入 `docs/HARDWARE_PROTOCOLS.md` §3）**：
+  - OpenRazer 头文件的 `BACKLIGHT_LED = 0x05` 在此型号上回 `0x03 FAILURE`；逐个 LED ID 实测后确认**底光实为 `0x0A`**，
+    有效分区仅 `0x00 / 0x01 / 0x04 / 0x0A`。
+  - 应答状态位 `0x00`（New Command）与 `0x01`（Busy）表示「已收下未完成」，**必须继续 `GetFeature` 轮询而非重发**；
+    重发只会把同一份工作反复排队，导致设备永远轮不到执行。
+  - Chroma 与 DPI 轮询共用同一条 91 字节 Feature 端点，必须**校验应答回显的 class/cmd** 并共用
+    `HardwareCommandBus.GetDeviceLock`，否则会把 DPI 的 `26 04 86` 陈旧应答误判为灯效写入成功。
+  - 星光 `0x07` 在 `00AA` 与 `00AB` 两种模式下、三种载荷形式（dataSize `0x06`/`0x09`/`0x0C`）**全部回 `0x05 NOT_SUPPORTED`**，
+    故不实现。
+  - **滚轮三开关回读可信**：`0x94`/`0x96`/`0x97` 在 `00AA` 下实测「写 1 读 1、写 0 读 0」精确跟随，据此提供
+    `QueryScrollMode` / `QueryScrollAcceleration` / `QuerySmartReel` 与 `SyncScrollState`，控制台打开时读取设备真实状态。
+    早期「回读不可信」的结论是 2.4G 模式下 DPI 陈旧应答串包造成的误判，加上 class/cmd 回显校验后已修正。
+  - **`0x84` 亮度回读不可用**：`00AA` 下稳定回 `0x03 FAILURE`，故只缓存最后写入值，不提供亮度 Query。
+
+### ⌨️ 前行者 (EWEADN) X87 三模机械键盘识别适配
+- **新增 `EweadnDeviceHelper` + `BuiltIn:EweadnKeyboard` 内置驱动**，接入 `DeviceManager.QueryAllDevices`。
+- **设备形态**：松翰 (Sonix) 方案 2.4G **复合接收器** `0C45:FEFE`（`BusReportedDeviceDesc = "2.4G Dongle"`），
+  同时枚举键盘、鼠标、多媒体与两个厂商集合共 9 个 HID。按「VID + PID + UsagePage/Usage + 精确报告长度」
+  四元组隔离键盘业务通道（`0x0001/0x0006`，9/2 字节），与同接收器下的鼠标通道互不干扰。
+- **2.4G 形态电量不可读，但蓝牙模式可读 —— 新增 `EweadnBleBatteryHelper`**：
+  - **2.4G 侧**：`0xFF60/0x61` 通道对**任意写入只做逐字节回环回显**（`TX 00 55 8F 00 E4 ⇒ RX 00 55 8F 00 E4`）；
+    换用官方 `0xAA` 协议、`getPoorNum` 的 `0x8F`/`0x1F`、`25~33`/`250~255` 候选命令码均无真实应答；
+    `0xFF59/0x61` 仅发固定信标；`0xFFFF/0x0001` 零帧；全部集合 `FeatureReportByteLength = 0`；
+    标准 `0x06/0x20` Battery Strength 返回 `HIDP_STATUS_USAGE_NOT_FOUND`。故 2.4G 下 `SupportsBattery = false`。
+  - **蓝牙侧（真正可用的路径）**：X87 配对记录 `cc415e28335e`（`X87-5.0-BT2`）的
+    `VID=0x0C45 / PID=0xFEFE / REV=0138` 与接收器完全一致，并暴露标准 GATT
+    **Battery Service `0x180F`** + **Battery Level `0x2A19`**。新增 `EweadnBleBatteryHelper`：
+    读注册表定位已配对 MAC → WinRT 反射 `BluetoothLEDevice` → GATT 读 `0x2A19`，60 秒缓存，失败一律 `-1`。
+    读到电量时 `SupportsBattery = true`、`Transport = "蓝牙"`；读不到时保持 `-1` 显示「不可读」，**绝不虚标**。
+  - **官方驱动排查结论**（已归档 `docs/HARDWARE_PROTOCOLS.md` §2.4）：网页驱动 A 不含本接收器；
+    网页驱动 B 虽含 `productId 65278 @ 0xFF60` 但其初始化字段无电量；EHUB 二进制无电量代码。
+
 ### 🎧 音频与耳机设备接入
 - **索尼 (Sony) INZONE Buds 真无线降噪电竞耳机 (WF-G700N, `054C:0EC2`)**（感谢 [@jacky50403](https://github.com/jacky50403) 逆向贡献 #22）：
   - 新增 `SonyInzoneHelper`，通过 64 字节 Output Report `0x02` 查询帧发送自增序列号与校验和请求。
