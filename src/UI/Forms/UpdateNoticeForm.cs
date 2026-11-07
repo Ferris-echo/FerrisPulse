@@ -406,10 +406,19 @@ namespace RazerBatteryTray
                 return;
             }
 
+            int padX = Scale(24);
+            int actionY = btnUpgrade != null ? btnUpgrade.Top : (this.ClientSize.Height - Scale(60));
+            int btnH = btnUpgrade != null ? btnUpgrade.Height : Scale(36);
+            int cardW = this.ClientSize.Width - padX * 2;
+
             btnLater.Visible = false;
             btnUpgrade.Visible = false;
             progressBar.Visible = true;
             lblProgressText.Visible = true;
+            lblProgressText.Location = new Point(padX, actionY + Scale(16));
+            lblProgressText.Size = new Size(cardW, Scale(22));
+            lblProgressText.TextAlign = ContentAlignment.MiddleCenter;
+            lblProgressText.ForeColor = Color.FromArgb(0, 230, 118);
             progressBar.StartChargingFlow(Color.FromArgb(0, 200, 83), Color.FromArgb(0, 229, 255));
             lblProgressText.Text = "正在同步更新组件...";
 
@@ -419,6 +428,7 @@ namespace RazerBatteryTray
             UpdateManager.DownloadFileAsync(
                 updateInfo.DownloadUrl,
                 tempExe,
+                updateInfo.Sha256,
                 delegate(long bytesRead, long totalBytes, double speedBytesPerSec)
                 {
                     if (this.IsDisposed || !this.IsHandleCreated) return;
@@ -454,15 +464,25 @@ namespace RazerBatteryTray
                         {
                             progressBar.StopFlow();
                             progressBar.Visible = false;
-                            lblProgressText.ForeColor = Color.FromArgb(255, 171, 0);
-                            lblProgressText.Text = "同步失败: " + error;
+                            lblProgressText.ForeColor = Color.FromArgb(255, 82, 82);
+                            lblProgressText.Text = string.IsNullOrEmpty(error) ? "更新包校验失败，文件损坏！" : ("更新失败: " + error);
+
+                            // 布局自愈：移动至左侧空余区域，绝对避免与右侧控制按钮重叠遮挡
+                            int availW = btnLater.Left - padX - Scale(12);
+                            lblProgressText.Location = new Point(padX, actionY + (btnH - Scale(22)) / 2);
+                            lblProgressText.Size = new Size(availW > 100 ? availW : Scale(260), Scale(22));
+                            lblProgressText.TextAlign = ContentAlignment.MiddleLeft;
+                            lblProgressText.AutoEllipsis = true;
+                            lblProgressText.Visible = true;
+
                             btnLater.Visible = true;
                             btnUpgrade.Visible = true;
                             btnUpgrade.Text = "重试升级";
+                            try { File.Delete(tempExe); } catch { }
                             return;
                         }
 
-                        // SHA256 完整性校验（若远端提供有效校验值）
+                        // SHA256 二次双重保障校验
                         if (!string.IsNullOrEmpty(updateInfo.Sha256) && updateInfo.Sha256.Length == 64 && !updateInfo.Sha256.StartsWith("dummy"))
                         {
                             string localSha = UpdateManager.ComputeFileSha256(tempExe);
@@ -472,8 +492,17 @@ namespace RazerBatteryTray
                                 progressBar.Visible = false;
                                 lblProgressText.ForeColor = Color.FromArgb(255, 82, 82);
                                 lblProgressText.Text = "更新包校验失败，文件可能已损坏！";
+
+                                int availW = btnLater.Left - padX - Scale(12);
+                                lblProgressText.Location = new Point(padX, actionY + (btnH - Scale(22)) / 2);
+                                lblProgressText.Size = new Size(availW > 100 ? availW : Scale(260), Scale(22));
+                                lblProgressText.TextAlign = ContentAlignment.MiddleLeft;
+                                lblProgressText.AutoEllipsis = true;
+                                lblProgressText.Visible = true;
+
                                 btnLater.Visible = true;
                                 btnUpgrade.Visible = true;
+                                btnUpgrade.Text = "重试升级";
                                 try { File.Delete(tempExe); } catch { }
                                 return;
                             }
@@ -481,6 +510,9 @@ namespace RazerBatteryTray
 
                         progressBar.StopFlow(100, Color.FromArgb(0, 230, 118));
                         lblProgressText.ForeColor = Color.FromArgb(0, 230, 118);
+                        lblProgressText.Location = new Point(padX, actionY + Scale(16));
+                        lblProgressText.Size = new Size(cardW, Scale(22));
+                        lblProgressText.TextAlign = ContentAlignment.MiddleCenter;
                         lblProgressText.Text = "更新组件就绪，正在准备装载并重启...";
 
                         // 延迟 1.2 秒给用户反馈感，然后唤醒原子置换命令并退出

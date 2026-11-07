@@ -3,8 +3,8 @@
     "releaseDate":  "2026-11-08",
     "minSupportedVersion":  "1.0.0",
     "downloadUrl":  "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.0/FerrisPulse.exe",
-    "sha256":  "e4a823b9238b71637b113b2c95f195714b7e7e1142fc7da6abc87751aeab6f9a",
-    "fileSize":  1263616,
+    "sha256":  "95a7b8a24aee14ef20d074547811217caaba8c87fd1b6f7d7e381d661d444923",
+    "fileSize":  1265152,
     "changelog":  [
                       "一、 游戏与电竞功能",
                       "【单游戏专属策略】不同游戏现已支持单独设置专属 DPI 档位与回报率，启动游戏时自动切换，退出后自动复原。",

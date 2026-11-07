@@ -220,36 +220,27 @@ try {
     }
 } catch { }
 
-if (-not $giteeReleaseId) {
-    $giteeCreateUri = "https://gitee.com/api/v5/repos/$giteeRepo/releases"
-    $giteeParams = @{
-        access_token = $giteeToken
-        tag_name = $tag
-        name = $Title
-        body = $releaseBody
-        target_commitish = "main"
-    }
-    $newGiteeRel = Invoke-RestMethod -Uri $giteeCreateUri -Method Post -Body $giteeParams -UserAgent "FerrisPulse-Release"
-    $giteeReleaseId = $newGiteeRel.id
-    Write-Host "  -> [Gitee] Release 创建成功 (ID: $giteeReleaseId)" -ForegroundColor Green
-} else {
-    Write-Host "  -> [Gitee] Release 已存在 (ID: $giteeReleaseId)" -ForegroundColor DarkGray
+if ($giteeReleaseId) {
+    Write-Host "  -> [Gitee] 检测到旧 Release (ID: $giteeReleaseId)，彻底清理以杜绝旧附件缓存..." -ForegroundColor DarkGray
+    try {
+        Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId?access_token=$giteeToken" -Method Delete -UserAgent "FerrisPulse-Release" | Out-Null
+    } catch { }
+    $giteeReleaseId = $null
 }
 
-if ($giteeReleaseId) {
-    # 检查并删除 Gitee 已存在的同名资产
-    try {
-        $giteeRelInfo = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId?access_token=$giteeToken" -UserAgent "FerrisPulse-Release"
-        foreach ($ga in $giteeRelInfo.assets) {
-            if ($ga.name -eq "FerrisPulse.exe" -or $ga.name -eq "FerrisPulse_${tag}_Portable.zip") {
-                Write-Host "  -> [Gitee] 删除旧版本资产: $($ga.name)..." -ForegroundColor DarkGray
-                try {
-                    Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId/attach_files/$($ga.id)?access_token=$giteeToken" -Method Delete -UserAgent "FerrisPulse-Release" | Out-Null
-                } catch { }
-            }
-        }
-    } catch { }
+$giteeCreateUri = "https://gitee.com/api/v5/repos/$giteeRepo/releases"
+$giteeParams = @{
+    access_token = $giteeToken
+    tag_name = $tag
+    name = $Title
+    body = $releaseBody
+    target_commitish = "main"
+}
+$newGiteeRel = Invoke-RestMethod -Uri $giteeCreateUri -Method Post -Body $giteeParams -UserAgent "FerrisPulse-Release"
+$giteeReleaseId = $newGiteeRel.id
+Write-Host "  -> [Gitee] 纯净 Release 创建成功 (ID: $giteeReleaseId)" -ForegroundColor Green
 
+if ($giteeReleaseId) {
     Write-Host "  -> [Gitee] 上传 FerrisPulse.exe..." -ForegroundColor Cyan
     & curl.exe -s -X POST "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId/attach_files" -F "access_token=$giteeToken" -F "file=@$exePath" | Out-Null
     

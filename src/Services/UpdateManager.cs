@@ -303,6 +303,11 @@ namespace RazerBatteryTray
 
         public static void DownloadFileAsync(string url, string targetPath, Action<long, long, double> progressCallback, Action<bool, string> completedCallback)
         {
+            DownloadFileAsync(url, targetPath, null, progressCallback, completedCallback);
+        }
+
+        public static void DownloadFileAsync(string url, string targetPath, string expectedSha256, Action<long, long, double> progressCallback, Action<bool, string> completedCallback)
+        {
             ThreadPool.QueueUserWorkItem(delegate(object state)
             {
                 EnsureTlsSecurity();
@@ -403,6 +408,18 @@ namespace RazerBatteryTray
                             fs.Flush();
                             fs.Close();
                             fs = null;
+
+                            // 如果提供了预期的 SHA256，进行多源自愈校验：不匹配则自动切换下一个备用镜像源
+                            if (!string.IsNullOrEmpty(expectedSha256) && expectedSha256.Length == 64 && !expectedSha256.StartsWith("dummy"))
+                            {
+                                string localSha = ComputeFileSha256(targetPath);
+                                if (!string.Equals(localSha, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    lastError = "更新包哈希不匹配 (已尝试自愈切换备用镜像源)";
+                                    try { File.Delete(targetPath); } catch { }
+                                    continue;
+                                }
+                            }
 
                             if (completedCallback != null)
                             {
