@@ -102,6 +102,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new EweadnKeyboardDriver());
+
             }
 
         }
@@ -1068,6 +1070,116 @@ namespace RazerBatteryTray
             }
 
             return list ?? new List<MouseBatteryInfo>();
+
+        }
+
+    }
+
+
+
+    /// <summary>
+    /// 前行者 X87 (松翰 0C45:FEFE 2.4G 复合接收器) 内置驱动。
+    /// 该接收器不暴露任何可读电量寄存器，故 SupportsBattery 恒为 false，
+    /// 仅提供设备识别、分类与连接形态展示 —— 宁缺毋滥，绝不虚标电量。
+    /// </summary>
+    public sealed class EweadnKeyboardDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:EweadnKeyboard"; } }
+
+        public override string Brand { get { return EweadnDeviceHelper.BrandName; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return EweadnDeviceHelper.IsSupportedVidPid(vid, pid);
+
+        }
+
+
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return false;
+
+            if (dev.Category != DeviceCategory.Keyboard) return false;
+
+            if (string.Equals(dev.Brand, EweadnDeviceHelper.BrandName, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return EweadnDeviceHelper.IsEweadnReceiver(dev.DeviceId) ||
+
+                   EweadnDeviceHelper.IsEweadnReceiver(dev.HardwareId) ||
+
+                   EweadnDeviceHelper.IsEweadnReceiver(dev.HardwareFingerprint);
+
+        }
+
+
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+
+
+            // 物理事实优先：该接收器无电量寄存器、无 DPI/回报率写指令，全部置 false。
+            dev.Capabilities.SupportsBattery = false;
+
+            dev.Capabilities.SupportsDpi = false;
+
+            dev.Capabilities.SupportsDpiStages = false;
+
+            dev.Capabilities.SupportsXyIndependence = false;
+
+            dev.Capabilities.SupportsPollingRate = false;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+
+            dev.Capabilities.ThemeColorHex = "#4FA8D8";
+
+            dev.Capabilities.PerformanceCardTitle = "键盘信息";
+
+            dev.Capabilities.CustomActions.Clear();
+
+        }
+
+
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo info = EweadnDeviceHelper.CreateKeyboardDeviceInfo();
+
+            if (info != null)
+
+            {
+
+                PopulateCapabilities(info);
+
+                list.Add(info);
+
+            }
+
+            return list;
 
         }
 

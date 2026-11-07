@@ -55,7 +55,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK", "EWEADN" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -1000,6 +1000,19 @@ namespace RazerBatteryTray
                     {
                         UpdateCustomDeviceBattery(royuan.DeviceId, royuan.BatteryPercent, DateTime.Now);
                     }
+                }
+            }
+            catch { }
+
+            // 2.48 Query EWEADN (前行者 X87, Sonix 0C45:FEFE 复合接收器)
+            // 该接收器不提供可读电量，Helper 明确返回 SupportsBattery = false，绝不虚标。
+            try
+            {
+                var eweadn = EweadnDeviceHelper.CreateKeyboardDeviceInfo();
+                if (eweadn != null && eweadn.IsConnected)
+                {
+                    eweadn.IsCustom = false;
+                    list.Add(eweadn);
                 }
             }
             catch { }
