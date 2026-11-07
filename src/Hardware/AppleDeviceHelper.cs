@@ -1133,6 +1133,9 @@ namespace RazerBatteryTray
             // GS3108T-PRO reuses Apple VID/PID; its product identity takes precedence.
             if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
 
+            // 公版 CompX 2.4G 无线键盘 (05AC:024F "2.4G Wireless Receiver") 同样借用 Apple VID/PID
+            if (CompxWirelessKeyboardHelper.IsRecognizedProduct(name, vid, pid)) return false;
+
             if (vid == AppleVendorId || vid == AppleBluetoothSigVid) return true;
 
             if (!string.IsNullOrEmpty(path))
