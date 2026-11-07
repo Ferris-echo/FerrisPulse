@@ -4,7 +4,7 @@
 # ============================================================================
 
 $ErrorActionPreference = 'Stop'
-$WorkspaceRoot = 'D:\FerrisPulse · 灵脉'
+$WorkspaceRoot = (Resolve-Path "$PSScriptRoot\..").Path
 Set-Location $WorkspaceRoot
 
 Write-Host '========================================================' -ForegroundColor Cyan
