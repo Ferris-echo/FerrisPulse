@@ -249,7 +249,7 @@ namespace RazerBatteryTray
             logScrollPanel = new ModernDarkScrollPanel();
             logScrollPanel.Location = new Point(Scale(16), Scale(44));
             logScrollPanel.Size = new Size(cardW - Scale(32), cardH - Scale(54));
-            logScrollPanel.BackColor = Color.Transparent;
+            logScrollPanel.BackColor = cardChangelog.CardColor;
             RenderChangelog();
             cardChangelog.Controls.Add(logScrollPanel);
 
@@ -315,74 +315,7 @@ namespace RazerBatteryTray
         private void RenderChangelog()
         {
             if (logScrollPanel == null) return;
-            logScrollPanel.Content.Controls.Clear();
-
-            int logItemY = 4;
-            int itemWidth = logScrollPanel.Content.Width > 0 ? logScrollPanel.Content.Width - 8 : (logScrollPanel.Width - 20);
-
-            if (updateInfo.Changelog != null && updateInfo.Changelog.Count > 0)
-            {
-                System.Collections.Generic.List<string> displayItems = new System.Collections.Generic.List<string>();
-                for (int i = 0; i < updateInfo.Changelog.Count; i++)
-                {
-                    string entry = updateInfo.Changelog[i];
-                    if (string.IsNullOrEmpty(entry)) continue;
-
-                    if (entry.Contains("【") && entry.IndexOf("【") != entry.LastIndexOf("【"))
-                    {
-                        string[] parts = System.Text.RegularExpressions.Regex.Split(entry, @"(?=【)");
-                        foreach (string p in parts)
-                        {
-                            string cp = p.Trim().TrimEnd(',', '，', ';', '；');
-                            if (!string.IsNullOrEmpty(cp)) displayItems.Add(cp);
-                        }
-                    }
-                    else
-                    {
-                        displayItems.Add(entry);
-                    }
-                }
-
-                for (int i = 0; i < displayItems.Count; i++)
-                {
-                    bool isSectionHeader = displayItems[i].StartsWith("一、") || displayItems[i].StartsWith("二、") || displayItems[i].StartsWith("三、");
-                    string itemText = isSectionHeader ? displayItems[i] : ("•  " + displayItems[i]);
-                    Label lblItem = new Label();
-                    lblItem.Text = itemText;
-                    lblItem.Font = isSectionHeader 
-                        ? new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold)
-                        : new Font("Microsoft YaHei UI", 9F);
-                    lblItem.ForeColor = isSectionHeader 
-                        ? Color.FromArgb(240, 245, 255)
-                        : Color.FromArgb(190, 198, 215);
-                    lblItem.BackColor = Color.Transparent;
-                    lblItem.Location = new Point(4, isSectionHeader && i > 0 ? (logItemY + 6) : logItemY);
-                    lblItem.Width = itemWidth;
-
-                    // 计算文本实际换行所需高度，自适应排版绝不出现横向白滚动条
-                    Size measured = TextRenderer.MeasureText(itemText, lblItem.Font, new Size(itemWidth, 0),
-                        TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
-                    int itemH = Math.Max(26, measured.Height + 6);
-                    lblItem.Height = itemH;
-
-                    logScrollPanel.Content.Controls.Add(lblItem);
-                    logItemY += itemH + 8;
-                }
-            }
-            else
-            {
-                Label lblItem = new Label();
-                lblItem.Text = "•  常规性能提升与稳定性修复";
-                lblItem.Font = new Font("Microsoft YaHei UI", 9F);
-                lblItem.ForeColor = Color.FromArgb(190, 198, 215);
-                lblItem.BackColor = Color.Transparent;
-                lblItem.Location = new Point(4, logItemY);
-                lblItem.Width = itemWidth;
-                lblItem.Height = 28;
-                logScrollPanel.Content.Controls.Add(lblItem);
-            }
-
-            logScrollPanel.UpdateContentLayout();
+            logScrollPanel.SetChangelog(updateInfo != null ? updateInfo.Changelog : null, DpiScale);
         }
 
         public void TriggerBackgroundRecheck()

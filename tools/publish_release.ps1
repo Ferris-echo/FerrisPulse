@@ -138,11 +138,14 @@ if ($gitDiff) {
     git commit -m "chore(release): bump version to $tag"
 }
 $existingTag = git tag -l $tag
-if (-not $existingTag) {
-    git tag -a $tag -m "Release $tag"
+if ($existingTag) {
+    git tag -d $tag
 }
-git push origin main --tags
-git push gitee main --tags
+git tag -a $tag -m "Release $tag"
+git push origin main
+git push gitee main
+git push origin $tag --force
+git push gitee $tag --force
 
 # 8. 双平台发布 Release
 Write-Host "`n[7/7] 调用双平台 API 创建 Release 并上传二进制资产..." -ForegroundColor Yellow

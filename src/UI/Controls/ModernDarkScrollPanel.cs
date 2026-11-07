@@ -3,7 +3,9 @@
 // 所属区域: UI/Controls (基础原子控件层)
 // 核心职责:
 //   现代化暗黑微晶滚动容器，彻底废除 Win32 原生粗糙白色横向/竖向滚动条，
-//   提供纯 GDI+ 矢量纤细圆角悬浮滚动条、平滑鼠标滚轮交互与自适应换行。
+//   提供纯 GDI+ 双缓冲矢量纤细圆角悬浮滚动条、平滑鼠标滚轮交互与自适应换行。
+//   原生集成直接文本双缓冲绘制引擎 (Direct GDI+ Double-Buffered Rendering)，
+//   彻底杜绝 Windows Forms 在 WS_CLIPCHILDREN 容器内多透明 Label 滚动时发生的残影、文字撕裂与重叠覆盖缺陷。
 // 依赖关系: ModernThemeHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -13,6 +15,7 @@
 // ============================================================================
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -21,6 +24,21 @@ namespace RazerBatteryTray
 {
     public class ModernDarkScrollPanel : Panel
     {
+        private class ChangelogVisualItem
+        {
+            public string Text;
+            public bool IsHeader;
+            public Font Font;
+            public Color Color;
+            public int Top;
+            public int Height;
+        }
+
+        private List<ChangelogVisualItem> changelogItems;
+        private int totalContentHeight = 0;
+        private float currentDpiScale = 1.0f;
+        private IList<string> rawChangelogLines;
+
         private Panel contentPanel;
         private int scrollOffset = 0;
         private bool isDraggingThumb = false;
@@ -51,7 +69,10 @@ namespace RazerBatteryTray
                 if (scrollOffset != newVal)
                 {
                     scrollOffset = newVal;
-                    contentPanel.Top = -scrollOffset;
+                    if (contentPanel != null && contentPanel.Visible)
+                    {
+                        contentPanel.Top = -scrollOffset;
+                    }
                     Invalidate();
                 }
             }
@@ -62,11 +83,13 @@ namespace RazerBatteryTray
             this.AutoScroll = false;
             this.DoubleBuffered = true;
             this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            this.BackColor = Color.FromArgb(25, 27, 34);
 
             contentPanel = new Panel();
             contentPanel.Location = new Point(0, 0);
-            contentPanel.BackColor = Color.Transparent;
+            contentPanel.BackColor = Color.FromArgb(25, 27, 34);
             contentPanel.AutoSize = false;
+            contentPanel.Visible = false; // 默认使用纯双缓冲绘制引擎，消除子控件移动残影
             this.Controls.Add(contentPanel);
 
             this.MouseWheel += OnPanelMouseWheel;
@@ -78,6 +101,7 @@ namespace RazerBatteryTray
         {
             if (e.Control != null)
             {
+                contentPanel.Visible = true;
                 HookChildMouseWheel(e.Control);
             }
         }
@@ -93,15 +117,109 @@ namespace RazerBatteryTray
             }
         }
 
+        public void SetChangelog(IList<string> lines, float dpiScale)
+        {
+            this.rawChangelogLines = lines;
+            this.currentDpiScale = (dpiScale > 0.1f) ? dpiScale : 1.0f;
+
+            if (contentPanel != null)
+            {
+                contentPanel.Controls.Clear();
+                contentPanel.Visible = false;
+            }
+
+            RebuildChangelogItems();
+            this.scrollOffset = 0;
+            Invalidate();
+        }
+
+        private void RebuildChangelogItems()
+        {
+            IList<string> lines = this.rawChangelogLines;
+            if (lines == null || lines.Count == 0)
+            {
+                lines = new List<string>() { "•  常规性能提升与稳定性修复" };
+            }
+
+            List<string> displayItems = new List<string>();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                string entry = lines[i];
+                if (string.IsNullOrEmpty(entry)) continue;
+
+                if (entry.Contains("【") && entry.IndexOf("【") != entry.LastIndexOf("【"))
+                {
+                    string[] parts = System.Text.RegularExpressions.Regex.Split(entry, @"(?=【)");
+                    foreach (string p in parts)
+                    {
+                        string cp = p.Trim().TrimEnd(',', '，', ';', '；');
+                        if (!string.IsNullOrEmpty(cp)) displayItems.Add(cp);
+                    }
+                }
+                else
+                {
+                    displayItems.Add(entry);
+                }
+            }
+
+            this.Text = string.Join(" | ", displayItems.ToArray());
+
+            int availW = this.ClientSize.Width - scrollBarWidth - (scrollBarMargin * 2) - 12;
+            if (availW < 50) availW = 400;
+
+            Font headerFont = new Font("Microsoft YaHei UI", 9.2F * currentDpiScale, FontStyle.Bold);
+            Font bodyFont = new Font("Microsoft YaHei UI", 9.0F * currentDpiScale, FontStyle.Regular);
+
+            int curY = 4;
+            List<ChangelogVisualItem> list = new List<ChangelogVisualItem>();
+
+            for (int i = 0; i < displayItems.Count; i++)
+            {
+                string raw = displayItems[i];
+                bool isHeader = raw.StartsWith("一、") || raw.StartsWith("二、") || raw.StartsWith("三、") ||
+                                raw.StartsWith("四、") || raw.StartsWith("五、") || raw.StartsWith("六、") ||
+                                raw.StartsWith("特别说明") || raw.StartsWith("特别鸣谢") ||
+                                raw.StartsWith("升级提醒") || raw.StartsWith("后续适配");
+
+                string drawText = isHeader ? raw : ("•  " + raw);
+                Font font = isHeader ? headerFont : bodyFont;
+                Color color = isHeader ? Color.FromArgb(240, 245, 255) : Color.FromArgb(195, 203, 220);
+
+                if (isHeader && i > 0) curY += (int)(6 * currentDpiScale);
+
+                Size measured = TextRenderer.MeasureText(drawText, font, new Size(availW, 0),
+                    TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+                int itemH = Math.Max((int)(24 * currentDpiScale), measured.Height + 4);
+
+                ChangelogVisualItem item = new ChangelogVisualItem();
+                item.Text = drawText;
+                item.IsHeader = isHeader;
+                item.Font = font;
+                item.Color = color;
+                item.Top = curY;
+                item.Height = itemH;
+                list.Add(item);
+
+                curY += itemH + (int)(6 * currentDpiScale);
+            }
+
+            this.changelogItems = list;
+            this.totalContentHeight = curY + 8;
+        }
+
         protected override void OnResize(EventArgs eventargs)
         {
             base.OnResize(eventargs);
+            if (changelogItems != null && changelogItems.Count > 0)
+            {
+                RebuildChangelogItems();
+            }
             UpdateContentLayout();
         }
 
         public void UpdateContentLayout()
         {
-            if (contentPanel == null) return;
+            if (contentPanel == null || !contentPanel.Visible) return;
 
             int availW = this.ClientSize.Width - scrollBarWidth - (scrollBarMargin * 2);
             if (availW < 10) availW = 10;
@@ -132,8 +250,8 @@ namespace RazerBatteryTray
 
         private int GetMaxScroll()
         {
-            if (contentPanel == null) return 0;
-            int max = contentPanel.Height - this.ClientSize.Height;
+            int contentH = (changelogItems != null && changelogItems.Count > 0) ? totalContentHeight : (contentPanel != null ? contentPanel.Height : 0);
+            int max = contentH - this.ClientSize.Height;
             return max > 0 ? max : 0;
         }
 
@@ -152,7 +270,7 @@ namespace RazerBatteryTray
             if (max <= 0 || this.ClientSize.Height <= 0) return Rectangle.Empty;
 
             int clientH = this.ClientSize.Height;
-            int contentH = contentPanel.Height;
+            int contentH = (changelogItems != null && changelogItems.Count > 0) ? totalContentHeight : (contentPanel != null ? contentPanel.Height : 0);
             if (contentH <= clientH) return Rectangle.Empty;
 
             float ratio = (float)clientH / (float)contentH;
@@ -171,14 +289,39 @@ namespace RazerBatteryTray
         {
             base.OnPaint(e);
 
+            Graphics g = e.Graphics;
+            g.Clear(this.BackColor);
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            int clientW = this.ClientSize.Width;
+            int clientH = this.ClientSize.Height;
+            int availW = clientW - scrollBarWidth - (scrollBarMargin * 2) - 12;
+            if (availW < 10) availW = 10;
+
+            // 1. 绘制日志条目（硬件级内存双缓冲，每次滚动先全清底色，绝不产生残影、重叠与水平撕裂）
+            if (changelogItems != null && changelogItems.Count > 0)
+            {
+                for (int i = 0; i < changelogItems.Count; i++)
+                {
+                    ChangelogVisualItem item = changelogItems[i];
+                    int drawY = item.Top - scrollOffset;
+
+                    // 视口剔除：仅绘制位于当前可视窗口内的条目
+                    if (drawY + item.Height >= 0 && drawY <= clientH)
+                    {
+                        Rectangle rect = new Rectangle(4, drawY, availW, item.Height);
+                        TextRenderer.DrawText(g, item.Text, item.Font, rect, item.Color,
+                            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+                    }
+                }
+            }
+
+            // 2. 绘制滚动条
             int max = GetMaxScroll();
             if (max <= 0) return;
 
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            int clientH = this.ClientSize.Height;
-            int trackX = this.ClientSize.Width - scrollBarWidth - scrollBarMargin;
+            int trackX = clientW - scrollBarWidth - scrollBarMargin;
 
             using (SolidBrush trackBrush = new SolidBrush(trackColor))
             {
