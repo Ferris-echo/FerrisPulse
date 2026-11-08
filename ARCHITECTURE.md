@@ -54,6 +54,8 @@ D:\FerrisPulse · 灵脉\
     │   ├── MchoseDeviceHelper.cs [迈从 G87 V2 键盘 0x4A/0x87 电池协议、接收器休眠占位与离线缓存]
     │   ├── MchoseMouseHelper.cs  [迈从 A5 V2 Ultra 三模无线鼠标 WebHID 协议、XY轴独立 DPI 调节与 8K 回报率]
     │   ├── SteelSeriesDeviceHelper.cs [赛睿 Arctis Nova 5 / 5X 无线耳机 0x00B0 报文、UsagePage 0xFFC0 通信]
+    │   ├── CorsairDeviceHelper.cs [海盗船 HS80 MAX 无线耳机 Bragi 0xFF42 64B Report、0x0F 电量 / 0x10 供电状态、子设备 PID 0x0A96 握手]
+    │   ├── CorsairDeviceHelper.Mouse.cs [海盗船 M75 AIR 鼠标 SLIPSTREAM 65B Bragi、0x21/0x22 DPI 双轴读写、0x01 回报率切换]
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
     │   ├── SonyInzoneHelper.cs [索尼 INZONE 接收器 0xFF04 控制通道、96C3 私有 HCI 帧、Buds 六字节槽 / H5 头戴两字节槽电量与充电]
     │   ├── HidTransport.cs     [零依赖 SetupAPI/HidD 枚举、重叠 I/O 读写与超时取消总线]
@@ -127,6 +129,8 @@ D:\FerrisPulse · 灵脉\
 | **瓦尔基里全系键盘/鼠标支持** | `src/Hardware/ValkyrieDeviceHelper.cs` | 瓦尔基里全系 2.4G 接收器/HID 协议解析、双模电量、8K 回报率与独立 X/Y 轴 DPI 调节 |
 | **飞智 APEX 6 / Vader 5 Pro 手柄电量** | `src/Hardware/FlydigiDeviceHelper.cs` | GPA6 0xFFA0 33 字节帧、命令 0x01 设备信息、0..10 档电量与充电状态 |
 | **迈从 G87 V2 键盘电量** | `src/Hardware/MchoseDeviceHelper.cs` | 0x13/0x4A 无线、0x09/0x87 有线、校验和含 Report ID、休眠占位与离线缓存 |
+| **海盗船 HS80 MAX 无线耳机电量** | `src/Hardware/CorsairDeviceHelper.cs` | Bragi 0xFF42 64 字节 Report、0x0F 电量 / 0x10 供电状态、PID 握手与休眠缓存 |
+| **海盗船 M75 AIR 鼠标电量 / DPI / 回报率** | `src/Hardware/CorsairDeviceHelper.Mouse.cs` | SLIPSTREAM 1BDC 65 字节 Bragi、0x21/0x22 DPI 双轴读写、0x01 回报率 125~1000Hz |
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |

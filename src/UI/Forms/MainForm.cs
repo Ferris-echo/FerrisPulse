@@ -408,7 +408,6 @@ namespace RazerBatteryTray
 
         private DateTime lastRapooDpiPollTime = DateTime.MinValue;
         private DateTime lastGameOptOsdTime = DateTime.MinValue;
-        private long dpiMonitorBurstUntilTicks = 0;
 
         private static long lastTargetMouseActivityTicks = DateTime.UtcNow.Ticks;
         private static AutoResetEvent dpiMonitorWakeEvent = new AutoResetEvent(false);
@@ -602,7 +601,6 @@ namespace RazerBatteryTray
 
 
         private List<string> monitoredGameProcesses = new List<string>();
-        private Dictionary<string, GameProfile> gameProfiles = new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
 
         private bool fallbackFullscreenEnabled = false;
 
@@ -964,6 +962,10 @@ namespace RazerBatteryTray
             HyperXDeviceHelper.LoadHardwareCache();
 
             SteelSeriesDeviceHelper.LoadHardwareCache();
+
+            CorsairDeviceHelper.LoadHardwareCache();
+
+            CorsairDeviceHelper.LoadMouseHardwareCache();
 
             InitializeFormUI();
 
@@ -2087,12 +2089,6 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
 
 
-                        var gameProfilesVal = key.GetValue("GameProfiles") as string;
-                        if (gameProfilesVal != null)
-                        {
-                            gameProfiles = GameProfile.DeserializeProfiles(gameProfilesVal);
-                        }
-
                         var fallbackVal = key.GetValue("FallbackFullscreenEnabled");
 
                         if (fallbackVal != null) fallbackFullscreenEnabled = (int)fallbackVal == 1;
@@ -2518,16 +2514,6 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                             string procListStr = string.Join(";", monitoredGameProcesses.ToArray());
 
                             key.SetValue("MonitoredGameProcesses", procListStr);
-
-                        }
-
-                        if (gameProfiles != null)
-
-                        {
-
-                            string profStr = GameProfile.SerializeProfiles(gameProfiles);
-
-                            key.SetValue("GameProfiles", profStr);
 
                         }
 

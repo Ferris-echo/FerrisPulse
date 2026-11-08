@@ -96,6 +96,10 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new SteelSeriesHeadsetDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new CorsairHeadsetDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new CorsairMouseDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new AcerMouseDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new SinoWealthDriver());
@@ -1868,6 +1872,156 @@ namespace RazerBatteryTray
     }
 
 
+
+    public sealed class CorsairHeadsetDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:CorsairHeadset"; } }
+
+        public override string Brand { get { return "Corsair"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return CorsairDeviceHelper.IsSupportedVidPid(vid, pid);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null) return false;
+
+            // Corsair 同时存在耳机与鼠标驱动，必须按品类隔离，防止耳机驱动吞掉 M75 AIR 的 DPI 指令。
+            if (dev.Category != DeviceCategory.Headset && dev.Category != DeviceCategory.Earbuds) return false;
+
+            if (!string.IsNullOrEmpty(dev.DriverId) &&
+                string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (!string.IsNullOrEmpty(dev.DeviceId) &&
+                dev.DeviceId.StartsWith("Corsair:", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return string.Equals(dev.Brand, "Corsair", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dev.Brand, "美商海盗船", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = false;
+
+            dev.Capabilities.SupportsDpiStages = false;
+
+            dev.Capabilities.SupportsPollingRate = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo corsair = CorsairDeviceHelper.QueryCorsairDeviceInfo();
+
+            if (corsair != null && (corsair.IsConnected || corsair.IsDonglePresent))
+            {
+                PopulateCapabilities(corsair);
+
+                list.Add(corsair);
+            }
+
+            return list;
+        }
+    }
+
+    public sealed class CorsairMouseDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:CorsairMouse"; } }
+
+        public override string Brand { get { return "Corsair"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return CorsairDeviceHelper.IsSupportedMouseVidPid(vid, pid);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Category != DeviceCategory.Mouse) return false;
+
+            if (!string.IsNullOrEmpty(dev.DriverId) &&
+                string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (!string.IsNullOrEmpty(dev.DeviceId) &&
+                dev.DeviceId.StartsWith("Corsair:1B1C:1BF2", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return string.Equals(dev.Brand, "Corsair", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dev.Brand, "美商海盗船", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+            dev.Capabilities.SupportsDpi = true;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsPollingRate = true;
+            dev.Capabilities.SupportsXyIndependence = true;
+            dev.Capabilities.SupportsFastDpiMonitor = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.Capabilities.MinDpi = 100;
+            dev.Capabilities.MaxDpi = 26000;
+            dev.Capabilities.DpiStep = 50;
+            dev.Capabilities.SensorDescription = "Corsair MARKSMAN S 光学传感器";
+
+            int[] rates = CorsairDeviceHelper.GetSupportedPollingRates();
+            dev.SupportedPollingRates = rates;
+            dev.MaxPollingRate = 1000;
+            dev.Capabilities.SupportedPollingRates = rates;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+            MouseBatteryInfo mouse = CorsairDeviceHelper.QueryCorsairMouseInfo();
+            if (mouse != null && (mouse.IsConnected || mouse.IsDonglePresent))
+            {
+                PopulateCapabilities(mouse);
+                list.Add(mouse);
+            }
+            return list;
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+        {
+            stage = 0;
+            count = 1;
+            return CorsairDeviceHelper.QueryMouseDpi(out dpiX, out dpiY);
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+        {
+            return CorsairDeviceHelper.SetMouseDpi(dpiX, dpiY);
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+        {
+            return CorsairDeviceHelper.SetMousePollingRate(rateHz);
+        }
+    }
 
     public sealed class UniversalGamingDriver : HardwareDriverBase
 
