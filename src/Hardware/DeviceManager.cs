@@ -56,7 +56,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -155,6 +155,7 @@ namespace RazerBatteryTray
         public static void HideOrDeleteDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, true);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -196,6 +197,7 @@ namespace RazerBatteryTray
         public static void UnhideDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, false);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -738,6 +740,69 @@ namespace RazerBatteryTray
         }
 
 
+        // 记录用户对 Corsair 设备的主动隐藏意图，迁移逻辑据此决定是否自动恢复显示
+        private static void UpdateCorsairUserHiddenMarker(string deviceId, bool hidden)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            try
+            {
+                string lowerId = deviceId.ToLowerInvariant();
+                if (lowerId.Contains("1b1c") &&
+                    (lowerId.Contains("0a97") || lowerId.Contains("0a96") || lowerId.Contains("1bf2")))
+                {
+                    using (RegistryKey root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
+                    {
+                        if (root != null)
+                        {
+                            if (hidden) root.SetValue("CorsairUserHidden", 1, RegistryValueKind.DWord);
+                            else root.DeleteValue("CorsairUserHidden", false);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void CleanupDuplicateCorsairDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c.DeviceId != null && (c.DeviceId.StartsWith("HID:1B1C:0A97", StringComparison.OrdinalIgnoreCase) ||
+                                               c.DeviceId.StartsWith("HID:1B1C:0A96", StringComparison.OrdinalIgnoreCase) ||
+                                               c.DeviceId.StartsWith("HID:1B1C:1BF2", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+
+            // 旧版本把 0A97/0A96 当作未知设备隐藏；Bragi 驱动上线后自动解除隐藏。
+            // 采用“用户主动隐藏标记”而非一次性开关：即使用户配置/快照复原了隐藏表，
+            // 只要用户没有在新版本中主动隐藏过，就会重新显示；主动隐藏后不再打扰。
+            try
+            {
+                using (RegistryKey root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
+                {
+                    if (root != null)
+                    {
+                        object userHidden = root.GetValue("CorsairUserHidden");
+                        bool allowUnhide = (userHidden == null) || (Convert.ToInt32(userHidden) == 0);
+                        if (allowUnhide)
+                        {
+                            UnhideDevice("Corsair:1B1C:0A97");
+                            UnhideDevice("Corsair:1B1C:0A96");
+                            UnhideDevice("Corsair:1B1C:1BF2");
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void CleanupDuplicateHyperXDevices()
         {
             try
@@ -993,6 +1058,7 @@ namespace RazerBatteryTray
             CleanupDuplicateHyperXDevices();
 
             CleanupDuplicateSteelSeriesDevices();
+            CleanupDuplicateCorsairDevices();
             CleanupPhantomAppleDevices();
             CleanupDuplicateBluetoothAudioDevices();
 
@@ -1507,6 +1573,66 @@ namespace RazerBatteryTray
                         if (ss.BatteryPercent >= 0)
                         {
                             UpdateCustomDeviceBattery(ss.DeviceId, ss.BatteryPercent, DateTime.Now);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.12b Query Corsair HS80 MAX Wireless headset (1B1C:0A97, Bragi HID control collection)
+            try
+            {
+                var corsair = CorsairDeviceHelper.QueryCorsairDeviceInfo();
+                if (corsair != null && (corsair.IsConnected || corsair.IsDonglePresent))
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(corsair.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(corsair.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyInList)
+                    {
+                        corsair.IsCustom = false;
+                        list.Add(corsair);
+                        if (corsair.BatteryPercent >= 0)
+                        {
+                            UpdateCustomDeviceBattery(corsair.DeviceId, corsair.BatteryPercent, DateTime.Now);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.12c Query Corsair M75 AIR Wireless mouse (SLIPSTREAM 1B1C:1BDC / child PID 1BF2, Bragi 65B)
+            try
+            {
+                var corsairMouse = CorsairDeviceHelper.QueryCorsairMouseInfo();
+                if (corsairMouse != null && (corsairMouse.IsConnected || corsairMouse.IsDonglePresent))
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(corsairMouse.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(corsairMouse.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyInList)
+                    {
+                        corsairMouse.IsCustom = false;
+                        list.Add(corsairMouse);
+                        if (corsairMouse.BatteryPercent >= 0)
+                        {
+                            UpdateCustomDeviceBattery(corsairMouse.DeviceId, corsairMouse.BatteryPercent, DateTime.Now);
                         }
                     }
                 }

@@ -840,6 +840,16 @@ namespace RazerBatteryTray
             if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
                 path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
+            // Corsair HS80 MAX (0A97 接收器 / 0A96 耳机) 由 CorsairDeviceHelper 的 Bragi 协议专属接管，
+            // 严禁通用引擎向其 MI_04 控制集合盲发 CompX 异构报文。
+            if (vid == VID_CORSAIR && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_0a97", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_0a96", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // Corsair SLIPSTREAM 接收器 (1BDC) 承载 M75 AIR 等 Bragi 子设备，同样禁止通用引擎盲扫。
+            if (vid == VID_CORSAIR && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_1bdc", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
             {
