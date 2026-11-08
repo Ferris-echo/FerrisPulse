@@ -30,6 +30,7 @@ namespace RazerBatteryTray
         private const string PriorityOrderValName = "PriorityOrder";
         private const string AutoSwitchValName = "AutoSwitchPriority";
         private const string TrayLowBatteryFirstValName = "TrayLowBatteryFirst";
+        public const int LowBatteryPriorityThreshold = 30;
         private const string CustomDevicesRegPath = @"Software\RazerBatteryTray\CustomDevices";
         private const string HiddenDevicesRegPath = @"Software\RazerBatteryTray\HiddenDevices";
 
@@ -154,6 +155,7 @@ namespace RazerBatteryTray
         public static void HideOrDeleteDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, true);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -166,20 +168,6 @@ namespace RazerBatteryTray
                         {
                             key.SetValue(variants[i], 1, RegistryValueKind.DWord);
                         }
-                    }
-                }
-            }
-            catch { }
-
-            // 记录用户对 Corsair HS80 MAX 的主动隐藏意图：此后迁移逻辑不再自动解除隐藏
-            try
-            {
-                string lowerId = deviceId.ToLowerInvariant();
-                if (lowerId.Contains("1b1c") && (lowerId.Contains("0a97") || lowerId.Contains("0a96") || lowerId.Contains("1bf2")))
-                {
-                    using (var root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
-                    {
-                        if (root != null) root.SetValue("CorsairUserHidden", 1, RegistryValueKind.DWord);
                     }
                 }
             }
@@ -209,6 +197,7 @@ namespace RazerBatteryTray
         public static void UnhideDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, false);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -221,20 +210,6 @@ namespace RazerBatteryTray
                         {
                             key.DeleteValue(variants[i], false);
                         }
-                    }
-                }
-            }
-            catch { }
-
-            // 用户主动恢复显示：清除“主动隐藏”标记，后续迁移保持中立
-            try
-            {
-                string lowerId = deviceId.ToLowerInvariant();
-                if (lowerId.Contains("1b1c") && (lowerId.Contains("0a97") || lowerId.Contains("0a96") || lowerId.Contains("1bf2")))
-                {
-                    using (var root = Registry.CurrentUser.OpenSubKey(@"Software\RazerBatteryTray", true))
-                    {
-                        if (root != null) root.DeleteValue("CorsairUserHidden", false);
                     }
                 }
             }
@@ -765,6 +740,29 @@ namespace RazerBatteryTray
         }
 
 
+        // 记录用户对 Corsair 设备的主动隐藏意图，迁移逻辑据此决定是否自动恢复显示
+        private static void UpdateCorsairUserHiddenMarker(string deviceId, bool hidden)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            try
+            {
+                string lowerId = deviceId.ToLowerInvariant();
+                if (lowerId.Contains("1b1c") &&
+                    (lowerId.Contains("0a97") || lowerId.Contains("0a96") || lowerId.Contains("1bf2")))
+                {
+                    using (RegistryKey root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
+                    {
+                        if (root != null)
+                        {
+                            if (hidden) root.SetValue("CorsairUserHidden", 1, RegistryValueKind.DWord);
+                            else root.DeleteValue("CorsairUserHidden", false);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void CleanupDuplicateCorsairDevices()
         {
             try
@@ -817,6 +815,56 @@ namespace RazerBatteryTray
                                               c.DeviceId.StartsWith("HID:03F0:0C9D", StringComparison.OrdinalIgnoreCase)))
                     {
                         DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void CleanupDuplicateBluetoothAudioDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                var audioConfigs = customConfigs.FindAll(delegate(CustomDeviceConfig c) {
+                    return (c.Category == DeviceCategory.Earbuds || c.Category == DeviceCategory.Headset) ||
+                           (c.DeviceId != null && c.DeviceId.StartsWith("BT_", StringComparison.OrdinalIgnoreCase));
+                });
+
+                if (audioConfigs.Count > 1)
+                {
+                    var groups = new Dictionary<string, List<CustomDeviceConfig>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var c in audioConfigs)
+                    {
+                        string name = (c.OriginalName ?? c.CustomName ?? "").Trim();
+                        if (string.IsNullOrEmpty(name)) name = c.DeviceId ?? "";
+                        if (!groups.ContainsKey(name)) groups[name] = new List<CustomDeviceConfig>();
+                        groups[name].Add(c);
+                    }
+
+                    foreach (var kvp in groups)
+                    {
+                        if (kvp.Value.Count > 1)
+                        {
+                            CustomDeviceConfig best = kvp.Value[0];
+                            for (int i = 1; i < kvp.Value.Count; i++)
+                            {
+                                var cand = kvp.Value[i];
+                                if ((cand.CachedBattery > 0 && best.CachedBattery <= 0) ||
+                                    (cand.LastSeen > best.LastSeen && cand.CachedBattery >= best.CachedBattery))
+                                {
+                                    best = cand;
+                                }
+                            }
+
+                            for (int i = 0; i < kvp.Value.Count; i++)
+                            {
+                                if (kvp.Value[i] != best)
+                                {
+                                    DeleteCustomDevice(kvp.Value[i].DeviceId);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1012,6 +1060,7 @@ namespace RazerBatteryTray
             CleanupDuplicateSteelSeriesDevices();
             CleanupDuplicateCorsairDevices();
             CleanupPhantomAppleDevices();
+            CleanupDuplicateBluetoothAudioDevices();
 
             List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
 
@@ -2438,6 +2487,56 @@ namespace RazerBatteryTray
                 }
             }
 
+            // 3.67 蓝牙耳机/TWS 耳塞同名与同一设备多端点智能去重
+            // 分体式 TWS 耳机（如三星 Galaxy Buds、AirPods 等）在 Windows 下常建立音频通道与 BLE 信标多端点，
+            // 此处对同一物理耳机的重复卡片进行聚合，优先保留已连接与带有效电量的主卡片，断联时统一显示单一离线卡片。
+            try
+            {
+                var btAudioList = list.FindAll(delegate(MouseBatteryInfo x) {
+                    return (x.Category == DeviceCategory.Earbuds || x.Category == DeviceCategory.Headset) &&
+                           (x.IsCustom || (x.DeviceId != null && x.DeviceId.StartsWith("BT_", StringComparison.OrdinalIgnoreCase)));
+                });
+                if (btAudioList.Count > 1)
+                {
+                    var audioGroups = new Dictionary<string, List<MouseBatteryInfo>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var d in btAudioList)
+                    {
+                        string groupKey = !string.IsNullOrEmpty(d.DeviceName) ? d.DeviceName.Trim() : (d.CustomName ?? "").Trim();
+                        if (string.IsNullOrEmpty(groupKey)) groupKey = d.DeviceId ?? "";
+                        if (!audioGroups.ContainsKey(groupKey)) audioGroups[groupKey] = new List<MouseBatteryInfo>();
+                        audioGroups[groupKey].Add(d);
+                    }
+
+                    foreach (var kvp in audioGroups)
+                    {
+                        if (kvp.Value.Count > 1)
+                        {
+                            MouseBatteryInfo best = kvp.Value.Find(delegate(MouseBatteryInfo x) { return x.IsConnected && x.BatteryPercent > 0; }) ??
+                                                    kvp.Value.Find(delegate(MouseBatteryInfo x) { return x.IsConnected; }) ??
+                                                    kvp.Value.Find(delegate(MouseBatteryInfo x) { return x.BatteryPercent > 0; }) ??
+                                                    kvp.Value[0];
+
+                            var withCustomName = kvp.Value.Find(delegate(MouseBatteryInfo x) {
+                                return !string.IsNullOrEmpty(x.CustomName) && !x.CustomName.Equals(x.DeviceName, StringComparison.OrdinalIgnoreCase);
+                            });
+                            if (withCustomName != null && string.IsNullOrEmpty(best.CustomName))
+                            {
+                                best.CustomName = withCustomName.CustomName;
+                            }
+
+                            for (int i = list.Count - 1; i >= 0; i--)
+                            {
+                                if (kvp.Value.Contains(list[i]) && list[i] != best)
+                                {
+                                    list.RemoveAt(i);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 3.68 VHF 虚拟 HID 兜底过滤（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
             // 这类设备由远程控制软件通过内核 VHF 总线注册，没有物理电池，
             // 既不是 2.4G 外设也不能监控电量，必须从最终设备列表剔除。
@@ -2492,13 +2591,13 @@ namespace RazerBatteryTray
 
             // 托盘常驻设备全自动轮换规则：
             // list 已严格按用户在设备优先级页面调整的顺序从高到低排列。
-            // 1. 若开启“低电量优先”，优先从在线且存在有效电量读数 (BatteryPercent > 0) 的设备中选电量最低者（并列时按手动顺位）；
-            // 2. 否则（或无有效电量读数时）展示第一个在线设备；
+            // 1. 若开启“低电量优先”，仅当在线设备电量低于 30% 时才触发置顶预警（并在低于 30% 的设备中选取电量最低者；并列时按手动顺位）；
+            // 2. 否则（全部设备电量 >= 30% 或无有效读数时），100% 遵循用户手动设置的第 1 顺位在线设备，保持日常托盘图标稳定；
             // 3. 如果全部设备都离线，则回退展示第 1 位设备 (list[0])，并展示离线记忆电量！
             MouseBatteryInfo primary = null;
             if (IsTrayLowBatteryFirstEnabled())
             {
-                int lowestBatt = int.MaxValue;
+                int lowestBatt = LowBatteryPriorityThreshold; // 仅当设备电量低于 30% 时才触发置顶
                 for (int i = 0; i < list.Count; i++)
                 {
                     var cand = list[i];
