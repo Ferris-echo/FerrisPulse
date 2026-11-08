@@ -76,6 +76,7 @@ namespace RazerBatteryTray
                 foreach (string path in removed) cache.Remove(path);
                 if (due) lastQuery = DateTime.UtcNow;
                 result.AddRange(QueryAllPulseExploreDevices());
+                result.AddRange(Ds5DongleDeviceHelper.QueryDevices());
                 return result;
             }
         }

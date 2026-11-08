@@ -89,6 +89,7 @@ namespace RazerBatteryTray
                 HardwareDriverRegistry.RegisterDriver(new FlydigiGamepadDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new SonyInzoneDriver());
+                HardwareDriverRegistry.RegisterDriver(new Ds5DongleDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new AppleDeviceDriver());
 

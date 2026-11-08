@@ -153,3 +153,5 @@ D:\FerrisPulse · 灵脉\
    严禁在控件、窗口、边距、圆角处使用硬编码像素数值。必须统一通过 `S(...)` 或 `DpiScale` 计算缩放后的物理尺寸。
 5. **单实例安全互斥**：
    严禁通过遍历进程名暴力调用 `Process.Kill()`。必须使用系统命名全局互斥体 `Mutex("Global\\FerrisPulse_SingleInstance_Mutex")` 进行优雅管理。
+
+- src/Hardware/Ds5DongleDeviceHelper.cs: exact-endpoint and firmware-gated read-only F8/F9 battery driver, called by SonyDeviceHelper; registered as BuiltIn:Ds5Dongle.
