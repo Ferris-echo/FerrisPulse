@@ -4,7 +4,7 @@
 // 核心职责:
 //   管理全系统所有内置驱动包 (Priority 100)、FDAS v2.0 JSON 扩展包 (Priority 200)
 //   与 C# 动态脚本扩展包 (Priority 300) 的注册、卸载、按 VID:PID 优先级热覆盖仲裁、
-//   设备能力自动补齐以及 RawInput 唤醒路径动态匹配。
+//   设备能力自动补齐、脚本优先查询的精确端点归属以及 RawInput 唤醒路径动态匹配。
 // 依赖关系: IHardwareDriver.cs, HardwareDriverBase.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -21,7 +21,86 @@ namespace RazerBatteryTray
     public static class HardwareDriverRegistry
     {
         private static readonly object syncRoot = new object();
+        internal static readonly object ScanSyncRoot = new object();
         private static readonly List<IHardwareDriver> drivers = new List<IHardwareDriver>();
+        private static Dictionary<IHardwareDriver, HashSet<string>> externalClaims = new Dictionary<IHardwareDriver, HashSet<string>>();
+
+        public static bool IsExternallyOwnedPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            lock (syncRoot)
+            {
+                foreach (HashSet<string> paths in externalClaims.Values) if (paths.Contains(path)) return true;
+                return false;
+            }
+        }
+
+        public static List<MouseBatteryInfo> QueryExternalDevices()
+        {
+            lock (ScanSyncRoot) { return QueryExternalDevicesCore(); }
+        }
+
+        private static List<MouseBatteryInfo> QueryExternalDevicesCore()
+        {
+            List<MouseBatteryInfo> devices = new List<MouseBatteryInfo>();
+            Dictionary<IHardwareDriver, HashSet<string>> claims = new Dictionary<IHardwareDriver, HashSet<string>>();
+            Dictionary<IHardwareDriver, List<MouseBatteryInfo>> acceptedDevices = new Dictionary<IHardwareDriver, List<MouseBatteryInfo>>();
+            foreach (IHardwareDriver driver in GetAllDriversOrdered())
+            {
+                if (!driver.IsExternalPackage || driver.Priority < 300 || driver.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    List<MouseBatteryInfo> current = driver.QueryDevices();
+                    if (current == null) current = new List<MouseBatteryInfo>();
+                    HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    List<MouseBatteryInfo> acceptedList = new List<MouseBatteryInfo>();
+                    var property = driver.GetType().GetProperty("ClaimedDevicePaths");
+                    bool accepted = false;
+                    foreach (MouseBatteryInfo device in current)
+                    {
+                        if (device == null || (!device.IsConnected && !device.IsDonglePresent) || !driver.CanHandle(device)) continue;
+                        if (string.IsNullOrEmpty(device.DriverId)) device.DriverId = driver.DriverId;
+                        driver.PopulateCapabilities(device);
+                        acceptedList.Add(device);
+                        accepted = true;
+                        if (property == null && !string.IsNullOrEmpty(device.HardwareId)) paths.Add(device.HardwareId);
+                    }
+                    if (accepted || property != null)
+                    {
+                        // Optional extension contract; older official hosts need not implement it.
+                        string[] claimed = property == null ? null : property.GetValue(driver, null) as string[];
+                        if (claimed != null) foreach (string path in claimed)
+                            if (!string.IsNullOrEmpty(path)) paths.Add(path);
+                        claims[driver] = paths;
+                        acceptedDevices[driver] = acceptedList;
+                    }
+                }
+                catch { /* A failed package cannot prevent other packages or built-ins from querying. */ }
+            }
+            lock (syncRoot)
+            {
+                foreach (IHardwareDriver owner in new List<IHardwareDriver>(claims.Keys))
+                {
+                    if (!drivers.Exists(d => object.ReferenceEquals(d, owner))) claims.Remove(owner);
+                    else devices.AddRange(acceptedDevices[owner]);
+                }
+                externalClaims = claims;
+            }
+            return devices;
+        }
+
+        public static bool UnregisterDriverInstance(IHardwareDriver expected)
+        {
+            if (expected == null) return false;
+            lock (syncRoot)
+            {
+                int index = drivers.FindIndex(d => object.ReferenceEquals(d, expected));
+                externalClaims.Remove(expected);
+                if (index < 0) return false;
+                drivers.RemoveAt(index);
+                return true;
+            }
+        }
 
         public static void RegisterDriver(IHardwareDriver driver)
         {
@@ -32,6 +111,7 @@ namespace RazerBatteryTray
                 {
                     if (string.Equals(drivers[i].DriverId, driver.DriverId, StringComparison.OrdinalIgnoreCase))
                     {
+                        if (!object.ReferenceEquals(drivers[i], driver)) externalClaims.Remove(drivers[i]);
                         drivers.RemoveAt(i);
                     }
                 }
@@ -58,6 +138,7 @@ namespace RazerBatteryTray
                 {
                     if (drivers[i] != null && drivers[i].IsExternalPackage)
                     {
+                        externalClaims.Remove(drivers[i]);
                         drivers.RemoveAt(i);
                     }
                 }
@@ -74,6 +155,7 @@ namespace RazerBatteryTray
                 {
                     if (drivers[i] != null && string.Equals(drivers[i].DriverId, driverId, StringComparison.OrdinalIgnoreCase))
                     {
+                        externalClaims.Remove(drivers[i]);
                         drivers.RemoveAt(i);
                         removed = true;
                     }
@@ -115,7 +197,8 @@ namespace RazerBatteryTray
                 for (int i = 0; i < snapshot.Count; i++)
                 {
                     IHardwareDriver drv = snapshot[i];
-                    if (drv != null && drv.MatchesVidPid(vid, pid))
+                    if (drv != null && drv.MatchesVidPid(vid, pid) &&
+                        (!drv.IsExternalPackage || drv.Priority < 300 || drv.CanHandle(dev)))
                     {
                         return drv;
                     }
@@ -128,7 +211,8 @@ namespace RazerBatteryTray
                 for (int i = 0; i < snapshot.Count; i++)
                 {
                     IHardwareDriver drv = snapshot[i];
-                    if (drv != null && string.Equals(drv.DriverId, dev.DriverId, StringComparison.OrdinalIgnoreCase))
+                    if (drv != null && string.Equals(drv.DriverId, dev.DriverId, StringComparison.OrdinalIgnoreCase) &&
+                        (!drv.IsExternalPackage || drv.Priority < 300 || drv.CanHandle(dev)))
                     {
                         return drv;
                     }

@@ -26,6 +26,8 @@ namespace RazerBatteryTray
         public string CustomName { get; set; }
         public int PriorityIndex { get; set; }
         public string HardwareFingerprint { get; set; }
+        // Optional device-reported identity shared by wired and radio transports.
+        public string PhysicalUnitId { get; set; }
         public string HardwareId { get; set; }
         public string Transport { get; set; }
         public bool IsCustom { get; set; }
@@ -63,6 +65,8 @@ namespace RazerBatteryTray
         public int[] SupportedPollingRates { get; set; }
         public int MaxPollingRate { get; set; }
         public int BatteryVoltageMv { get; set; }
+        // 任意 DPI 数值的写入能力，与选择现有板载档位分开判断。
+        public bool? SupportsDpiWrite { get; set; }
         // 三态回报率可写能力位：null=未探测/未知（绝不误伤）, true=固件支持写入, false=固件拒绝（如 G304 等低阶 LightSpeed 鼠标）
         public bool? SupportsPollingRateWrite { get; set; }
         public string CustomTooltip { get; set; }

@@ -24,6 +24,11 @@ for root, _, files in os.walk('tests'):
         if file.endswith('.ps1'):
             ensure_bom(os.path.join(root, file))
 
+for root, _, files in os.walk('packages'):
+    for file in files:
+        if file.endswith('.cs'):
+            ensure_bom(os.path.join(root, file))
+
 for root, _, files in os.walk('tools'):
     for file in files:
         if file.endswith('.ps1'):

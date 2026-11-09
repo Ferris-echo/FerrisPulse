@@ -3,6 +3,7 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理
+//   包含 Keychron Link-KM 鼠标专用查询、设备别名与离线分类。
 // 依赖关系: 所有品牌 DeviceHelper, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -56,7 +57,7 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
+                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK", "Keychron" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -481,6 +482,13 @@ namespace RazerBatteryTray
                 string officialName = RazerDeviceHelper.GetRazerOfficialModelName(pid, dev.DeviceName);
                 if (string.IsNullOrEmpty(dev.DeviceName)) dev.DeviceName = officialName;
                 if (dev.Category == DeviceCategory.Generic) dev.Category = RazerDeviceHelper.GetRazerDeviceCategory(pid, officialName);
+            }
+            else if (deviceId.StartsWith("Keychron:3434:D026:MS", StringComparison.OrdinalIgnoreCase) ||
+                     deviceId.StartsWith("Keychron:3434:D060:MS", StringComparison.OrdinalIgnoreCase))
+            {
+                dev.Brand = "Keychron";
+                dev.Category = DeviceCategory.Mouse;
+                dev.DeviceName = "Keychron M6";
             }
             else if (deviceId.StartsWith("Logitech:046D:", StringComparison.OrdinalIgnoreCase) || deviceId.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -922,12 +930,23 @@ namespace RazerBatteryTray
             var variants = GetDeviceIdVariants(dev.DeviceId);
             int devVid, devPid;
             bool hasVidPid = HardwareDriverBase.TryExtractDeviceVidPid(dev, out devVid, out devPid);
+            IHardwareDriver owner = HardwareDriverRegistry.ResolveDriver(dev);
 
             int existingIdx = -1;
             for (int i = 0; i < list.Count; i++)
             {
                 MouseBatteryInfo cur = list[i];
                 if (cur == null) continue;
+
+                bool sameUnit = !string.IsNullOrEmpty(cur.PhysicalUnitId) &&
+                    string.Equals(cur.PhysicalUnitId, dev.PhysicalUnitId, StringComparison.OrdinalIgnoreCase);
+                bool samePath = !string.IsNullOrEmpty(cur.HardwareId) &&
+                    string.Equals(cur.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase);
+                if (!sameUnit && !samePath && owner != null && owner.IsExternalPackage && !owner.CanHandle(cur)) continue;
+                if (!sameUnit && !string.IsNullOrEmpty(cur.HardwareId) && !string.IsNullOrEmpty(dev.HardwareId) &&
+                    !string.Equals(cur.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.IsNullOrEmpty(cur.PhysicalUnitId) && !string.IsNullOrEmpty(dev.PhysicalUnitId) && !sameUnit) continue;
+                if (sameUnit) { existingIdx = i; break; }
 
                 if (!string.IsNullOrEmpty(cur.DeviceId) && cur.DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase))
                 {
@@ -957,7 +976,7 @@ namespace RazerBatteryTray
                     int curVid, curPid;
                     if (HardwareDriverBase.TryExtractDeviceVidPid(cur, out curVid, out curPid))
                     {
-                        if (curVid == devVid && curPid == devPid &&
+                        if (curVid == devVid && curPid == devPid && (owner == null || !owner.IsExternalPackage || owner.CanHandle(cur)) &&
                             (cur.Category == dev.Category || cur.Category == DeviceCategory.Generic || dev.Category == DeviceCategory.Generic))
                         {
                             existingIdx = i;
@@ -970,6 +989,17 @@ namespace RazerBatteryTray
             if (existingIdx >= 0)
             {
                 MouseBatteryInfo oldDev = list[existingIdx];
+                bool samePhysical = (!string.IsNullOrEmpty(oldDev.PhysicalUnitId) &&
+                    string.Equals(oldDev.PhysicalUnitId, dev.PhysicalUnitId, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(oldDev.HardwareId) && string.Equals(oldDev.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase));
+                if (samePhysical)
+                {
+                    bool oldLive = !oldDev.IsSleeping && (oldDev.IsConnected || oldDev.IsDonglePresent);
+                    bool newLive = !dev.IsSleeping && (dev.IsConnected || dev.IsDonglePresent);
+                    if (oldLive && !newLive) return;
+                    if (oldLive && newLive && !oldDev.IsDonglePresent && dev.IsDonglePresent) return;
+                    if (oldLive == newLive && oldDev.IsDonglePresent == dev.IsDonglePresent && oldDev.LastUpdated > dev.LastUpdated) return;
+                }
                 dev.IsCustom = oldDev.IsCustom;
                 if (!string.IsNullOrEmpty(oldDev.CustomName)) dev.CustomName = oldDev.CustomName;
                 list[existingIdx] = dev;
@@ -983,7 +1013,15 @@ namespace RazerBatteryTray
 
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
+            // A complete scan owns its script claim snapshot through built-in enumeration.
+            lock (HardwareDriverRegistry.ScanSyncRoot) { return QueryAllDevicesCore(); }
+        }
+
+        private static List<MouseBatteryInfo> QueryAllDevicesCore()
+        {
             BuiltInDrivers.EnsureRegistered();
+            CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+            List<MouseBatteryInfo> scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
             CleanupDuplicateNuphyDevices();
 
             CleanupDuplicateLogitechDevices();
@@ -1677,32 +1715,12 @@ namespace RazerBatteryTray
             // 2.15 Query C# 5.0 Dynamic Script Drivers (Local adapters/*.fp-driver.cs, Priority 300)
             try
             {
-                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
-                var allDrivers = HardwareDriverRegistry.GetAllDriversOrdered();
-                for (int di = 0; di < allDrivers.Count; di++)
+                foreach (MouseBatteryInfo sDev in scriptDevices)
                 {
-                    IHardwareDriver drv = allDrivers[di];
-                    if (drv != null && drv.IsExternalPackage && drv.Priority >= 300 &&
-                        (string.IsNullOrEmpty(drv.DriverId) || !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)))
+                    MergeExternalDriverDevice(list, sDev);
+                    if (sDev.BatteryPercent >= 0 && !sDev.IsSleeping)
                     {
-                        var scriptDevs = drv.QueryDevices();
-                        if (scriptDevs != null && scriptDevs.Count > 0)
-                        {
-                            for (int si = 0; si < scriptDevs.Count; si++)
-                            {
-                                var sDev = scriptDevs[si];
-                                if (sDev != null && (sDev.IsConnected || sDev.IsDonglePresent))
-                                {
-                                    if (string.IsNullOrEmpty(sDev.DriverId)) sDev.DriverId = drv.DriverId;
-                                    drv.PopulateCapabilities(sDev);
-                                    MergeExternalDriverDevice(list, sDev);
-                                    if (sDev.BatteryPercent >= 0)
-                                    {
-                                        UpdateCustomDeviceBattery(sDev.DeviceId, sDev.BatteryPercent, DateTime.Now);
-                                    }
-                                }
-                            }
-                        }
+                        UpdateCustomDeviceBattery(sDev.DeviceId, sDev.BatteryPercent, sDev.LastUpdated);
                     }
                 }
             }

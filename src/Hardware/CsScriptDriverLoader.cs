@@ -5,7 +5,7 @@
 //   使用 .NET Framework 4.0 原生 Microsoft.CSharp.CSharpCodeProvider 在纯内存
 //   (GenerateInMemory = true) 中动态编译 adapters/*.fp-driver.cs C# 5.0 硬件扩展包，
 //   自动实例化并挂载 IHardwareDriver 实现类 (Priority = 300)，零磁盘临时文件污染，
-//   并在脚本存在语法错误时进行容灾隔离与友好诊断。
+//   缓存未改变的脚本实例，并在脚本删除或修改出错时撤销旧注册、报告诊断。
 // 依赖关系: IHardwareDriver.cs, HardwareDriverBase.cs, HardwareDriverRegistry.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -24,7 +24,7 @@ using Microsoft.CSharp;
 
 namespace RazerBatteryTray
 {
-    public static class CsScriptDriverLoader
+    public static partial class CsScriptDriverLoader
     {
         private static readonly object compileLock = new object();
 
@@ -239,8 +239,8 @@ namespace RazerBatteryTray
         public static List<IHardwareDriver> LoadAndRegisterScriptDrivers(out List<string> allErrors)
         {
             allErrors = new List<string>();
-            List<IHardwareDriver> loaded = new List<IHardwareDriver>();
             List<string> dirs = new List<string>();
+            List<string> files = new List<string>();
 
             string d1 = FdasRuntimeHelper.GetAdaptersDirectory();
             if (!string.IsNullOrEmpty(d1) && Directory.Exists(d1)) dirs.Add(d1);
@@ -254,38 +254,13 @@ namespace RazerBatteryTray
                 try
                 {
                     string[] csFiles = Directory.GetFiles(dir, "*.fp-driver.cs");
-                    if (csFiles == null) continue;
-                    for (int fi = 0; fi < csFiles.Length; fi++)
-                    {
-                        string file = csFiles[fi];
-                        try
-                        {
-                            string src = File.ReadAllText(file, Encoding.UTF8);
-                            List<string> errs;
-                            List<IHardwareDriver> list = CompileDriversFromSource(src, file, out errs);
-                            if (errs != null && errs.Count > 0)
-                            {
-                                allErrors.AddRange(errs);
-                            }
-                            if (list != null)
-                            {
-                                for (int k = 0; k < list.Count; k++)
-                                {
-                                    HardwareDriverRegistry.RegisterDriver(list[k]);
-                                    loaded.Add(list[k]);
-                                }
-                            }
-                        }
-                        catch (Exception exFile)
-                        {
-                            allErrors.Add("读取脚本文件失败 (" + Path.GetFileName(file) + "): " + exFile.Message);
-                        }
-                    }
+                    Array.Sort(csFiles, StringComparer.OrdinalIgnoreCase);
+                    files.AddRange(csFiles);
                 }
                 catch { }
             }
 
-            return loaded;
+            return LoadAndRegisterScriptFiles(files.ToArray(), out allErrors);
         }
     }
 }

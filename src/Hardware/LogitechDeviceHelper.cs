@@ -907,7 +907,8 @@ public static class LogitechDeviceHelper
                     {
                         IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                         string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                        if (devicePath != null && devicePath.ToLower().Contains("vid_046d"))
+                        if (devicePath != null && devicePath.ToLower().Contains("vid_046d") &&
+                            !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                         {
                             IntPtr handle = CreateFile(
                                 devicePath,
