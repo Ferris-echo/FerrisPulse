@@ -1,6 +1,8 @@
 ﻿# tests\test_razer_basilisk_v3_pro_35k.ps1
 # 验证雷蛇巴蛇 V3 专业版 35K (Razer Basilisk V3 Pro 35K) 设备识别与硬件能力契约
 
+# ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+$ErrorActionPreference = 'Stop'
 $asmPath = Join-Path $PSScriptRoot "..\FerrisPulse.exe"
 if (-not (Test-Path $asmPath)) {
     $asmPath = "FerrisPulse.exe"
@@ -68,11 +70,11 @@ Write-Host " [测试 3/6] 校验 DetermineIsDongle 离线与待机识别" -Foreg
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $donglePids = @(0x00CD, 0x00D7, 0x00AB)
-foreach ($pid in $donglePids) {
+foreach ($devicePid in $donglePids) {
     # 模拟电量为0且未充电（接收器插入但鼠标关机或初次轮询）
-    $isDongle = $tRazer.GetMethod("DetermineIsDongle").Invoke($null, @([int]$pid, "Razer Mouse", 0, $false))
+    $isDongle = $tRazer.GetMethod("DetermineIsDongle").Invoke($null, @([int]$devicePid, "Razer Mouse", 0, $false))
     if (-not $isDongle) {
-        Write-Host ("FAIL: DetermineIsDongle(0x{0:X4}) returned false, expected true!" -f $pid) -ForegroundColor Red
+        Write-Host ("FAIL: DetermineIsDongle(0x{0:X4}) returned false, expected true!" -f $devicePid) -ForegroundColor Red
         exit 1
     }
 }
@@ -105,14 +107,14 @@ Write-Host " [测试 5/6] 校验 8000Hz (8K) 超高回报率矩阵支持" -Foreg
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $rateCases = @(0x00CC, 0x00CD, 0x00D6, 0x00D7)
-foreach ($pid in $rateCases) {
-    $rates = $tRazer.GetMethod("GetSupportedPollingRatesForModel").Invoke($null, @([int]$pid, "Razer Basilisk V3 Pro 35K"))
+foreach ($devicePid in $rateCases) {
+    $rates = $tRazer.GetMethod("GetSupportedPollingRatesForModel").Invoke($null, @([int]$devicePid, "Razer Basilisk V3 Pro 35K"))
     if ($rates -eq $null -or -not ($rates -contains 8000)) {
-        Write-Host ("FAIL: GetSupportedPollingRatesForModel(0x{0:X4}) does not contain 8000Hz!" -f $pid) -ForegroundColor Red
+        Write-Host ("FAIL: GetSupportedPollingRatesForModel(0x{0:X4}) does not contain 8000Hz!" -f $devicePid) -ForegroundColor Red
         exit 1
     }
     if (-not ($rates -contains 125) -or -not ($rates -contains 1000) -or -not ($rates -contains 4000)) {
-        Write-Host ("FAIL: GetSupportedPollingRatesForModel(0x{0:X4}) missing standard rate gears!" -f $pid) -ForegroundColor Red
+        Write-Host ("FAIL: GetSupportedPollingRatesForModel(0x{0:X4}) missing standard rate gears!" -f $devicePid) -ForegroundColor Red
         exit 1
     }
 }
@@ -122,10 +124,10 @@ Write-Host "==========================================================" -Foregro
 Write-Host " [测试 6/6] 校验 Focus Pro 35K Gen-2 顶级传感器规格" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-foreach ($pid in @(0x00CC, 0x00CD, 0x00D6, 0x00D7)) {
-    $cap = $tRazer.GetMethod("GetDpiCapability").Invoke($null, @("Razer Basilisk V3 Pro 35K", [int]$pid))
+foreach ($devicePid in @(0x00CC, 0x00CD, 0x00D6, 0x00D7)) {
+    $cap = $tRazer.GetMethod("GetDpiCapability").Invoke($null, @("Razer Basilisk V3 Pro 35K", [int]$devicePid))
     if ($cap -eq $null) {
-        Write-Host ("FAIL: GetDpiCapability(0x{0:X4}) returned null!" -f $pid) -ForegroundColor Red
+        Write-Host ("FAIL: GetDpiCapability(0x{0:X4}) returned null!" -f $devicePid) -ForegroundColor Red
         exit 1
     }
     if ($cap.MaxDpi -ne 35000) {
