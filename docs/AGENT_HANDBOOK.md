@@ -46,6 +46,8 @@
    - **Priority 200 (`*.fp-adapter.json`)**：FDAS v2.0 声明式扩展包，支持多 PID `devices` 矩阵、`setStagesTxTemplate` 与 `customActions`。
    - **Priority 100 (`BuiltInDrivers`)**：内置驱动插件集，支持被同 `DriverId` 或同 `VID:PID` 的外部包无缝热覆盖。
 3. **按物理指纹细粒度互斥锁**：`HardwareCommandBus.GetDeviceLock` 按 `VID:PID` 加锁，防止 50ms 高频 `FastQueryDpi` 与后台电量轮询并发交错。
+4. **本地外置包端点归属**：脚本必须先完成身份校验，再通过 `ClaimedDevicePaths` 发布精确路径，内置驱动打开句柄前跳过已接管端点；仅靠最终列表去重不能避免重复协议访问。普通扫描与设备向导共用扫描锁。每轮查询先暂存结果，回调异常不得发布半份结果；显式空路径数组不能回退到 `HardwareId`。
+5. **脚本实例寿命与同款设备隔离**：按完整源码复用已编译实例，改变或删除脚本时只撤销原实例；不可每轮重新编译丢失缓存。VID/PID/槽位不是物理唯一键，端点状态与命令路由必须包含完整 HID 路径；已确认的跨传输对应关系单独保存。
 
 ### 3.3 原生 DWM 弹窗动效、抗白框与坐标绝对记忆
 1. **严禁 `AnimateWindow` 与 `Minimized` 隐藏**：`AnimateWindow` 会在深色模式下闪现白框；`Minimized` 会导致还原时从底栏飞出。

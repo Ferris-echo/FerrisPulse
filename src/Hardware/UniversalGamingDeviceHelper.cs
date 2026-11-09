@@ -8,6 +8,7 @@
 //   2. Beken / ATK / Endgame Gear 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系, Endgame Gear OP1we/XM2we)
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
+//   Keychron Link-KM 3434:D026 与 M6 USB 3434:D060 由 外置 Keychron M6 驱动独立接管。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -830,6 +831,11 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
+            // Link-KM uses Keychron output reports and a paired-model handshake.
+            if (vid == VID_KEYCHRON && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_d026", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_d060", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
             // ASUS PELTA, wired Scope II RX, and ROG OMNI Receiver have dedicated classification. Never send mouse probes.
             if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
             {
@@ -943,7 +949,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null)
+                            if (devicePath != null && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                             {
                                 // 过滤键盘按键集合，保留控制/Vendor集合 (mi_02 或非普通 kbd)
                                 if (devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
@@ -1103,7 +1109,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringUni(pDevicePath);
-                            if (!string.IsNullOrEmpty(devicePath))
+                            if (!string.IsNullOrEmpty(devicePath) && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                             {
                                 paths.Add(devicePath);
                             }

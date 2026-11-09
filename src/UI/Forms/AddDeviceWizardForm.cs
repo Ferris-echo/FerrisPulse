@@ -3,6 +3,7 @@
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
 //   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
+//   扫描与后台轮询共享端点归属锁；脚本先查询一次，再由内置扫描跳过已接管端点。
 // 依赖关系: Controls.*, Hardware.DeviceManager, Core.ConfigManager, Models.CustomDeviceConfig
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -590,6 +591,10 @@ namespace RazerBatteryTray
             lblTestStatus.Text = "正在检索在线 2.4G 接收器、HID 外设与蓝牙设备...";
 
             ThreadPool.QueueUserWorkItem((state) => {
+                lock (HardwareDriverRegistry.ScanSyncRoot)
+                {
+                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+                var scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
                 var tempConfigs = new List<CustomDeviceConfig>();
                 var existingConfigs = DeviceManager.LoadCustomDevices();
 
@@ -873,7 +878,6 @@ namespace RazerBatteryTray
                 // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins)
                 try
                 {
-                    CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
                     var fdasList = FdasRuntimeHelper.QueryAllFdasDevices();
                     if (fdasList != null)
                     {
@@ -906,7 +910,9 @@ namespace RazerBatteryTray
                         {
                             var drv = drivers[di];
                             if (drv == null) continue;
-                            var dList = drv.QueryDevices();
+                            var dList = drv.IsExternalPackage && drv.Priority >= 300 && !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)
+                                ? scriptDevices.FindAll(d => string.Equals(d.DriverId, drv.DriverId, StringComparison.OrdinalIgnoreCase))
+                                : drv.QueryDevices();
                             if (dList == null) continue;
                             for (int k = 0; k < dList.Count; k++)
                             {
@@ -1010,6 +1016,7 @@ namespace RazerBatteryTray
                     }));
                 }
                 catch { }
+                }
             });
         }
 
