@@ -745,9 +745,11 @@ namespace RazerBatteryTray
                 var customConfigs = LoadCustomDevices();
                 foreach (var c in customConfigs)
                 {
-                    if (c.DeviceId != null && (c.DeviceId.StartsWith("HyperX:03F0:", StringComparison.OrdinalIgnoreCase) || 
-                                              c.DeviceId.StartsWith("HID:03F0:05B7", StringComparison.OrdinalIgnoreCase) ||
-                                              c.DeviceId.StartsWith("HID:03F0:0C9D", StringComparison.OrdinalIgnoreCase)))
+                    // 飓风3S (02CC / 06BE) 由专属通道独立供电量，不得被旧版飓风3 去重逻辑误删配置
+                    if (c.DeviceId != null && !HyperXCloud3SHelper.IsCloud3SIdentifier(c.DeviceId) &&
+                        (c.DeviceId.StartsWith("HyperX:03F0:", StringComparison.OrdinalIgnoreCase) || 
+                         c.DeviceId.StartsWith("HID:03F0:05B7", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:03F0:0C9D", StringComparison.OrdinalIgnoreCase)))
                     {
                         DeleteCustomDevice(c.DeviceId);
                     }
@@ -1024,6 +1026,20 @@ namespace RazerBatteryTray
             {
                 var ganss = GanssDeviceHelper.QueryDevice();
                 if (ganss != null) list.Add(ganss);
+            }
+            catch { }
+
+            // 公版 CompX 2.4G 无线键盘 (05AC:024F "2.4G Wireless Receiver", 33B 0xFF60/0x61 电量端点)
+            // 与 GS3108T-PRO 共用 Apple VID/PID，仅凭产品串隔离
+            // 接收器在线即入列：键盘休眠时射频不应答，绝不因此让整条设备消失
+            try
+            {
+                var compX = CompxWirelessKeyboardHelper.QueryDevice();
+                if (compX != null && (compX.IsConnected || compX.IsDonglePresent))
+                {
+                    compX.IsCustom = false;
+                    list.Add(compX);
+                }
             }
             catch { }
 
@@ -1477,6 +1493,38 @@ namespace RazerBatteryTray
                         if (hp.BatteryPercent >= 0)
                         {
                             UpdateCustomDeviceBattery(hp.DeviceId, hp.BatteryPercent, DateTime.Now);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.11.1 Query HyperX Cloud III S Wireless (03F0:02CC / 06BE, 64B 0x01C0 电量集合)
+            // 与 2.11 的飓风3 (0x66/62B 报文) 物理通道完全隔离，禁止共用同一解析器
+            try
+            {
+                HyperXCloud3SHelper.LoadHardwareCache();
+                var cloud3s = HyperXCloud3SHelper.QueryDevice();
+                if (cloud3s != null && (cloud3s.IsConnected || cloud3s.IsDonglePresent))
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(cloud3s.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(cloud3s.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyInList)
+                    {
+                        cloud3s.IsCustom = false;
+                        list.Add(cloud3s);
+                        if (cloud3s.BatteryPercent >= 0)
+                        {
+                            UpdateCustomDeviceBattery(cloud3s.DeviceId, cloud3s.BatteryPercent, DateTime.Now);
                         }
                     }
                 }
