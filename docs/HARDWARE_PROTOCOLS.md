@@ -66,6 +66,8 @@
   - 仅暴露 `UsagePage 0xFF02 / Usage 0x0002` 的 **17/17 字节 Interrupt 端点**（`FeatureReportByteLength == 0`）。
   - **严禁在 `WriteFile` 前执行 `DrainReports`**，否则会打断 8K 接收器与鼠标的无线握手状态机。
   - 发送 `08 04 00 ... 49`（Beken `0x55` 校验和），读取 `08 04 00 00 00 02 <batt> <chg> <mv_hi> <mv_lo> ...`。
+- **ATK A9 Ultimate（贡献者 `@ertutio`）**：`373B:11D9` 是共享接收器，不能仅凭接收器 PID 判定鼠标型号。用户设备实测此接收器的 `FF02:0002`、17/17 字节端点返回电量；先按上述 `0x04` 读取电量，再以 `08 10 00 ... 3D` 读取 CID/MID。仅当 17 字节回复的报告 ID/命令/状态/长度/`0x55` 校验均有效且 `CID=1, MID=3` 时显示为 A9 Ultimate。身份读取失败时沿用原有 F1 路径，不开放 DPI 或回报率写入。
+- **PMO WAVE75 蓝牙**：按蓝牙设备名 `WAVE75` 或 `WAVE 75` 归类为键盘，电量沿用通用蓝牙读取。用户的 `36B0:3002` 接收器无法完成官方 Hub 配对型号查询，因此此适配不包含 2.4G 电量或设置协议。
 
 ### 1.6 迈从 (MCHOSE) A5 V2 Ultra 鼠标与 G87 V2 键盘
 - **A5 V2 Ultra (`MchoseMouseHelper.cs`)**：

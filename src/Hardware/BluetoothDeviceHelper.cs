@@ -1215,7 +1215,7 @@ namespace RazerBatteryTray
 
                     cat = DeviceCategory.Mouse;
 
-                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kzzi") || lower.Contains("kb"))
+                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("wave75") || lower.Contains("wave 75") || lower.Contains("kzzi") || lower.Contains("kb"))
 
                     cat = DeviceCategory.Keyboard;
 
