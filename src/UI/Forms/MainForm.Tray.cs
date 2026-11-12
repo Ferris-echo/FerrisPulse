@@ -21,6 +21,8 @@ namespace RazerBatteryTray
     public partial class MainForm : Form
     {
         private ToolStripMenuItem lightingMenu;
+        private int lastTrayClickTick = 0;
+        private int lastTrayDoubleClickTick = 0;
 
         private void ConfigureSubMenuDropDown(ToolStripDropDown dropDown)
         {
@@ -578,14 +580,35 @@ namespace RazerBatteryTray
             }
             trayIcon.Visible = true;
 
+            trayIcon.DoubleClick += (s, e) => {
+                var me = e as MouseEventArgs;
+                if (me != null && me.Button != MouseButtons.Left) return;
+                lastTrayDoubleClickTick = Environment.TickCount;
+                ShowWindow();
+            };
+
             trayIcon.Click += (s, e) => {
                 var me = e as MouseEventArgs;
                 if (me != null && me.Button == MouseButtons.Left)
                 {
+                    int now = Environment.TickCount;
+                    // 1. 若刚刚触发过双击（在 Windows 双击时间窗内），忽略伴随的 Click 冗余事件，防止将刚弹出的窗口立即隐藏
+                    int doubleClickThreshold = Math.Max(400, SystemInformation.DoubleClickTime + 100);
+                    if (unchecked(now - lastTrayDoubleClickTick) >= 0 && unchecked(now - lastTrayDoubleClickTick) < doubleClickThreshold)
+                    {
+                        return;
+                    }
+
+                    // 2. 毫秒级高频点击防抖保护（200ms 冷却）：防止用户极速连点引发 Handle 状态机反复重构与闪烁
+                    if (unchecked(now - lastTrayClickTick) >= 0 && unchecked(now - lastTrayClickTick) < 200)
+                    {
+                        return;
+                    }
+                    lastTrayClickTick = now;
+
                     ToggleWindow();
                 }
             };
-            trayIcon.DoubleClick += (s, e) => ShowWindow();
         }
 
 

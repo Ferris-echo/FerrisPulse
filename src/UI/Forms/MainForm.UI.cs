@@ -1782,7 +1782,8 @@ namespace RazerBatteryTray
                 ? selectedDevice.PollingRate
                 : 0;
             int effectiveDesktopHz = (measuredDesktopHz > 0) ? measuredDesktopHz : desktopPollingRate;
-            int currentActiveHz = (isGamingActive && autoGameRateEnabled) ? gamePollingRate : effectiveDesktopHz;
+            int effectiveGameHz = (inGameRuntimePollingRate > 0) ? inGameRuntimePollingRate : gamePollingRate;
+            int currentActiveHz = (isGamingActive && autoGameRateEnabled) ? effectiveGameHz : effectiveDesktopHz;
             int desktopHighlightRate = (isGamingActive && autoGameRateEnabled) ? desktopPollingRate : effectiveDesktopHz;
             int currentActiveDpi = 0;
             int currentActiveDpiY = 0;
@@ -1790,8 +1791,9 @@ namespace RazerBatteryTray
                 ? selectedDevice.DpiStage
                 : 0;
             int effectiveDesktopStage = (measuredDesktopStage > 0) ? measuredDesktopStage : ((desktopDpiStage > 0) ? desktopDpiStage : 1);
+            int effectiveGameStage = (inGameRuntimeDpiStage > 0 && inGameRuntimeDpiStage <= 5) ? inGameRuntimeDpiStage : gameDpiStage;
             int activeStage = (isGamingActive && autoGameDpiEnabled)
-                ? gameDpiStage
+                ? effectiveGameStage
                 : effectiveDesktopStage;
 
             if (dpiStageList != null && dpiStageList.Count > 0)
@@ -1840,6 +1842,17 @@ namespace RazerBatteryTray
                             badgeText += " · " + currentActiveDpi + " DPI";
                         }
                     }
+                    if (isGamingActive)
+                    {
+                        if (!string.IsNullOrEmpty(inGameActiveGameTitle))
+                        {
+                            badgeText += " (专属: " + inGameActiveGameTitle + ")";
+                        }
+                        else
+                        {
+                            badgeText += " (电竞)";
+                        }
+                    }
                     lblLiveRateBadge.Text = badgeText;
                     lblLiveRateBadge.ForeColor = isGamingActive ? Color.FromArgb(0, 230, 118) : Color.FromArgb(180, 210, 240);
                 }
@@ -1858,11 +1871,12 @@ namespace RazerBatteryTray
 
             if (btnGameRates != null)
             {
+                int targetGameRateHighlight = isGamingActive ? effectiveGameHz : gamePollingRate;
                 for (int i = 0; i < btnGameRates.Length; i++)
                 {
                     if (btnGameRates[i] != null && pollingRateValues != null && i < pollingRateValues.Length)
                     {
-                        bool isSel = (pollingRateValues[i] == gamePollingRate);
+                        bool isSel = (pollingRateValues[i] == targetGameRateHighlight);
                         btnGameRates[i].Selected = isSel;
                         btnGameRates[i].IsPreset = (isSel && !isGamingActive);
                         ApplyGameRateButtonState(btnGameRates[i]);
@@ -1889,11 +1903,12 @@ namespace RazerBatteryTray
 
             if (btnGameDpiStages != null)
             {
+                int targetGameStageHighlight = isGamingActive ? effectiveGameStage : gameDpiStage;
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
                     if (btnGameDpiStages[i] != null && dpiStageList != null && i < dpiStageList.Count)
                     {
-                        bool isSel = ((i + 1) == gameDpiStage);
+                        bool isSel = ((i + 1) == targetGameStageHighlight);
                         btnGameDpiStages[i].Selected = isSel;
                         btnGameDpiStages[i].IsPreset = (isSel && !isGamingActive);
                         btnGameDpiStages[i].Enabled = autoGameDpiEnabled;

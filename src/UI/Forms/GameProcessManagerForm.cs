@@ -279,11 +279,11 @@ namespace RazerBatteryTray
             ctlMonitoredList = new ModernProcessListControl();
             ctlMonitoredList.DpiScale = dpiScale;
             ctlMonitoredList.ActionType = ProcessListActionType.Delete;
-            ctlMonitoredList.EmptyPlaceholderText = "暂无守护游戏 (双击左侧应用或点击 ➕ 添加)";
+            ctlMonitoredList.EmptyPlaceholderText = "暂无守护游戏 (双击右侧列表定制专属策略)";
             ctlMonitoredList.Location = new Point(rightColX, S(76));
             ctlMonitoredList.Size = new Size(rightColW, S(246));
             ctlMonitoredList.OnActionClicked += (item) => RemoveGameProcess(item.ProcessName);
-            ctlMonitoredList.OnItemDoubleClicked += (item) => RemoveGameProcess(item.ProcessName);
+            ctlMonitoredList.OnItemDoubleClicked += (item) => OpenGameProfileSetting(item.ProcessName);
             ctlMonitoredList.OnSettingsClicked += (item) => OpenGameProfileSetting(item.ProcessName);
             this.Controls.Add(ctlMonitoredList);
 

@@ -404,7 +404,17 @@ namespace RazerBatteryTray
                     // Highlight corresponding segment button (for all mice: Razer, Valkyrie, Logitech, Rapoo)
                     if (btnDpiStages != null)
                     {
-                        if (isGamingActive && autoGameDpiEnabled) { UpdateGameDpiButtonSelection(newStage); if (desktopDpiStage > 0) HighlightDpiStage(desktopDpiStage); } else { HighlightDpiStage(newStage); } UpdatePollingRateDisplayStates(); for (int i = 0; false && i < btnDpiStages.Length; i++)
+                        if (isGamingActive && autoGameDpiEnabled)
+                        {
+                            if (newStage > 0 && newStage <= 5) inGameRuntimeDpiStage = newStage;
+                            UpdateGameDpiButtonSelection(newStage);
+                            if (desktopDpiStage > 0) HighlightDpiStage(desktopDpiStage);
+                        }
+                        else
+                        {
+                            HighlightDpiStage(newStage);
+                        }
+                        UpdatePollingRateDisplayStates(); for (int i = 0; false && i < btnDpiStages.Length; i++)
                         {
                             bool isCur = (newStage > 0 && i < stageCount)
                                 ? (i == (newStage - 1))
@@ -659,6 +669,7 @@ namespace RazerBatteryTray
         public void SetGamePollingRateFromUI(int hz)
         {
             gamePollingRate = hz;
+            if (isGamingActive && autoGameRateEnabled) inGameRuntimePollingRate = hz;
             UpdateGameRateButtonSelection(hz);
             UpdatePollingRateDisplayStates();
             SaveConfig();
@@ -673,6 +684,7 @@ namespace RazerBatteryTray
         {
             if (stage < 1 || stage > 5) stage = 1;
             gameDpiStage = stage;
+            if (isGamingActive && autoGameDpiEnabled) inGameRuntimeDpiStage = stage;
             UpdateGameDpiButtonSelection(stage);
             UpdatePollingRateDisplayStates();
             SaveConfig();
@@ -1234,6 +1246,34 @@ namespace RazerBatteryTray
         {
             if (monitoredGameProcesses == null || monitoredGameProcesses.Count == 0 || gameProfiles == null || gameProfiles.Count == 0)
                 return null;
+
+            // 1. 优先检查当前前台窗口所属进程
+            try
+            {
+                IntPtr fgHwnd = GetForegroundWindow();
+                if (fgHwnd != IntPtr.Zero)
+                {
+                    uint fgPid = 0;
+                    GetWindowThreadProcessId(fgHwnd, out fgPid);
+                    if (fgPid != 0)
+                    {
+                        using (var p = Process.GetProcessById((int)fgPid))
+                        {
+                            string pName = p.ProcessName.ToLowerInvariant();
+                            string pExe = pName.EndsWith(".exe") ? pName : (pName + ".exe");
+                            GameProfile fgProf;
+                            if (gameProfiles.TryGetValue(pExe, out fgProf) && fgProf != null && fgProf.IsCustomConfigured)
+                            {
+                                return fgProf;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2. 遍历守护列表中的运行中进程，优先返回已配置专属参数 (IsCustomConfigured) 的项
+            GameProfile fallbackProf = null;
             for (int i = 0; i < monitoredGameProcesses.Count; i++)
             {
                 string g = monitoredGameProcesses[i];
@@ -1248,13 +1288,22 @@ namespace RazerBatteryTray
                         string lowerExe = g.ToLowerInvariant();
                         if (!lowerExe.EndsWith(".exe")) lowerExe += ".exe";
                         GameProfile prof;
-                        if (gameProfiles.TryGetValue(lowerExe, out prof)) return prof;
-                        break;
+                        if (gameProfiles.TryGetValue(lowerExe, out prof) && prof != null)
+                        {
+                            if (prof.IsCustomConfigured)
+                            {
+                                return prof;
+                            }
+                            if (fallbackProf == null)
+                            {
+                                fallbackProf = prof;
+                            }
+                        }
                     }
                 }
                 catch { }
             }
-            return null;
+            return fallbackProf;
         }
 
         private void ApplyGameOptimization(bool isEntering)
@@ -1315,12 +1364,18 @@ namespace RazerBatteryTray
 
                     if (isEntering)
                     {
+                        inGameRuntimePollingRate = targetHz;
+                        inGameRuntimeDpiStage = targetStage;
+                        inGameActiveGameTitle = (activeProfile != null) ? (!string.IsNullOrEmpty(activeProfile.FriendlyTitle) ? activeProfile.FriendlyTitle : (activeProfile.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? activeProfile.ProcessName.Substring(0, activeProfile.ProcessName.Length - 4) : activeProfile.ProcessName)) : "";
                         if (desktopDpiStage > 0) HighlightDpiStage(desktopDpiStage);
                         UpdateGameDpiButtonSelection(targetStage);
                         UpdateGameRateButtonSelection(targetHz);
                     }
                     else
                     {
+                        inGameRuntimePollingRate = 0;
+                        inGameRuntimeDpiStage = 0;
+                        inGameActiveGameTitle = "";
                         if (isGamingActive && autoGameDpiEnabled) { if (desktopDpiStage > 0) HighlightDpiStage(desktopDpiStage); UpdateGameDpiButtonSelection(targetStage); } else { HighlightDpiStage(targetStage); }
                         UpdateDesktopRateButtonSelection(targetHz);
                     }
@@ -1363,7 +1418,14 @@ namespace RazerBatteryTray
         {
             var curDev = GetActiveMouseDevice();
             if (curDev == null) return;
-            int targetHz = gamePollingRate;
+            GameProfile activeProf = GetActiveGameProfile();
+            int targetHz = (activeProf != null && activeProf.CustomPollingRate > 0) ? activeProf.CustomPollingRate : gamePollingRate;
+            inGameRuntimePollingRate = targetHz;
+            if (activeProf != null)
+            {
+                inGameActiveGameTitle = !string.IsNullOrEmpty(activeProf.FriendlyTitle) ? activeProf.FriendlyTitle : (activeProf.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? activeProf.ProcessName.Substring(0, activeProf.ProcessName.Length - 4) : activeProf.ProcessName);
+            }
+            UpdateGameRateButtonSelection(targetHz);
             string brand = curDev.Brand;
 
             new Thread(() => {
@@ -1428,6 +1490,8 @@ namespace RazerBatteryTray
             if (curDev == null) return;
             int targetHz = desktopPollingRate;
             string brand = curDev.Brand;
+            inGameRuntimePollingRate = 0;
+            if (!autoGameDpiEnabled || inGameRuntimeDpiStage == 0) inGameActiveGameTitle = "";
 
             new Thread(() => {
                 bool ok = false;
@@ -1498,6 +1562,11 @@ namespace RazerBatteryTray
             GameProfile activeProf = GetActiveGameProfile();
             int targetStage = (activeProf != null && activeProf.CustomDpiStage >= 1 && activeProf.CustomDpiStage <= 5) ? activeProf.CustomDpiStage : gameDpiStage;
             if (targetStage < 1 || targetStage > 5) targetStage = 1;
+            inGameRuntimeDpiStage = targetStage;
+            if (activeProf != null)
+            {
+                inGameActiveGameTitle = !string.IsNullOrEmpty(activeProf.FriendlyTitle) ? activeProf.FriendlyTitle : (activeProf.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? activeProf.ProcessName.Substring(0, activeProf.ProcessName.Length - 4) : activeProf.ProcessName);
+            }
 
             int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 800;
             int targetDpiY = (curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage) ? curDev.DpiStagesY[targetStage - 1] : targetDpi;
@@ -1552,6 +1621,8 @@ namespace RazerBatteryTray
             if (curDev == null || desktopDpiStage <= 0) return;
 
             int targetStage = desktopDpiStage;
+            inGameRuntimeDpiStage = 0;
+            if (!autoGameRateEnabled || inGameRuntimePollingRate == 0) inGameActiveGameTitle = "";
             if (targetStage < 1 || targetStage > 5) targetStage = 1;
 
             int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length) ? dpiStageValues[targetStage - 1] : 1600;

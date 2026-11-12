@@ -213,6 +213,7 @@ namespace RazerBatteryTray
 
 
         private NotifyIcon trayIcon;
+        private bool isTogglingWindow = false;
 
         private ContextMenuStrip contextMenu;
 
@@ -558,6 +559,9 @@ namespace RazerBatteryTray
         private long dpiMonitorSuppressUntilTicks = 0;
 
         private bool isGamingActive = false;
+        private int inGameRuntimeDpiStage = 0;
+        private int inGameRuntimePollingRate = 0;
+        private string inGameActiveGameTitle = "";
 
         private int inGameTickCount = 0;
 
@@ -1485,37 +1489,30 @@ namespace RazerBatteryTray
 
 
         private void ToggleWindow()
-
         {
-
-            if (this.Visible && this.WindowState != FormWindowState.Minimized)
-
+            if (isTogglingWindow) return;
+            isTogglingWindow = true;
+            try
             {
-
-                if (this.WindowState == FormWindowState.Normal && this.Location.X > -3000 && this.Location.Y > -3000)
-
+                if (this.Visible && this.WindowState != FormWindowState.Minimized)
                 {
-
-                    savedWindowX = this.Location.X;
-
-                    savedWindowY = this.Location.Y;
-
-                    SaveConfig();
-
+                    if (this.WindowState == FormWindowState.Normal && this.Location.X > -3000 && this.Location.Y > -3000)
+                    {
+                        savedWindowX = this.Location.X;
+                        savedWindowY = this.Location.Y;
+                        SaveConfig();
+                    }
+                    this.Hide();
                 }
-
-                this.Hide();
-
+                else
+                {
+                    ShowWindow();
+                }
             }
-
-            else
-
+            finally
             {
-
-                ShowWindow();
-
+                isTogglingWindow = false;
             }
-
         }
 
 
@@ -1572,20 +1569,17 @@ namespace RazerBatteryTray
 
 
 
-            if (e.CloseReason == CloseReason.UserClosing)
+            bool isExplicitExit = (e.CloseReason == CloseReason.ApplicationExitCall ||
+                                   e.CloseReason == CloseReason.WindowsShutDown ||
+                                   e.CloseReason == CloseReason.TaskManagerClosing);
 
+            if (!isExplicitExit)
             {
-
                 e.Cancel = true;
-
                 this.Hide();
-
             }
-
             else
-
             {
-
                 try
                 {
                     RestoreDesktopSettingsSynchronous();
@@ -1595,7 +1589,6 @@ namespace RazerBatteryTray
                 StopDpiMonitor();
 
                 base.OnFormClosing(e);
-
             }
 
         }
