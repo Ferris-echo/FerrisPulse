@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "Zaopin",
+    "model": "Z2",
+    "category": "Mouse",
+    "brandColor": "#00C2FF",
+    "sensorDescription": "PAW3395 (Compx 公版方案) · 0x08 私有帧 · 50 DPI 步进 (50 ~ 26,000 DPI)",
+    "author": "FerrisPulse Community",
+    "description": "皂品 Z2 (VID 0x3554 / PID 0xF527 4K 底座接收器, PID 0xF526 Nano 1K 接收器)。CompX/Beken 17 字节 0x08 帧, 0x55 互补校验; 电量=rx[6], 充电=rx[7]==1, 电压=rx[8..9] 大端 mV; DPI 编码 = dpi/50-1 双字节 + flags + 数据字校验, 落盘命令 0x08 写地址 0x0C+4*stage; 回报率写地址 0x00, 编码 125=0x08 250=0x04 500=0x02 1000=0x01 2000=0x10 4000=0x20, 本机上限 4000Hz。"
+  },
+  "hardware": {
+    "vendorId": "0x3554",
+    "productId": "0xF527",
+    "devices": [
+      { "productId": "0xF527", "model": "Zaopin Z2 (4K 底座接收器)", "transport": "2.4G 无线", "maxRate": 4000 },
+      { "productId": "0xF526", "model": "Zaopin Z2 (Nano 1K 接收器)", "transport": "2.4G 无线", "maxRate": 1000 }
+    ],
+    "endpointTopology": {
+      "usagePage": "0xFF02",
+      "usage": "0x0002",
+      "reportType": "Interrupt",
+      "reportLength": 17,
+      "readTimeoutMs": 400
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x08",
+      "batteryPercentByteOffset": 6,
+      "chargingByteOffset": 7,
+      "chargingBitMask": "0x01",
+      "batteryFormula": "DirectPercent",
+      "sampleRxHex": "08 04 00 00 00 02 2E 00 0F 12 00 00 00 00 00 00 F8"
+    },
+    "mouse": {
+      "dpi": {
+        "minDpi": 50,
+        "maxDpi": 26000,
+        "step": 50,
+        "defaultStages": [400, 800, 1600, 2400, 3200, 6400],
+        "supportsXyIndependence": false
+      },
+      "pollingRate": {
+        "supportedRates": [125, 250, 500, 1000, 2000, 4000],
+        "defaultRate": 1000,
+        "maxRate": 4000,
+        "rateIndexMap": { "125": 0, "250": 1, "500": 2, "1000": 3, "2000": 4, "4000": 5 }
+      }
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "08 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 49",
+    "setDpiTxTemplate": "08 07 00 00 04 02 {stage0} {stage0Parity} 00 00 00 00 00 00 00 00 00",
+    "setDpiValueTxTemplate": "08 08 00 {compxDpiAddrHi} {compxDpiAddrLo} 04 {compxDpiLow} {compxDpiLow} {compxDpiFlags} {compxDpiParity} 00 00 00 00 00 00 00",
+    "setPollingRateTxTemplate": "08 07 00 00 00 02 {rateCode} {rateParity} 00 00 00 00 00 00 00 00 00",
+    "rateCodeMap": {
+      "125": "0x08",
+      "250": "0x04",
+      "500": "0x02",
+      "1000": "0x01",
+      "2000": "0x10",
+      "4000": "0x20"
+    },
+    "checksumType": "VgnCompxSum55"
+  }
+}
