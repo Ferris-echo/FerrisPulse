@@ -840,6 +840,12 @@ namespace RazerBatteryTray
             if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
                 path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
+            // 373B:111F 的 ATK A87 PRO 为键盘（FF60/0x61 33 字节 VIA 私有协议，电量 cmd 0x02 id 0x96 sub 0x24）。
+            // 它与 ATK 鼠标共用公版 VID 0x373B，若落入通用引擎会命中 VID_ATK 分支，向键盘句柄盲发
+            // QueryBekenWeBattery 鼠标查询。此处按 PID 精确隔离，键盘由 FDAS 适配包独立接管。
+            if (vid == VID_ATK && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_111f", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
             {

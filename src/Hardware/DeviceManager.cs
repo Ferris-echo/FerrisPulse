@@ -1383,6 +1383,111 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.995 Query ATK A87 PRO 键盘 / 迈从 V9 Turbo+ 耳机 / 北通 BTP-KP20D 手柄
+            // 社区贡献者 @gallopcsy 提供真机抓包，FDAS v2.0 包的核心融合实现。
+            // 三者均按 VID + PID + UsagePage/Usage + 精确报告长度 联合校验，避免公版 VID 误吞。
+            try
+            {
+                var atkA87ProDevices = AtkA87ProHelper.QueryAllA87ProDevices();
+                if (atkA87ProDevices != null && atkA87ProDevices.Count > 0)
+                {
+                    foreach (var dev in atkA87ProDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                var mchoseHeadsetDevices = MchoseHeadsetHelper.QueryAllMchoseHeadsetDevices();
+                if (mchoseHeadsetDevices != null && mchoseHeadsetDevices.Count > 0)
+                {
+                    foreach (var dev in mchoseHeadsetDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                var beitongDevices = BeitongDeviceHelper.QueryAllBeitongDevices();
+                if (beitongDevices != null && beitongDevices.Count > 0)
+                {
+                    foreach (var dev in beitongDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             try
             {
                 var sonyDevices = SonyDeviceHelper.QueryAllSonyDevices();

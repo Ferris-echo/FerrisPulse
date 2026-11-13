@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "ATK",
+    "model": "A87 PRO",
+    "category": "Keyboard",
+    "brandColor": "#FF6B00",
+    "author": "@gallopcsy",
+    "description": "ATK A87 PRO 三模机械键盘 2.4G 通道的电量协议，实机逐项验证。身份与端点：VID 0x373B / PID 0x111F，USB 复合设备共 9 个 HID 接口，电量走厂商中断集合 UsagePage 0xFF60 / Usage 0x0061，输入输出长度均为 33 字节。协议为 VIA 风格读写：Tx 第 2 字节 0x02 = id_get_keyboard_value，第 3 字节 0x96 = 通道 ID，第 4 字节 0x24 = 子命令；Rx 为 00 02 96 24 <电量> <状态>，字节 4 为 0..100 的线性百分比，字节 5 的 bit0 表示“正在充电”。实机完整谱系：0x36=54%、0x39=57%、0x3A=58%、0x3C=60%、0x40=64%、0x4B=75%、0x5B=91%、0x64=100%。两个必须注意的实机事实：① 字节 5 的 bit0 是“正在充电”而非“有电池”，满电停充后会回落到 0x00，因此满电与放电两种状态该位都是 0x00，只有字节 4 能区分；② 字节 4 读到 0 且字节 5 为 0x00 时键盘处于休眠，该值无意义，必须丢弃并回退上次缓存读数，绝不能显示为 0%。写超时不得低于 400ms：实测 300ms 会在键盘唤醒瞬间被静默丢弃，表现为永久 -1%。本机实测有线接入时系统枚举仍为同一 PID 0x111F、同一 9 接口拓扑，但字节 4 恒为 0，故本适配包仅面向 2.4G 通道。"
+  },
+  "hardware": {
+    "vendorId": "0x373B",
+    "productId": "0x111F",
+    "productString": "ATK A87Pro",
+    "manufacturerString": "ATK",
+    "endpointTopology": {
+      "usagePage": "0xFF60",
+      "usage": "0x0061",
+      "reportType": "Interrupt",
+      "reportLength": 33,
+      "readTimeoutMs": 400
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00",
+      "batteryPercentByteOffset": 4,
+      "chargingByteOffset": 5,
+      "chargingBitMask": "0x01",
+      "batteryFormula": "DirectPercent",
+      "sampleRxHex": "00 02 96 24 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "sampleDecodedPercent": 100,
+      "chargingSampleRxHex": "00 02 96 24 5B 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "chargingSampleDecodedPercent": 91,
+      "notes": "满电样本 00 02 96 24 64 00 = 100% 且未充电（0x64=100，字节 5 的 bit0=0）；充电样本 00 02 96 24 5B 01 = 91% 且正在充电（0x5B=91，bit0=1）。两帧均来自真机连续采样，非推算值。"
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "00 02 96 24 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "checksumType": "None",
+    "writeTimeoutMs": 400,
+    "notes": "Tx 必须以 33 字节完整写出，长度 32 或 65 的写入均被设备拒绝。该端点无任何主动上报，只能查询后应答。禁止在写入前调用 DrainReports：实测排空后紧接着的 ReadReport 会失败，而不排空时同一查询稳定成功。同一端点会混入 00 02 96 26 00 00 01 19 与 00 55 FD 01 等无关帧，其字节 4 恒为 0x00，解析时必须同时校验字节 1、2、3 的 02 96 24 三元组，否则会误判为 0%。"
+  }
+}
