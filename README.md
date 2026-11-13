@@ -278,6 +278,7 @@ flowchart TD
 | **[@Bestkilling](https://github.com/Bestkilling)** | 适配 **VGN Neon75** 键盘（65B 中断 `0xF7` 状态帧与 Bit7 校验和），彻底消除拔线虚电 100% 充电假死 Bug，确立 0x3151 冲突隔离 |
 | **[@REDTEA3](https://github.com/REDTEA3)** | 适配 **VGN 蜻蜓 3 Pro** 鼠标（Yjx 易捷讯私有协议，65B 中断 OUT `0x30` 查询与 **8000Hz 超高回报率读写**） |
 | **[@WrongMemory](https://github.com/WrongMemory)** | 适配 **造品 (Zaopin) Z2** 鼠标（CompX 协议隔离 1K/4K 双 PID，21 阶放电曲线与 12mV 步进高精度电压拟合，定制专属橙色主题） |
+| **[@gallopcsy](https://github.com/gallopcsy)** | 适配 **ATK A87 PRO** 键盘（VIA `FF60/0x61` 33B 端点、`00 02 96 24` 帧与 400ms 写超时）、**北通 BTP-KP20D** 手柄（推送式 `00FF/0003` 64B）与 **迈从 V9 Turbo+** 耳机（请求-应答式 `FF90` 协议）；确立 `55 65 00 1A` 为链路降级帧而非充电位的对照实验结论，并隔离 ATK 键盘公版 VID 冲突 |
 | **[@WaterGauge](https://github.com/WaterGauge)** | 适配 **迈从 (MCHOSE) Z75S** 机械键盘（20 字节状态帧，实现物理电量、充电感知与专属休眠缓存状态机） |
 | **[@Qingyushan](https://github.com/Qingyushan)** | 适配 **宏碁 (Acer) OMR331 / R332** 鼠标（纠正充电位与真实电量偏差）；贡献 VHF 虚拟设备过滤机制，屏蔽幽灵设备 |
 | **[@FeranyDev](https://github.com/FeranyDev)** | 修复 **罗技 G304 / C53F** 200 DPI 读数偏差（捕获 HID++ 2.0 Feature 0x2201 Func 2 硬件寄存器），新增回报率只读保护与防回跳算法 |
