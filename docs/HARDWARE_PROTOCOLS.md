@@ -158,3 +158,21 @@
    - **协议**: 帧头 `2E AA EC <cmd> <len_hi> <len_lo>`，载荷逐字节 `XOR 0xA5` 掩码，校验和为从下标 1 起算的 8 位累加和。
    - **指令**: `0xD0` 读电量（`0x86 ^ 0xA5 = 35%`）、`0xC9` 读 UTF-8 名称、`0xC6` 固件版本。
    - **注意**: 2.4G 无线模式下一旦接充电线会被设备端硬件强制关机，诚实缺省 `isCharging = false`，不臆造充电标志。
+
+## DS5Dongle LCT616-DS5 3.22H (2026-11-08)
+
+User-provided project: https://github.com/sqlCRT/ds5dongle-bl618-opensource (v3.22).
+Protocol source branch: `master`; tag: `v3.22`; pinned commit: `f7e36e1fb13151a7e9d376fe2f74f29cca104185`.
+Confirmed physical endpoint: 054C:0CE6 / Usage 0001:0005 / In64 Out48 Feature128.
+Read-only HidD_GetFeature F8 returns ASCII `LCT616-DS5 3.22H` after the Report ID.
+Only after exact firmware identity validation, read F9 using a 128-byte buffer.
+F9 byte 12 is percent, byte 13 is battery state: 0 discharging, 1 charging, 2 full.
+FF percent is unknown/disconnected; invalid capacity/state/flags must not become 100%.
+Recorded actual F9 prefix: F9 00 82 00 00 00 00 00 00 00 00 00 14 00; all remaining 114 bytes zero.
+Measured percent was 20, not the user's earlier web observation of 30-40. Do not hardcode either.
+Measured F8: F8 + ASCII LCT616-DS5 3.22H + zero padding to 128 bytes.
+Charging/full tests are synthetic; live charging has not been tested.
+No SET_REPORT, WriteReport, DrainReports, flash or pairing command is used.
+Polling interval 5 seconds; failure clears current level/charging and reports unknown.
+057E:2009 from the earlier report was a different fingerprint and is not covered.
+Credit: sqlCRT for source protocol; Go2Heart for identifying the device and providing hardware evidence.
