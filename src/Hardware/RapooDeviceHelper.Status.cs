@@ -76,6 +76,23 @@ namespace RazerBatteryTray
             }
         }
 
+        // No HID access and no waiting behind a long control-register operation.
+        public static MouseBatteryInfo TryGetStatusSnapshot()
+        {
+            // Tolerate a brief lock held by the DPI polling thread so that a
+            // telemetry frame arriving during a short control read still reaches
+            // the UI. A hard TryEnter would silently drop the status update.
+            if (!Monitor.TryEnter(hidLock, 150)) return null;
+            try
+            {
+                if (activeRapooEndpoints == null || activeRapooEndpoints.Control == null ||
+                    activeRapooModelPid == 0 || StatusLastUpdated == DateTime.MinValue ||
+                    CachedBatteryPercent < 0 || CachedLastUpdated == DateTime.MinValue) return null;
+                return BuildRapooDeviceInfo(activeRapooModelPid, true,
+                    activeRapooEndpoints.Control.ProductId >= 0x4000);
+            }
+            finally { Monitor.Exit(hidLock); }
+        }
         private static void StopStatusReader()
         {
             // Do not join while holding hidLock: the worker may be publishing a frame.
@@ -145,11 +162,28 @@ namespace RazerBatteryTray
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(CacheRegistryKey, false))
                 {
-                    if (key == null || !string.Equals(key.GetValue("PhysicalGroup") as string, group, StringComparison.OrdinalIgnoreCase) ||
-                        (key.GetValue("BatterySource") as string) != "HidStatus07") return;
+                    if (key == null) return;
+                    if ((key.GetValue("BatterySource") as string) != "HidStatus07") return;
                     int battery = Convert.ToInt32(key.GetValue("BatteryPercent", -1));
                     DateTime sampled;
-                    if (battery >= 0 && battery <= 100 && DateTime.TryParse(key.GetValue("LastUpdated") as string, out sampled))
+                    if (battery < 0 || battery > 100 ||
+                        !DateTime.TryParse(key.GetValue("LastUpdated") as string, out sampled)) return;
+
+                    string cachedGroup = key.GetValue("PhysicalGroup") as string;
+                    // 1. 精确匹配当前物理连接组（同模式同设备）：直接使用
+                    if (string.Equals(cachedGroup, group, StringComparison.OrdinalIgnoreCase))
+                    {
+                        CachedBatteryPercent = battery;
+                        CachedLastUpdated = sampled;
+                        return;
+                    }
+
+                    // 2. 跨模式兜底：同一只雷柏鼠标切换连接方式（有线 / 2.4G / 蓝牙）后，
+                    //    PhysicalGroup 中的 PID 与实例 ID 会变化，但电量在短时间内不会剧变。
+                    //    VT3 没有电量寄存器，电量只能被动等待 0x07 状态广播帧，
+                    //    若鼠标休眠或状态帧未到，电量会一直显示 --%。
+                    //    因此当缓存电量在 24 小时内有效时，沿用至新状态帧到达再覆盖。
+                    if ((DateTime.Now - sampled).TotalHours <= 24)
                     {
                         CachedBatteryPercent = battery;
                         CachedLastUpdated = sampled;
