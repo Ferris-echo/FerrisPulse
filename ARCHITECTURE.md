@@ -93,6 +93,7 @@ D:\FerrisPulse · 灵脉\
             ├── MainForm.UI.cs            [界面布局、风琴折叠动画、雷柏档位表读回确认后发布]
             ├── MainForm.Tray.cs          [托盘 NotifyIcon 与动态多设备右键菜单]
             ├── MainForm.Hardware.cs      [硬件轮询定时器与 UI 状态刷新]
+            ├── MainForm.RapooStatus.cs   [VT3 主动电量报告缓存到 UI 的无硬件查询同步]
             ├── MainForm.Events.cs        [WndProc 消息泵与 TaskbarCreated 重建机制]
             ├── ModernDeviceSwitcherFlyout.cs [悬浮式现代外设快速切换器]
             ├── DpiOsdForm.cs             [零焦点置顶无感 DPI 悬浮提示窗]

@@ -12,6 +12,12 @@ function Assert($ok,$message) { if (!$ok) { throw $message } }
 if ($Section -eq 'All' -or $Section -eq 'UI') {
 $t=$a.GetType('RazerBatteryTray.MainForm'); $flags=[Reflection.BindingFlags]'NonPublic,Instance'
 $f=[Activator]::CreateInstance($t,@($false)); $null=$f.Handle
+# Synthetic setter assertions must not race real HID background telemetry.
+$f.PauseBackgroundRefresh=$true
+[void]$t.GetMethod('StopDpiMonitor',$flags).Invoke($f,$null)
+$worker=$t.GetField('dpiMonitorThread',$flags).GetValue($f)
+if ($worker -and $worker.IsAlive) { [void]$worker.Join(1500) }
+[Windows.Forms.Application]::DoEvents()
 try {
     $info=[Activator]::CreateInstance($a.GetType('RazerBatteryTray.MouseBatteryInfo'))
     $info.Brand='Rapoo'; $info.DeviceId='Rapoo:24AE:1412'; $info.Dpi=800; $info.DpiY=600; $info.PollingRate=1000

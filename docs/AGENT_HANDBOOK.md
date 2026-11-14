@@ -1,4 +1,4 @@
-﻿﻿# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# 📘 FerrisPulse · 灵脉 智能体实战操作与接力维护手册 (Agent Operational Handbook)
 
 > **致所有接手本项目的 AI Agent 伙伴**：  
 > 本手册凝聚了前序 Agent 在开发、重构、调试、测试与发布全生命周期中积累的全部实战经验与踩坑教训。  
@@ -662,3 +662,10 @@ powershell -ExecutionPolicy Bypass -File tools/integrate_adaptation.ps1 -Adapter
 - 雷柏遥测保留 RapooProtocol + RapooDeviceHelper.Status 的物理组绑定、可取消原生 I/O、真实采样时间及写后回读；不要并行合入另一套 FileStream 遥测线程。官方 ProcessTelemetryReport API 直接委托 ApplyStatusReport，共用严格解析。
 - 上游遥测测试夹具必须包含有效连接标志 [1]=0x10；不能为接受缺少连接标志的测试帧而削弱生产解析。补充无效传输拒绝和真实0%断言。
 - 合并基线 origin/main=4917a10，本轮 build.bat 成功，完整回归71/71 PASS；不提交exe或scratch诊断材料。
+
+### VT3 主动电量与手动刷新快照同步（2026-11-08）
+- 有线实机24AE:4612，FF00/0002、col09、19字节输入。仅打开GENERIC_READ被动监听，无发送报文，收到`07 12 02 B0 04 B0 04 02 43 ...`，电量67%、充电、1200DPI；后续原生Helper读取路径收到68%。不能用控制寄存器读取成功推断已经取得电量，也不能把独立诊断进程的缓存当成主程序已收到的证据。
+- ApplyStatusReport更新静态缓存，查询却返回独立MouseBatteryInfo快照；晚到的报告没有独立电量UI同步路径，DPI未变化时旧快照可保留未知电量。点击立即刷新不保证鼠标重新广播电量。新增MainForm.RapooStatus，每250ms只尝试读取内存快照，不发HID、不重启监听、不触发全量查询；TryGetStatusSnapshot使用Monitor.TryEnter，控制通道繁忙时直接跳过，避免UI等待hidLock。
+- 只更新与当前活动状态同时匹配DeviceId和HardwareFingerprint的已连接雷柏行；保留真实采样时间，首次无有效广播仍未知，物理端点切换不能跨PID借用缓存。同步覆盖电量、充电、主界面、设备选择及托盘，定时器随窗体Dispose释放。
+- test_rapoo_status_ui_sync.ps1用模拟报文验证晚到首帧、旧扫描快照覆盖、采样时间与端点隔离；旧版本先复现失败，再在修复后通过。现场“点击无更新”还可能涉及未收到新广播，不能用UI同步测试宣称所有间歇性HID故障均已排除。
+- 实机连接时，test_rapoo_vt3_regressions 的模拟Hz设置断言被已启动的真实DPI/Hz后台线程干扰；关闭新增状态定时器仍复现。测试现暂停自动刷新、停止并等待DPI监视线程并排空已排队UI消息后再注入模拟数据，不删除或放宽失败设置断言。额外覆盖其它端点变化不重绘当前选中设备。
