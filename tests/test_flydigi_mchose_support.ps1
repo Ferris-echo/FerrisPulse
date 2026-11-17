@@ -164,10 +164,15 @@ if ($pf[0] -ne 0x55 -or $pf[1] -ne 0x05 -or $pf[3] -ne 0x38 -or $pf[4] -ne 0x38)
 }
 
 $parsePerf = $mchType.GetMethod("ParsePerformanceResponse", [System.Reflection.BindingFlags]"Public,Static")
-function Invoke-ParsePerf([int]$battery, [int]$charging) {
+# [40] 是电量与充电的复合字节：bit7 = 充电标志，低 7 位 = 百分比。
+# 实机插着 USB 线充电时该字节为 0xC3（67% + 充电），若把整字节当百分比会超出 0-100
+# 而导致整帧被判无效，电量与充电状态同时丢失 —— 这正是 K99 V3 有线形态读不到电量的根因。
+function Invoke-ParsePerf([int]$battery, [bool]$charging) {
     [byte[]]$buf = New-Object byte[] 64
     $buf[0] = 0xAA; $buf[1] = 0x05
-    $buf[40] = [byte]$battery; $buf[41] = [byte]$charging
+    $combined = $battery
+    if ($charging) { $combined = $battery -bor 0x80 }
+    $buf[40] = [byte]$combined
     [object[]]$args = New-Object object[] 4
     $args[0] = $buf
     $args[1] = 64
@@ -176,15 +181,47 @@ function Invoke-ParsePerf([int]$battery, [int]$charging) {
     $ok = $parsePerf.Invoke($null, $args)
     return @{ Ok = $ok; Battery = [int]$args[2]; Charging = [bool]$args[3] }
 }
-$p1 = Invoke-ParsePerf 21 0
-$p2 = Invoke-ParsePerf 88 1
+$p1 = Invoke-ParsePerf 21 $false
+$p2 = Invoke-ParsePerf 88 $true
+$p3 = Invoke-ParsePerf 67 $true
 if (-not $p1.Ok -or $p1.Battery -ne 21 -or $p1.Charging) {
     Write-Host "FAILED: MCHOSE 性能帧 21%/未充电解析异常" -ForegroundColor Red; exit 1
 }
 if (-not $p2.Ok -or $p2.Battery -ne 88 -or -not $p2.Charging) {
-    Write-Host "FAILED: MCHOSE 性能帧 88%/充电解析异常" -ForegroundColor Red; exit 1
+    Write-Host "FAILED: MCHOSE 性能帧 88%/充电解析异常（bit7 充电标志未生效）" -ForegroundColor Red; exit 1
 }
-Write-Host "PASSED: MCHOSE G87 V2 官方 0x55 性能帧（rf_battery/isCharging）与 0x4A/0x87 合成报文解析正确" -ForegroundColor Green
+if (-not $p3.Ok -or $p3.Battery -ne 67 -or -not $p3.Charging) {
+    Write-Host "FAILED: MCHOSE 性能帧 0xC3(67%+充电) 解析异常" -ForegroundColor Red; exit 1
+}
+
+# 传输形态字节：0x01 = USB 有线，0x02 = 2.4G，其余值必须判为未知
+$parseTransport = $mchType.GetMethod("TryParsePerformanceTransport", [System.Reflection.BindingFlags]"Public,Static")
+function Invoke-ParseTransport([int]$transportByte) {
+    [byte[]]$buf = New-Object byte[] 64
+    $buf[0] = 0xAA; $buf[1] = 0x05
+    $buf[40] = 0x43
+    $buf[42] = [byte]$transportByte
+    [object[]]$args = New-Object object[] 3
+    $args[0] = $buf
+    $args[1] = 64
+    $args[2] = $false
+    $ok = $parseTransport.Invoke($null, $args)
+    return @{ Ok = $ok; Wired = [bool]$args[2] }
+}
+$t1 = Invoke-ParseTransport 0x01
+$t2 = Invoke-ParseTransport 0x02
+$t3 = Invoke-ParseTransport 0x00
+$t4 = Invoke-ParseTransport 0x03
+if (-not $t1.Ok -or -not $t1.Wired) {
+    Write-Host "FAILED: 形态字节 0x01 未判为 USB 有线" -ForegroundColor Red; exit 1
+}
+if (-not $t2.Ok -or $t2.Wired) {
+    Write-Host "FAILED: 形态字节 0x02 未判为 2.4G" -ForegroundColor Red; exit 1
+}
+if ($t3.Ok -or $t4.Ok) {
+    Write-Host "FAILED: 未定义的形态字节（0x00/0x03）不应被当作已知形态" -ForegroundColor Red; exit 1
+}
+Write-Host "PASSED: MCHOSE G87 V2 官方 0x55 性能帧（bit7充电+低7位电量、[42]形态位）与 0x4A/0x87 合成报文解析正确" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host " [测试 5/5] DeviceManager 统一注册与通用鼠标协议隔离" -ForegroundColor Cyan

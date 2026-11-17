@@ -135,8 +135,14 @@
     - **充电状态不可读**：标准 GATT 电池服务只给百分比，没有充电标志位，`IsCharging` 恒为 `false`，**绝不猜测**。
     - **性能铁律**：BLE 在线时必须**先**返回并跳过 `0x4D` 查询。鼠标切蓝牙后 2.4G 接收器通常仍插在机上但已断链，此时 0x4D 通道每次查询都要把 `BusyRetryCount(8) × BusyRetryDelayMs(90)` 全部耗完才放弃，**单次约 4.2 秒**；若不跳过，每轮 UI 刷新都会白卡 4 秒以上（实测由 4.2 s 降至 55 ms）。
     - **卡片去重**：旧版通用 HID 扫描曾在 `HKCU\Software\RazerBatteryTray\CustomDevices` 下写入 `HID:3837:1018` 通用记录，与原生 `MCHOSE:` 记录并存会让主界面出现两张卡（通用卡永远 `-1%`）。`DeviceManager.CleanupDuplicateMchoseDevices()` 只删 `HID:3837:` 前缀且 PID 命中 4D 白名单的记录，原生记录保持不动。
-- **G87 V2 (`3837:3033`, `MchoseDeviceHelper.cs`)**：
-  - 优先选 `UsagePage 1 / Usage 0` 的 65 字节集合（MI_01），发送未编号性能配置查询帧 `00 55 05 00 38 38 ...`（65 字节），回复 `AA 05 ...` 中 `offset 40` 为电量，`offset 41` 为充电标志。
+- **G87 V2 / K99 V3 (`3837:3033` 2.4G + `3837:2020` 有线, `MchoseDeviceHelper.cs`)**（社区贡献者 `@MattiaBinotto19` 贡献）：
+  - 优先选 `UsagePage 1 / Usage 0` 的 65 字节集合（MI_01），发送未编号性能配置查询帧 `00 55 05 00 38 38 ...`（65 字节）。
+  - 响应帧固定结构：`[0]=0x00` 前导 `[1]=0xAA` `[2]=命令回显` `[3]=0x00` `[4]=校验` `[5]=数据长度` `[9..]=数据`。
+  - **电量与充电在同一字节 `[41]` 的位域里**：`bit7 = 充电标志`，`低 7 位 = 电量百分比 (0-100)`。例如 `0xC3` = 充电中 + 67%，`0x44` = 未充电 + 68%；`[41] = 0x80` 表示充电中但电量未初始化，不得显示 0%。
+  - **传输形态在 `[43]`**：`0x01 = USB 有线`，`0x02 = 2.4G 无线`。双端点同时在线时**形态取 2.4G、充电取两端点并集**；**充电期间 `[41]` 的电量低 7 位冻结不可信**，充电中按电量未知处理（`if (charging) battery = -1;`）且不写入硬件缓存；`DeviceId` 固定为 `MCHOSE:3837:3033`。
+- **K99 V3 蓝牙 BLE 形态（公版 `07D7:EFFF`，`MchoseDeviceHelper.cs`)**：
+  - `BTHLEDEVICE\{0000180F-...}_DEV_VID&0107D7_PID&EFFF_REV&0120_<MAC>` 使用公版 VID/PID，必须叠加 `BTHLE\DEV_<MAC>` 父节点 FriendlyName 的 `MCHOSE` 前缀校验。
+  - 展示前去掉末尾纯数字 `-N` BLE 槽位后缀（不影响 `Ultra+`）；两段式读取 `BTHLEDEVICE` MAC → `BTHLE` `DEVPKEY_Device_BatteryLevel` 单字节；BLE 在线时优先返回并跳过 USB 探测；三形态统一归至 `MCHOSE:3837:3033`。
 - **Z75S 三模机械键盘 (`258A:01BB`, `MchoseDeviceHelper.cs`)**（社区贡献者 `@WaterGauge` 贡献）：
   - 专属 `UsagePage 0xFF02 / Usage 0x0002` 20 字节厂商集合（避开按键端点）。
   - 先以命令 `0x05` 查询并校验型号 Token `0A0000000009`，实现同公版 VID 方案间的精确物理隔离。

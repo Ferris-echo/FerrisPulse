@@ -11,7 +11,7 @@
   - 新增 **ROG AZOTH 96 HE Wireless (`0B05:1AD0`)** 2.4G 无线键盘（SpeedNova 8K 接收器）与 **ROG AZOTH 96 HE (`0B05:1C10`)** USB 有线键盘电量与充电状态读取；
   - 新增 **ROG DELTA II (`0B05:1AFA`)** 2.4GHz 无线游戏耳机实时电量与充电状态读取；
   - 新增 `BuiltIn:Asus` 内置驱动注册与 `DriverStateStore` 离线休眠电量记忆，并严密屏蔽通用鼠标引擎对上述 PID 的越界探测。
-- **社区 PR 扩容（感谢 `@GaiusC`、`@gallopcsy`、`@Go2Heart`、`@afwfv`、`@ertutio`、`@limuxi10086`、`@ysy41527624`、`@yangziyu1230`、`@SnivyJ`、`@xinyulan810`、`@ZoveD`、`@747891392`、`@Luoxia992`）**：
+- **社区 PR 扩容（感谢 `@MattiaBinotto19`、`@GaiusC`、`@gallopcsy`、`@Go2Heart`、`@afwfv`、`@ertutio`、`@limuxi10086`、`@ysy41527624`、`@yangziyu1230`、`@SnivyJ`、`@xinyulan810`、`@ZoveD`、`@747891392`、`@Luoxia992`）**：
   - **美商海盗船 HS80 MAX (`1B1C:0A97/0A96`) 与 M75 AIR (`1B1C:1BDC/1BF2`)**（#85，`CorsairDeviceHelper` Bragi 65B 电量/DPI/回报率）；
   - **雷柏 VT 系列 (`24AE:1851`) 与 MT760 办公系列 (`24AE:1870`)**（#76 / #75，32B `0xBA` 协议与主面板 8 槽位 DPI 显示支持）；
   - **VGN V108 (`391D:2A02`)、VGN N75 PRO (`320F:5088`)、VGN V98 PRO (`320F:5088`)**（#71 / #63 / #61，共享接收器按产品串互斥隔离）；
@@ -24,7 +24,8 @@
   - **DS5Dongle 3.22H (`054C:0CE6`)** 只读 `F8/F9` 电量查询（#86，`BuiltIn:Ds5Dongle`）；
   - **HyperX Cloud III S Wireless (`03F0:02CC`/`06BE`)** 耳机与 **公版 CompX 2.4G 无线键盘 (`05AC:024F`)**（#83）；
   - **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份判定与 **PMO WAVE75** 蓝牙键盘识别（#80）；
-  - **迈从 (MCHOSE) K7 V2 Ultra+ 三模游戏鼠标（4D 中断帧协议族，`3837:1018` / `0x4028` / `0x4026`）**（#74, 感谢 `@MattiaBinotto19`）：新增 `MchoseMouse4DHelper`，支持 2.4G / USB 有线 / 蓝牙 GATT 电池与能力按形态分流、42,000 DPI PAW3950 与 6 档回报率控制、HasY 双轴真值判定，并与旧 A5 V2 协议按 PID 物理隔离。
+  - **迈从 (MCHOSE) K7 V2 Ultra+ 三模游戏鼠标（4D 中断帧协议族，`3837:1018` / `0x4028` / `0x4026`）**（#74, 感谢 `@MattiaBinotto19`）：新增 `MchoseMouse4DHelper`，支持 2.4G / USB 有线 / 蓝牙 GATT 电池与能力按形态分流、42,000 DPI PAW3950 与 6 档回报率控制、HasY 双轴真值判定，并与旧 A5 V2 协议按 PID 物理隔离；
+  - **迈从 (MCHOSE) K99 V3 三模机械键盘（`3837:3033` 2.4G / `3837:2020` 有线 / 公版 BLE `07D7:EFFF`）**（#68, 感谢 `@MattiaBinotto19`）：修正 `0x55` 性能帧 `[41]` 位域（`bit7` 充电 + 低 7 位电量）与 `[43]` 传输形态解析，新增有线 `0x2020` 双端点并集与充电冻结电量防护、`ChargingFlagMeansUsbPoweredOnly` 能力契约、以及 `07D7:EFFF` 叠加 `MCHOSE` 前缀两段式 GATT 读取，三形态统一归至 `MCHOSE:3837:3033`。
 
 ### 🔋 三通道仲裁与托盘摘要升级
 - **2.4G / USB 有线 / 蓝牙三通道在线仲裁**：当同型号三模键盘通过 USB 有线或蓝牙取得真实在线电量/充电响应时，自动将已切离的 2.4G 接收器条目置为离线休眠（仅插线充电而开关仍在 2.4G 时不误压制），消除同一键盘多条“在线”卡片分身。
