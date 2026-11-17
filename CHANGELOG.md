@@ -23,13 +23,19 @@
   - **ATK A87 PRO (`373B:111F`)** 键盘、**北通 BTP-KP20D (`20BC:5159`)** 手柄与 **迈从 V9 Turbo+ (`3837:600A`)** 耳机（#93，附 FDAS v2.0 示例包并隔离 ATK 公版 VID 与 `0x1A` 链路降级帧）；
   - **DS5Dongle 3.22H (`054C:0CE6`)** 只读 `F8/F9` 电量查询（#86，`BuiltIn:Ds5Dongle`）；
   - **HyperX Cloud III S Wireless (`03F0:02CC`/`06BE`)** 耳机与 **公版 CompX 2.4G 无线键盘 (`05AC:024F`)**（#83）；
-  - **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份判定与 **PMO WAVE75** 蓝牙键盘识别（#80）。
+  - **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份判定与 **PMO WAVE75** 蓝牙键盘识别（#80）；
+  - **迈从 (MCHOSE) K7 V2 Ultra+ 三模游戏鼠标（4D 中断帧协议族，`3837:1018` / `0x4028` / `0x4026`）**（#74, 感谢 `@MattiaBinotto19`）：新增 `MchoseMouse4DHelper`，支持 2.4G / USB 有线 / 蓝牙 GATT 电池与能力按形态分流、42,000 DPI PAW3950 与 6 档回报率控制、HasY 双轴真值判定，并与旧 A5 V2 协议按 PID 物理隔离。
 
 ### 🔋 三通道仲裁与托盘摘要升级
 - **2.4G / USB 有线 / 蓝牙三通道在线仲裁**：当同型号三模键盘通过 USB 有线或蓝牙取得真实在线电量/充电响应时，自动将已切离的 2.4G 接收器条目置为离线休眠（仅插线充电而开关仍在 2.4G 时不误压制），消除同一键盘多条“在线”卡片分身。
 - **托盘摘要升级为「鼠标 | 键盘 | 耳机」三段展示**：支持同步展示耳机在线电量，并对多键盘实行择优策略（活跃/有线/真实电量优先于休眠键盘）。
 
 ### 🛡️ 缺陷修复与测试基建加固
+- **板载档位真值、聚焦记忆、电竞双开关独立性与左列排版修复（#74, 感谢 `@MattiaBinotto19`）**：
+  - `MainForm` 移除写死的默认 5 档 DPI/回报率选项与 `800`/`1600`/`5` 兜底，严格按设备板载上报档位数渲染，`SetDpi`/`SetDpiStage` 越界拒绝写入且休眠占位卡复用真实快照；
+  - 新增 `LastSelectedDevice` 跨形态聚焦记忆与 `TryGetAuthoritativeCategory` 品类权威纠错（消除复合鼠标曾被手动向导误固化成键盘并清理重复 `HID:3837:` 记录）；
+  - `ApplyGameOptimization`/`ApplyGamePollingRate`/`ApplyGameDpiStage` 各自带独立开关闸门，确保未勾选的电竞项绝不越权改写硬件；
+  - 新增 `MeasurePerfLabelColumnW()` 自适应计算左列宽度，消除高 DPI 缩放下“电竞回报率”与首枚回报率按钮重叠；`tools/run_all_tests.ps1` 增加按用例超时预算表。
 - **设备优先级变体与大小写保持（Issue #81, 感谢 `@CZYMZX`）**：`DeviceManager` 与 `OpenPriorityManager` 引入 `FindPriorityIndex`，在多模切换或前缀/大小写变体漂移时保持原有优先级顺位，不再跌落垫底。
 - **ROG PELTA USB 有线充电形态仲裁（Issue #91, 感谢 `@longshuzyyy`）**：新增 `0x1B82` USB 端点探测与双形态合并，插线充电时自动从 `0x1B82` 读取实时电量与充电状态并维持 `ASUS:0B05:1B84` 单一身份。
 - **雷蛇 0x04 链路离线判定、唤醒路径隔离与优先级三态（Issue #92, 感谢 `@longshuzyyy`）**：接收器连续 2 轮返回 `0x04` 判定为离线（不再伪装成闲置待机），原始输入唤醒按型号 `VID+PID` 精确隔离，优先级窗口明确区分「离线 / 待机 / 在线」三态；新增 `TestRegistryGuard` 保护 `FerrisPulse` 与 `RazerBatteryTray` 注册表双根键不被测试污染。
