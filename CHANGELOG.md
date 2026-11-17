@@ -4,14 +4,14 @@
 
 ---
 
-## 🚀 [Unreleased] - 社区适配与多通道仲裁增强
+## 🚀 [v2.3.2] - 2026-11-17 (全景外设扩容、迈从全系深耕、VXE星闪版与架构加固)
 
 ### 🔌 新增外设支持（感谢 B站网友“工程机风格”贡献）
 - **华硕 (ASUS ROG)**:
   - 新增 **ROG AZOTH 96 HE Wireless (`0B05:1AD0`)** 2.4G 无线键盘（SpeedNova 8K 接收器）与 **ROG AZOTH 96 HE (`0B05:1C10`)** USB 有线键盘电量与充电状态读取；
   - 新增 **ROG DELTA II (`0B05:1AFA`)** 2.4GHz 无线游戏耳机实时电量与充电状态读取；
   - 新增 `BuiltIn:Asus` 内置驱动注册与 `DriverStateStore` 离线休眠电量记忆，并严密屏蔽通用鼠标引擎对上述 PID 的越界探测。
-- **社区 PR 扩容（感谢 `@MattiaBinotto19`、`@GaiusC`、`@gallopcsy`、`@Go2Heart`、`@afwfv`、`@ertutio`、`@limuxi10086`、`@ysy41527624`、`@yangziyu1230`、`@SnivyJ`、`@xinyulan810`、`@ZoveD`、`@747891392`、`@Luoxia992`）**：
+- **社区 PR 扩容（感谢 `@MattiaBinotto19`、群友“冻干咸鱼”、`@GaiusC`、`@gallopcsy`、`@Go2Heart`、`@afwfv`、`@ertutio`、`@limuxi10086`、`@ysy41527624`、`@yangziyu1230`、`@SnivyJ`、`@xinyulan810`、`@ZoveD`、`@747891392`、`@a492877018`、`@Luoxia992`）**：
   - **美商海盗船 HS80 MAX (`1B1C:0A97/0A96`) 与 M75 AIR (`1B1C:1BDC/1BF2`)**（#85，`CorsairDeviceHelper` Bragi 65B 电量/DPI/回报率）；
   - **雷柏 VT 系列 (`24AE:1851`) 与 MT760 办公系列 (`24AE:1870`)**（#76 / #75，32B `0xBA` 协议与主面板 8 槽位 DPI 显示支持）；
   - **VGN V108 (`391D:2A02`)、VGN N75 PRO (`320F:5088`)、VGN V98 PRO (`320F:5088`)**（#71 / #63 / #61，共享接收器按产品串互斥隔离）；
