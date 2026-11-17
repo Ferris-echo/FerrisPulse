@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "BEITONG",
+    "model": "BTP-KP20D XINPUT Controller",
+    "category": "Gamepad",
+    "brandColor": "#00A3FF",
+    "author": "@gallopcsy",
+    "description": "北通 BTP-KP20D XINPUT 无线手柄 2.4G 接收器的电量协议，实机双向验证。身份与端点：VID 0x20BC / PID 0x5159，复合设备中 MI_00 由 Windows 以 xusb22 (Xbox 360 Controller) 驱动，MI_01 为 HidUsb 接口，包含 00FF/0003 与 0001/0006 两个集合，另有 IG_01 顶层的 0001/0005。电量走 UsagePage 0x00FF / Usage 0x0003 的 64 字节中断通道，字节 2 为 0..100 的线性百分比，字节 4 的 bit0 表示“正在充电”。与键盘不同，该设备为纯主动上报：无查询指令，插入后周期性推送状态帧，因此 queryBatteryTxHex 为空字符串。实机双向证据链：未插线时字节 4 = 0x50，插入充电线后变为 0x51，再次拔出后回落到 0x50，同时字节 2 由 100 降至 95，证明字节 4 的 bit0 跟随供电状态变化而非固定常量。"
+  },
+  "hardware": {
+    "vendorId": "0x20BC",
+    "productId": "0x5159",
+    "productString": "BTP-KP20D",
+    "manufacturerString": "BEITONG",
+    "endpointTopology": {
+      "usagePage": "0x00FF",
+      "usage": "0x0003",
+      "reportType": "Interrupt",
+      "reportLength": 64,
+      "readTimeoutMs": 800
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00",
+      "batteryPercentByteOffset": 2,
+      "chargingByteOffset": 4,
+      "chargingBitMask": "0x01",
+      "batteryFormula": "DirectPercent",
+      "sampleRxHex": "02 15 64 00 51 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "sampleDecodedPercent": 100,
+      "chargingSampleRxHex": "02 15 56 00 50 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "chargingSampleDecodedPercent": 86,
+      "notes": "充电样本 02 15 64 00 51 01 01 = 100% 且字节 4 的 bit0=1（正在充电）；放电样本 02 15 56 00 50 01 01 = 0x56=86% 且 bit0=0。两帧均为真机抓取。注意样本中字节 2 的不同取值来自不同时刻的两次独立采样，不能当作同一帧内的充电前后对比。"
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "",
+    "checksumType": "None",
+    "notes": "纯推送式协议，不响应任何查询，故 queryBatteryTxHex 为空。接收后需校验首字节 0x02 与字节 1 的 0x15 以排除同一端点上的其他状态帧。MI_01 上同时存在 00FF/0003 与 0001/0006 两个集合，必须按 UsagePage/Usage + 64 字节长度精确选择，否则会读到标准游戏手柄输入报文而非电量帧。"
+  }
+}

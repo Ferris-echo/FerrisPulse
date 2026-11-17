@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "MCHOSE",
+    "model": "V9 Turbo+",
+    "category": "Headset",
+    "brandColor": "#8B5CF6",
+    "author": "@gallopcsy",
+    "description": "迈从 V9 Turbo+ 无线头戴式耳机 2.4G 接收器的电量协议，实机验证。身份三重交叉确认：设备枚举为 VID 0x3837 / PID 0x600A；迈从官方配置中心把该型号记为 MCHOSE V9 Turbo+--14391--24586，其中 14391 = 0x3837、24586 = 0x600A；USB 复合设备 MI_00 为 HID 接口（6 个集合：FF21/0001 2 字节 + 16 字节 Feature、FF22/0001 64 字节 Feature、000C/0001、000B/0001、FF90/0001 64/64、FF82/0001 64/64），MI_01 为 C-Media 音频接口（MCHOSE_V9_TURBO.sys）。电量走厂商中断集合 UsagePage 0xFF90 / Usage 0x0001，请求-应答式，64 字节：Tx 以 55 65 01 开头、余位补 0；Rx 为 55 65 <电量> <状态>，字节 2 为 0..100 的线性百分比，字节 3 为状态字节。实机证据：查询返回 55 65 64 02 即 0x64 = 100%，与同一时刻迈从官方 M HUB 显示的 100% 完全一致。该端点从不主动上报，只应答查询，因此纯被动监听永远读不到电量。关于状态字节的重要更正：55 65 00 1A 看似“充电中”，但对照实验已证伪——两者都处于充电时，PC USB 供电下 0x1A 在 44 次应答中出现 9 次并伴随 15 次超时；改用充电宝供电后 86 次应答中 0x1A 出现 0 次、超时 0 次。既然两种供电都在充电，0x1A 就不可能表示充电，它表示链路降级、电量字段不可用。因此本适配包不声明任何充电位，且遇到 55 65 00 1A 必须丢弃该帧、保留上次读数，绝不能显示为 0%。"
+  },
+  "hardware": {
+    "vendorId": "0x3837",
+    "productId": "0x600A",
+    "productString": "MCHOSE V9 Turbo+",
+    "manufacturerString": "MCHOSE",
+    "endpointTopology": {
+      "usagePage": "0xFF90",
+      "usage": "0x0001",
+      "reportType": "Interrupt",
+      "reportLength": 64,
+      "readTimeoutMs": 400
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00",
+      "batteryPercentByteOffset": 2,
+      "batteryFormula": "DirectPercent",
+      "statusByteOffset": 3,
+      "sampleRxHex": "55 65 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "sampleDecodedPercent": 100,
+      "invalidSampleRxHex": "55 65 00 1A 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+      "notes": "健康帧 55 65 64 00 = 100%（字节 2 = 0x64）。降级帧 55 65 00 1A 的字节 2 为 0，但它不是 0% 而是“电量不可用”，必须整帧丢弃。另观察到字节 3 偶发为 0x03（60 次采样出现 2 次，随即回到 0x00），不携带可解释语义，应忽略。"
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "55 65 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "checksumType": "None",
+    "notes": "请求-应答式，无主动上报，故不可依赖被动监听。前两字节 0x55 0x65 为帧头，第三字节 0x01 为查询动作。该机型在弱供电（例如主板前置 USB 口）下应答会间歇性丢失：实测 30 次查询中 13 次正常、4 次返回降级帧、13 次超时；因此读取失败时应回退缓存而非判定设备离线。无线充电底座会让耳机整机断电并从 USB 总线上消失，此时任何查询都不会有应答。"
+  }
+}
