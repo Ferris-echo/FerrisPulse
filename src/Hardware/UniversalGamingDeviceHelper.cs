@@ -5,9 +5,11 @@
 //   OpenMouse 与 All-in-One-Mouse-Driver (Mouse Hub) 全量外设协议引擎
 //   涵盖 20+ 个品牌、数百款主流电竞/客制化/原相方案鼠标及键盘：
 //   1. CompX / PixArt 64字节 Feature 引擎 (Lamzu, Pulsar, WLmouse, Attack Shark, Ajazz, Darmoshark, Glorious, Ninjutso, RAWM, Incott, Delux, Vancer, Fantech, Finalmouse)
-//   2. Beken / ATK / Endgame Gear 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系, Endgame Gear OP1we/XM2we)
+//   2. Beken / ATK 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系)；Endgame Gear 已迁移至
+//      EndgameGearDeviceHelper 双端点专属驱动 (Feature 0x08 下发 / Interrupt IN 0x09 回收)
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
+//   Keychron Link-KM 3434:D026 与 M6 USB 3434:D060 由内置 Keychron M6 驱动独立接管。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -217,9 +219,8 @@ namespace RazerBatteryTray
             AddProduct(VID_PULSAR, 0x0009, "Pulsar", "Xlite V3 eS 8K", DeviceCategory.Mouse, 8000);
 
             // --- ENDGAME GEAR ---
-            AddProduct(VID_ENDGAME_GEAR, 0x0001, "Endgame Gear", "OP1we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0002, "Endgame Gear", "XM2we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0003, "Endgame Gear", "OP1 8K 有线", DeviceCategory.Mouse, 8000);
+            // 3367:1960 (OP1we) / 3367:1961 (XM2we) 由 EndgameGearDeviceHelper 专属双端点引擎接管，
+            // 本通用引擎不再登记其型号，避免单句柄 GetFeature 永远读到全零而漏判。
 
             // --- ATK / VXE ---
             AddProduct(VID_ATK, 0x1085, "VXE", "VXE Dragonfly R1 SE / SE+", DeviceCategory.Mouse, 2000);
@@ -370,9 +371,6 @@ namespace RazerBatteryTray
                 case VID_WLMOUSE:
                     brand = "WLmouse";
                     poll = 8000;
-                    break;
-                case VID_ENDGAME_GEAR:
-                    brand = "Endgame Gear";
                     break;
                 case VID_ATK:
                     brand = "ATK";
@@ -677,6 +675,49 @@ namespace RazerBatteryTray
             return false;
         }
 
+        // 373B:11D9 is shared by several ATK mice. The model is identified through
+        // the receiver's read-only CID/MID command before showing an A9 name.
+        public static byte[] BuildAtkReceiverIdentityRequest()
+        {
+            byte[] report = new byte[17];
+            report[0] = 0x08;
+            report[1] = 0x10;
+            byte[] payload = new byte[15];
+            payload[0] = 0x10;
+            report[16] = CalculateWeChecksum(0x08, payload);
+            return report;
+        }
+
+        public static bool IsAtkA9UltimateIdentity(byte[] report)
+        {
+            if (report == null || report.Length != 17 || report[0] != 0x08 || report[1] != 0x10 ||
+                report[2] != 0 || report[3] != 0 || report[4] != 0 || report[5] < 2 || report[5] > 10 ||
+                report[6] != 1 || report[7] != 3) return false;
+            int sum = 0;
+            for (int i = 0; i < report.Length; i++) sum += report[i];
+            return (sum & 0xFF) == 0x55;
+        }
+
+        private static bool QueryAtkA9UltimateIdentity(string devicePath)
+        {
+            IntPtr handle = IntPtr.Zero;
+            try
+            {
+                handle = HidTransport.Open(devicePath);
+                if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
+                if (!HidTransport.WriteReport(handle, BuildAtkReceiverIdentityRequest(), 17, 500)) return false;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] reply;
+                    if (!HidTransport.ReadReportExact(handle, 17, 350, out reply)) return false;
+                    if (IsAtkA9UltimateIdentity(reply)) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+            finally { HidTransport.Close(handle); }
+        }
+
         #endregion
 
         #region 协议引擎三：Vaxee 64字节专用控制引擎
@@ -830,15 +871,40 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
-            // ASUS PELTA, wired Scope II RX, and ROG OMNI Receiver have dedicated classification. Never send mouse probes.
+            // Endgame Gear (3367) 使用 Feature 0x08 下发 + Interrupt IN 0x09 回收的双端点协议，由 EndgameGearDeviceHelper 接管。
+            if (vid == VID_ENDGAME_GEAR) return false;
+
+            // Link-KM uses Keychron output reports and a paired-model handshake.
+            if (vid == VID_KEYCHRON && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_d026", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_d060", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // ASUS PELTA, wired Scope II RX, ROG OMNI Receiver, AZOTH 96 HE (1AD0/1C10), and DELTA II (1AFA) have dedicated classification. Never send mouse probes.
             if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
             {
                 string asusPath = path.ToLowerInvariant();
-                if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1ab5") || asusPath.Contains("pid_1ace")) return false;
+                if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1b82") || asusPath.Contains("pid_1ab5") || asusPath.Contains("pid_1ace") ||
+                    asusPath.Contains("pid_1ad0") || asusPath.Contains("pid_1afa") || asusPath.Contains("pid_1c10")) return false;
             }
-            // 258A:01BB 的 Z75/Z75S 为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
+            // 258A:01BB 的 Z75/Z75S、41E4:2004 的 G98V2 均为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
             if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
                 path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (vid == MchoseDeviceHelper.VendorIdG98V2 && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2004", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            // A8A5:2255 为 MCHOSE G 系列鼠标 2.4G 接收器，由 MchoseGMouseHelper 专属接管。
+            if (vid == MchoseGMouseHelper.VendorIdMchoseG && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2255", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            // Corsair HS80 MAX (0A97 接收器 / 0A96 有线) 与 SLIPSTREAM 接收器 (1BDC) 由 CorsairDeviceHelper 专属接管。
+            if (vid == VID_CORSAIR && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_0a97", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_0a96", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_1bdc", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // 373B:111F 的 ATK A87 PRO 为键盘（FF60/0x61 33 字节 VIA 私有协议），
+            // 与 ATK 鼠标共用公版 VID 0x373B，必须按 PID 精确隔离，严禁向键盘句柄盲发鼠标查询。
+            if (vid == VID_ATK && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_111f", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
@@ -849,6 +915,9 @@ namespace RazerBatteryTray
             {
                 return false;
             }
+            // Ironcat Zero (25A7:FA7C) 由专属 IroncatDeviceHelper 的 17 字节 Feature 通道接管，通用 64B 引擎禁止越界探测。
+            if (!string.IsNullOrEmpty(path) && path.IndexOf("pid_fa7c", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (!string.IsNullOrEmpty(prod) && prod.IndexOf("ironcat", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
             switch (vid)
             {
@@ -856,7 +925,6 @@ namespace RazerBatteryTray
                 case VID_COMPX_LAMZU:
                 case VID_PULSAR:
                 case VID_WLMOUSE:
-                case VID_ENDGAME_GEAR:
                 case VID_ATK:
                 case VID_ANGRY_MIAO_1:
                 case VID_ANGRY_MIAO_2:
@@ -943,7 +1011,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null)
+                            if (devicePath != null && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                             {
                                 // 过滤键盘按键集合，保留控制/Vendor集合 (mi_02 或非普通 kbd)
                                 if (devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
@@ -1017,7 +1085,7 @@ namespace RazerBatteryTray
                                                 {
                                                     ok = QueryVaxeeBattery(handle, out batt, out isChg);
                                                 }
-                                                else if (attr.VendorID == VID_ATK || attr.VendorID == VID_ENDGAME_GEAR)
+                                                else if (attr.VendorID == VID_ATK)
                                                 {
                                                     ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
                                                 }
@@ -1103,7 +1171,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringUni(pDevicePath);
-                            if (!string.IsNullOrEmpty(devicePath))
+                            if (!string.IsNullOrEmpty(devicePath) && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                             {
                                 paths.Add(devicePath);
                             }
@@ -1201,6 +1269,8 @@ namespace RazerBatteryTray
                 bool isChg;
                 int mv;
                 bool ok = QueryAtkBekenOutputBattery(devicePath, out batt, out isChg, out mv);
+                bool isA9Ultimate = ok && pid == 0x11D9 && QueryAtkA9UltimateIdentity(devicePath);
+                string modelName = isA9Ultimate ? "ATK A9 Ultimate" : product.ModelName;
                 seenKeys.Add(deviceKey);
 
                 int cachedBatt;
@@ -1211,14 +1281,14 @@ namespace RazerBatteryTray
 
                 if (ok && batt > 0 && batt <= 100)
                 {
-                    DriverStateStore.SaveBatteryState("Gaming:" + deviceKey, batt, isChg, product.ModelName);
+                    DriverStateStore.SaveBatteryState("Gaming:" + deviceKey, batt, isChg, modelName);
                 }
 
                 MouseBatteryInfo info = new MouseBatteryInfo();
                 info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", vid, pid);
                 info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", vid, pid);
                 info.DriverId = "BuiltIn:UniversalGaming";
-                info.DeviceName = product.ModelName;
+                info.DeviceName = modelName;
                 info.Brand = product.Brand;
                 info.Category = product.Category;
                 info.Transport = "2.4G 无线 / 极速回报";

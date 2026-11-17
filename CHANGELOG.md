@@ -4,6 +4,40 @@
 
 ---
 
+## 🚀 [Unreleased] - 社区适配与多通道仲裁增强
+
+### 🔌 新增外设支持（感谢 B站网友“工程机风格”贡献）
+- **华硕 (ASUS ROG)**:
+  - 新增 **ROG AZOTH 96 HE Wireless (`0B05:1AD0`)** 2.4G 无线键盘（SpeedNova 8K 接收器）与 **ROG AZOTH 96 HE (`0B05:1C10`)** USB 有线键盘电量与充电状态读取；
+  - 新增 **ROG DELTA II (`0B05:1AFA`)** 2.4GHz 无线游戏耳机实时电量与充电状态读取；
+  - 新增 `BuiltIn:Asus` 内置驱动注册与 `DriverStateStore` 离线休眠电量记忆，并严密屏蔽通用鼠标引擎对上述 PID 的越界探测。
+- **社区 PR 扩容（感谢 `@GaiusC`、`@gallopcsy`、`@Go2Heart`、`@afwfv`、`@ertutio`、`@limuxi10086`、`@ysy41527624`、`@yangziyu1230`、`@SnivyJ`、`@xinyulan810`、`@ZoveD`、`@747891392`、`@Luoxia992`）**：
+  - **美商海盗船 HS80 MAX (`1B1C:0A97/0A96`) 与 M75 AIR (`1B1C:1BDC/1BF2`)**（#85，`CorsairDeviceHelper` Bragi 65B 电量/DPI/回报率）；
+  - **雷柏 VT 系列 (`24AE:1851`) 与 MT760 办公系列 (`24AE:1870`)**（#76 / #75，32B `0xBA` 协议与主面板 8 槽位 DPI 显示支持）；
+  - **VGN V108 (`391D:2A02`)、VGN N75 PRO (`320F:5088`)、VGN V98 PRO (`320F:5088`)**（#71 / #63 / #61，共享接收器按产品串互斥隔离）；
+  - **Endgame Gear XM2we (`3367:1961`) 与 LEOBOG GM5 PRO (`04F3:026F`)**（#61 / #63，双端点 Beken 引擎与 `0x000A` 状态帧）；
+  - **迈从 G98V2 (`41E4:2004`) / G7 (`A8A5:2255`) 与水月雨 GM-01 PRO (`35D8:0133`)**（#64）；
+  - **因科特 Ironcat Zero (`25A7:FA7C`)、KZZI K75 (`3554:FA09`) 与 BLE Xbox 手柄 (`045E:0B13`)**（#55，`BleDeviceHelper` + 品牌命名空间隐藏保护）；
+  - **罗技 G PRO X SUPERLIGHT 2 (`MR0097`: `046D:C54D`/`C09B`) 与 Keychron M6 (`3434:D026`/`D060`)** 内置专用驱动集成（#90）：包含 `LogitechMr0097Helper`（2000ms 冷启动身份握手、`1004`/`2202`/`8061` 只读采集与 `8100` 板载 5 档切换）及 `KeychronM6Helper`（`B5/B3` 身份与充电实测，`PhysicalUnitId` 有线/无线连续合并）；
+  - **外置驱动架构升级（#90, 贡献者 `@GaiusC`）**：新增 `CsScriptDriverLoader.Cache.cs` 源码级实例缓存、`HardwareDriverRegistry.IsExternallyOwnedPath` 与 `ScanSyncRoot` 精确端点归属隔离、`SupportsDpiWrite` 只读能力门禁及 `PhysicalUnitId` 选中页延续；
+  - **ATK A87 PRO (`373B:111F`)** 键盘、**北通 BTP-KP20D (`20BC:5159`)** 手柄与 **迈从 V9 Turbo+ (`3837:600A`)** 耳机（#93，附 FDAS v2.0 示例包并隔离 ATK 公版 VID 与 `0x1A` 链路降级帧）；
+  - **DS5Dongle 3.22H (`054C:0CE6`)** 只读 `F8/F9` 电量查询（#86，`BuiltIn:Ds5Dongle`）；
+  - **HyperX Cloud III S Wireless (`03F0:02CC`/`06BE`)** 耳机与 **公版 CompX 2.4G 无线键盘 (`05AC:024F`)**（#83）；
+  - **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份判定与 **PMO WAVE75** 蓝牙键盘识别（#80）。
+
+### 🔋 三通道仲裁与托盘摘要升级
+- **2.4G / USB 有线 / 蓝牙三通道在线仲裁**：当同型号三模键盘通过 USB 有线或蓝牙取得真实在线电量/充电响应时，自动将已切离的 2.4G 接收器条目置为离线休眠（仅插线充电而开关仍在 2.4G 时不误压制），消除同一键盘多条“在线”卡片分身。
+- **托盘摘要升级为「鼠标 | 键盘 | 耳机」三段展示**：支持同步展示耳机在线电量，并对多键盘实行择优策略（活跃/有线/真实电量优先于休眠键盘）。
+
+### 🛡️ 缺陷修复与测试基建加固
+- **设备优先级变体与大小写保持（Issue #81, 感谢 `@CZYMZX`）**：`DeviceManager` 与 `OpenPriorityManager` 引入 `FindPriorityIndex`，在多模切换或前缀/大小写变体漂移时保持原有优先级顺位，不再跌落垫底。
+- **ROG PELTA USB 有线充电形态仲裁（Issue #91, 感谢 `@longshuzyyy`）**：新增 `0x1B82` USB 端点探测与双形态合并，插线充电时自动从 `0x1B82` 读取实时电量与充电状态并维持 `ASUS:0B05:1B84` 单一身份。
+- **雷蛇 0x04 链路离线判定、唤醒路径隔离与优先级三态（Issue #92, 感谢 `@longshuzyyy`）**：接收器连续 2 轮返回 `0x04` 判定为离线（不再伪装成闲置待机），原始输入唤醒按型号 `VID+PID` 精确隔离，优先级窗口明确区分「离线 / 待机 / 在线」三态；新增 `TestRegistryGuard` 保护 `FerrisPulse` 与 `RazerBatteryTray` 注册表双根键不被测试污染。
+- **托盘右键菜单防闪烁与句柄复用（Issue #57 附带修复, 感谢 `@SuYe1145`）**：`UpdateTrayDeviceMenuItems()` 末尾同步调用 `PerformLayout()`、复用设备项字体消除 GDI 泄漏，并为 `ConfigureSubMenuDropDown` 增加幂等守卫。
+- **回报率不可写前置守卫与全内存反射测试加固（Issue #65, 感谢 `@xinyulan810`）**：`SetPollingRateFromUI` 在写入配置前先对回退活跃设备校验 `SupportsPollingRateWrite`，并将剩余 8 份测试脚本全部迁移为 `ReadAllBytes` 全内存加载。
+
+---
+
 ## 🚀 [v2.3.1] - 2026-11-12
 
 ### 🛡️ 问题修复

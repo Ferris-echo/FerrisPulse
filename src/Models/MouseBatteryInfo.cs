@@ -26,6 +26,8 @@ namespace RazerBatteryTray
         public string CustomName { get; set; }
         public int PriorityIndex { get; set; }
         public string HardwareFingerprint { get; set; }
+        // Optional device-reported identity shared by wired and radio transports.
+        public string PhysicalUnitId { get; set; }
         public string HardwareId { get; set; }
         public string Transport { get; set; }
         public bool IsCustom { get; set; }
@@ -63,6 +65,8 @@ namespace RazerBatteryTray
         public int[] SupportedPollingRates { get; set; }
         public int MaxPollingRate { get; set; }
         public int BatteryVoltageMv { get; set; }
+        // 任意 DPI 数值的写入能力，与选择现有板载档位分开判断。
+        public bool? SupportsDpiWrite { get; set; }
         // 三态回报率可写能力位：null=未探测/未知（绝不误伤）, true=固件支持写入, false=固件拒绝（如 G304 等低阶 LightSpeed 鼠标）
         public bool? SupportsPollingRateWrite { get; set; }
         public string CustomTooltip { get; set; }
@@ -143,6 +147,7 @@ namespace RazerBatteryTray
                 }
                 if (Brand == "HyperX" || Brand == "极度未知") return Color.FromArgb(226, 0, 43);
                 if (Brand == "Edifier" || Brand == "漫步者") return Color.FromArgb(0, 140, 255);
+                if (Brand == "MOONDROP" || Brand == "水月雨") return Color.FromArgb(120, 200, 255);
                 if (Category == DeviceCategory.Headset) return Color.FromArgb(90, 160, 255);
                 if (Category == DeviceCategory.Earbuds) return Color.FromArgb(179, 136, 255);
                 if (Category == DeviceCategory.Gamepad) return Color.FromArgb(192, 132, 252);
@@ -174,6 +179,8 @@ namespace RazerBatteryTray
                 if (Brand == "Rapoo" || Brand == "雷柏") return Color.FromArgb(0, 185, 255);
                 if (Brand == "Zaopin" || Brand == "皂品") return Color.FromArgb(255, 145, 0);
                 if (Brand == "VGN") return Color.FromArgb(255, 120, 0);
+                if (Brand == "Ironcat" || Brand == "因科特") return Color.FromArgb(255, 87, 34);
+                if (Brand == "KZZI" || Brand == "珂芝") return Color.FromArgb(0, 188, 212);
                 if (Brand == "Zaopin" || Brand == "皂品") return Color.FromArgb(255, 145, 0);
                 if (Brand == "Razer" || Brand == "雷蛇") return Color.FromArgb(0, 230, 118);
                 return Color.FromArgb(0, 230, 118);
@@ -246,6 +253,24 @@ namespace RazerBatteryTray
                         }
                     }
                     return target ?? "无线键盘";
+                }
+
+                if (Brand == "KZZI" || Brand == "珂芝")
+                {
+                    if (!string.IsNullOrEmpty(DeviceName) && DeviceName.IndexOf("K75", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return "KZZI K75";
+                    }
+                    return !string.IsNullOrEmpty(DeviceName) ? DeviceName : "KZZI K75";
+                }
+
+                if (Brand == "Ironcat" || Brand == "因科特")
+                {
+                    if (!string.IsNullOrEmpty(DeviceName) && DeviceName.IndexOf("Zero", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return "因科特 Zero 无线";
+                    }
+                    return !string.IsNullOrEmpty(DeviceName) ? DeviceName : "因科特 Zero 无线";
                 }
 
                 if (Brand == "Zaopin" || Brand == "皂品")

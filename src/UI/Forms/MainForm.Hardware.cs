@@ -620,17 +620,18 @@ namespace RazerBatteryTray
         // 当前选中设备是否被固件锁死回报率写入（三态：只有明确 false 才算锁死）
         private bool IsPollingRateWriteBlocked()
         {
-            return selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false;
+            var curDev = selectedDevice ?? GetActiveMouseDevice();
+            return curDev != null && curDev.SupportsPollingRateWrite == false;
         }
 
         public void SetPollingRateFromUI(int hz)
         {
-            if (IsPollingRateWriteBlocked()) return;
+            var curDev = selectedDevice ?? GetActiveMouseDevice();
+            if (curDev != null && curDev.SupportsPollingRateWrite == false) return;
 
             desktopPollingRate = hz;
             SaveConfig();
 
-            var curDev = selectedDevice ?? GetActiveMouseDevice();
             if (curDev == null) return;
 
             new Thread(() => {
@@ -1817,7 +1818,15 @@ namespace RazerBatteryTray
         {
             DeviceManager.SetConfiguredPrimaryDeviceId(deviceId);
             var prio = DeviceManager.GetPriorityList();
-            prio.Remove(deviceId);
+            var variants = DeviceManager.GetDeviceIdVariants(deviceId);
+            for (int i = prio.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(prio[i], deviceId, StringComparison.OrdinalIgnoreCase) ||
+                    variants.Exists(v => string.Equals(v, prio[i], StringComparison.OrdinalIgnoreCase)))
+                {
+                    prio.RemoveAt(i);
+                }
+            }
             prio.Insert(0, deviceId);
             DeviceManager.SavePriorityList(prio);
 
@@ -2013,7 +2022,9 @@ namespace RazerBatteryTray
             {
                 if (selectedDevice != null)
                 {
-                    var match = devices.Find(d => string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase));
+                    var match = devices.Find(d => string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+                        ?? devices.Find(d => !string.IsNullOrEmpty(selectedDevice.PhysicalUnitId) &&
+                            string.Equals(d.PhysicalUnitId, selectedDevice.PhysicalUnitId, StringComparison.OrdinalIgnoreCase));
                     selectedDevice = match ?? devices.Find(d => d.IsPrimary) ?? devices.Find(d => d.IsConnected) ?? devices[0];
                 }
                 else
@@ -3013,7 +3024,7 @@ namespace RazerBatteryTray
                 }
                 if (btnDpiManage != null)
                 {
-                    btnDpiManage.Visible = true;
+                    btnDpiManage.Visible = info.SupportsDpiWrite != false;
                     btnDpiManage.NormalColor = Color.FromArgb(28, 33, 45);
                     btnDpiManage.HoverColor = Color.FromArgb(40, 48, 65);
                     btnDpiManage.PressedColor = Color.FromArgb(20, 24, 33);
@@ -3103,6 +3114,7 @@ namespace RazerBatteryTray
 
                 if (dpiMenu != null && dpiStageValues != null)
                 {
+                    dpiMenu.Visible = info.SupportsDpiWrite != false || info.DpiStageCount > 0;
                     dpiMenu.Text = "调节 DPI 档位 (&D)";
                     dpiMenu.DropDownItems.Clear();
                     for (int i = 0; i < dpiStageValues.Length; i++)
@@ -3129,6 +3141,7 @@ namespace RazerBatteryTray
                         int val = pollingRateValues[i];
                         var sub = new ToolStripMenuItem(val + " Hz", null, (s, e) => SetPollingRateFromUI(val));
                         sub.Tag = val;
+                        sub.Enabled = !rateWriteBlocked;
                         sub.Checked = (val == targetActive);
                         rateMenu.DropDownItems.Add(sub);
                     }
@@ -3250,7 +3263,8 @@ namespace RazerBatteryTray
             if (!info.IsConnected)
             {
                 isMouseSleeping = false;
-                EnableMouseWakeDetector(false);
+                // 离线鼠标卡片仍保留原始输入监听：重开机后移动鼠标可立即复核上线
+                EnableMouseWakeDetector(info.Category == DeviceCategory.Mouse);
                 lblDeviceName.Text = info.DisplayName;
 
                 string battDisplay = (info.BatteryPercent > 0 ? info.BatteryPercent.ToString() : "--") + "%";

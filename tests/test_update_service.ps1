@@ -31,7 +31,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempDll)) {
 }
 
 try {
-    $assembly = [System.Reflection.Assembly]::LoadFrom($tempDll)
+    $assembly = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($tempDll))
     $mgrType = $assembly.GetType("RazerBatteryTray.UpdateManager")
     if ($null -eq $mgrType) {
         Write-Error "FAIL: RazerBatteryTray.UpdateManager type not found!"

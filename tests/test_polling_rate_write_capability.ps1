@@ -228,20 +228,40 @@ if ($null -ne $chkGameRate -and -not $chkGameRate.Enabled) {
 }
 Write-Host "PASS: 可写设备按钮恢复正常可点，电竞回报率开关解除锁定（无误伤）" -ForegroundColor Green
 
-# 5. 不可写时点击必须被前置拦截
-$null = $mUpdate.Invoke($form, @($infoNo, $infoNo.BrandColor)) | Out-Null
-$fldDesktop = $tMain.GetField("desktopPollingRate", [System.Reflection.BindingFlags]"Instance,NonPublic")
-$before = [int]$fldDesktop.GetValue($form)
-$tMain.GetMethod("SetPollingRateFromUI").Invoke($form, @([int]2000)) | Out-Null
-Start-Sleep -Milliseconds 500
-$after = [int]$fldDesktop.GetValue($form)
-if ($after -ne $before) {
-    Write-Host ("FAIL: 不可写设备仍改写了 desktopPollingRate（{0} -> {1}）" -f $before, $after) -ForegroundColor Red
-    $form.Dispose(); exit 1
-}
-Write-Host ("PASS: 不可写设备点击被拦截，desktopPollingRate 保持 {0} 未被污染" -f $after) -ForegroundColor Green
+# 5. 不可写时点击必须被前置拦截（重置基线值并保护生产注册表，消除重复运行假绿）
+. (Join-Path $PSScriptRoot "..\tools\TestRegistryGuard.ps1")
+$regSnap = Save-TestRegistrySnapshot -Roots @("HKCU:\Software\FerrisPulse", "HKCU:\Software\RazerBatteryTray")
+try {
+    $null = $mUpdate.Invoke($form, @($infoNo, $infoNo.BrandColor)) | Out-Null
+    $fldDesktop = $tMain.GetField("desktopPollingRate", [System.Reflection.BindingFlags]"Instance,NonPublic")
+    $fldDesktop.SetValue($form, [int]1000)
+    $before = [int]$fldDesktop.GetValue($form)
+    $tMain.GetMethod("SetPollingRateFromUI").Invoke($form, @([int]2000)) | Out-Null
+    Start-Sleep -Milliseconds 300
+    $after = [int]$fldDesktop.GetValue($form)
+    if ($after -ne $before) {
+        Write-Host ("FAIL: 不可写设备仍改写了 desktopPollingRate（{0} -> {1}）" -f $before, $after) -ForegroundColor Red
+        $form.Dispose(); exit 1
+    }
+    Write-Host ("PASS: 不可写设备点击被拦截，desktopPollingRate 保持 {0} 未被污染" -f $after) -ForegroundColor Green
 
-$form.Dispose()
-Remove-ItemProperty -Path 'HKCU:\Software\RazerBatteryTray\RateWriteCap' -Name 'Logitech_TEST_CAP01' -ErrorAction SilentlyContinue
+    # 也测试 selectedDevice == null 但 GetActiveMouseDevice 指向不可写设备的场景
+    $tMain.GetField("selectedDevice", [System.Reflection.BindingFlags]"Instance,NonPublic").SetValue($form, $null)
+    $fldActive = $tMain.GetField("activeDevices", [System.Reflection.BindingFlags]"Instance,NonPublic")
+    $listObj = $fldActive.GetValue($form)
+    $listObj.Clear()
+    $listObj.Add($infoNo)
+    $tMain.GetMethod("SetPollingRateFromUI").Invoke($form, @([int]2000)) | Out-Null
+    $afterFallback = [int]$fldDesktop.GetValue($form)
+    if ($afterFallback -ne $before) {
+        Write-Host ("FAIL: selectedDevice 为空时不可写设备仍改写了 desktopPollingRate（{0} -> {1}）" -f $before, $afterFallback) -ForegroundColor Red
+        $form.Dispose(); exit 1
+    }
+    Write-Host "PASS: selectedDevice 为空时回退活跃不可写设备同样被前置拦截" -ForegroundColor Green
+}
+finally {
+    $form.Dispose()
+    Restore-TestRegistrySnapshot -Snapshot $regSnap
+}
 Write-Host "ALL PASS: issue #35 能力位、UI 置灰与前置拦截全部生效" -ForegroundColor Green
 exit 0

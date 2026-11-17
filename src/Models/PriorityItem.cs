@@ -23,6 +23,7 @@ namespace RazerBatteryTray
         public DeviceCategory Category { get; set; }
         public int Battery { get; set; }
         public bool IsConnected { get; set; }
+        public bool IsSleeping { get; set; }
         public Color AccentColor { get; set; }
         public int PriorityIndex { get; set; }
         public float CurrentY { get; set; }

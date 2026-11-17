@@ -23,6 +23,8 @@ namespace RazerBatteryTray
         private ToolStripMenuItem lightingMenu;
         private int lastTrayClickTick = 0;
         private int lastTrayDoubleClickTick = 0;
+        private Font trayDeviceItemFont;
+        private HashSet<ToolStripDropDown> configuredSubMenuDropDowns;
 
         private void ConfigureSubMenuDropDown(ToolStripDropDown dropDown)
         {
@@ -34,6 +36,11 @@ namespace RazerBatteryTray
                 menu.ShowImageMargin = false;
                 menu.ShowCheckMargin = true;
             }
+            if (configuredSubMenuDropDowns == null)
+            {
+                configuredSubMenuDropDowns = new HashSet<ToolStripDropDown>();
+            }
+            if (!configuredSubMenuDropDowns.Add(dropDown)) return;
             dropDown.ItemClicked += (s, e) => {
                 lastClickedTrayItem = e.ClickedItem;
             };
@@ -722,10 +729,14 @@ namespace RazerBatteryTray
                         }
                     }
 
+                    if (trayDeviceItemFont == null)
+                    {
+                        trayDeviceItemFont = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    }
                     string itemText = dev.DisplayName + "\t" + battStr;
                     var mi = new ToolStripMenuItem(itemText);
                     mi.Checked = false;
-                    mi.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    mi.Font = trayDeviceItemFont;
                     mi.ForeColor = dev.BrandColor;
                     mi.Padding = new Padding(6, 4, 12, 4);
 
@@ -940,6 +951,12 @@ namespace RazerBatteryTray
                 if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
                 if (nuphySidelightMenuItem != null) nuphySidelightMenuItem.Visible = false;
                 if (nuphyTraySep != null) nuphyTraySep.Visible = false;
+            }
+
+            // 在菜单显示前同步收敛布局，消除 Opening -> Opened 之间因 AutoSize 晚算导致底部「退出程序」跳动闪烁
+            if (contextMenu != null)
+            {
+                contextMenu.PerformLayout();
             }
         }
 

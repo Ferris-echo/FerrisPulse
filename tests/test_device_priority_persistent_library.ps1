@@ -7,6 +7,7 @@
 #   3. 用户主动点击删除（HideOrDeleteDevice）时，设备才真正从优先级列表与监控中移除。
 # ============================================================================
 
+$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
 $exePath = Join-Path $root "FerrisPulse.exe"
@@ -16,6 +17,10 @@ $asm = [System.Reflection.Assembly]::Load($rawBytes)
 $dm = $asm.GetType('RazerBatteryTray.DeviceManager')
 $dss = $asm.GetType('RazerBatteryTray.DriverStateStore')
 $mbiType = $asm.GetType('RazerBatteryTray.MouseBatteryInfo')
+
+. (Join-Path $root "tools\TestRegistryGuard.ps1")
+$regSnap = Save-TestRegistrySnapshot -Roots @("HKCU:\Software\FerrisPulse", "HKCU:\Software\RazerBatteryTray")
+try {
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " [测试 1/3] 验证离线设备不会被 QueryAllDevices 冲掉优先级列表" -ForegroundColor Cyan
@@ -134,9 +139,28 @@ if ($prioAfterHide.Contains($testOfflineId)) {
 }
 Write-Host "PASSED: 主动删除/拉黑设备时，设备彻底从优先级列表及已知库中剔除！" -ForegroundColor Green
 
-# 恢复现场
-$mUnhide.Invoke($null, [object[]]@($testOnlineId))
-$mUnhide.Invoke($null, [object[]]@($testOfflineId))
+# 测试 4/4: 验证多模变体/大小写变化时 FindPriorityIndex 仍命中原顺位 (Issue #81)
+$mFindPrio = $dm.GetMethod('FindPriorityIndex', [System.Reflection.BindingFlags]'Static,Public')
+if ($null -eq $mFindPrio) {
+    Write-Host "FAILED: DeviceManager.FindPriorityIndex missing!" -ForegroundColor Red
+    exit 1
+}
+$vList = [System.Collections.Generic.List[string]]::new()
+$vList.Add('Razer:1532:00A5')
+$vList.Add('ASUS:0B05:1AD0')
+foreach ($cand in @('Razer:1532:00A5', 'razer:1532:00a5', 'Razer:1532:00A6', 'HID:1532:00A5')) {
+    $idx = [int]$mFindPrio.Invoke($null, [object[]]@($vList.psobject.BaseObject, $cand))
+    if ($idx -ne 0) {
+        Write-Host ("FAILED: FindPriorityIndex returned {0} for variant {1}, expected 0" -f $idx, $cand) -ForegroundColor Red
+        exit 1
+    }
+}
+Write-Host "PASSED: 多模切换/大小写变体命中 FindPriorityIndex 原顺位，不会跌落垫底！" -ForegroundColor Green
+
+}
+finally {
+    Restore-TestRegistrySnapshot -Snapshot $regSnap
+}
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host " ALL PASS: 设备优先级管理静态已知设备库机制验证全部通过！" -ForegroundColor Green

@@ -3,6 +3,7 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理
+//   包含 Logitech MR0097 与 Keychron M6 内置专用驱动调度及物理身份合并。
 // 依赖关系: 所有品牌 DeviceHelper, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -56,7 +57,17 @@ namespace RazerBatteryTray
                     cleanSuffix = cleanSuffix.Substring(0, cleanSuffix.Length - 3);
                 }
 
-                string[] commonPrefixes = new string[] { "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "ACER", "ASUS", "ATK" };
+                string normRazerSuffix = null;
+                if (cleanSuffix.StartsWith("1532:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string normRazerId = RazerDeviceHelper.NormalizeRazerDeviceId("Razer:" + cleanSuffix);
+                    if (!string.IsNullOrEmpty(normRazerId) && normRazerId.Length > 6)
+                    {
+                        normRazerSuffix = normRazerId.Substring(6);
+                    }
+                }
+
+                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -64,14 +75,19 @@ namespace RazerBatteryTray
                     if (!variants.Contains(cand1)) variants.Add(cand1);
                     string cand2 = p + ":" + cleanSuffix;
                     if (!variants.Contains(cand2)) variants.Add(cand2);
+                    if (!string.IsNullOrEmpty(normRazerSuffix))
+                    {
+                        string cand3 = p + ":" + normRazerSuffix;
+                        if (!variants.Contains(cand3)) variants.Add(cand3);
+                    }
                 }
             }
             return variants;
         }
 
         /// <summary>
-        /// 生成托盘/状态栏双设备摘要：鼠标与键盘各取一台在线设备。
-        /// 例："鼠标 51%⚡  |  键盘 100%"。键盘有线供电时显示“供电中”。
+        /// 生成托盘/状态栏多设备摘要：鼠标、键盘、耳机各取一台最优在线设备。
+        /// 例："鼠标 51%⚡  |  键盘 100%  |  耳机 37%"。键盘有线供电时显示“供电中”。
         /// </summary>
         public static string BuildTrayBatterySummary(List<MouseBatteryInfo> devices)
         {
@@ -79,37 +95,68 @@ namespace RazerBatteryTray
 
             MouseBatteryInfo mouse = null;
             MouseBatteryInfo keyboard = null;
+            MouseBatteryInfo headset = null;
             for (int i = 0; i < devices.Count; i++)
             {
                 MouseBatteryInfo d = devices[i];
                 if (d == null || !d.IsConnected) continue;
                 if (IsDeviceHidden(d.DeviceId)) continue;
 
-                if (d.Category == DeviceCategory.Mouse && mouse == null) mouse = d;
-                else if (d.Category == DeviceCategory.Keyboard && keyboard == null) keyboard = d;
+                if (d.Category == DeviceCategory.Mouse)
+                {
+                    if (IsBetterTrayCandidate(d, mouse)) mouse = d;
+                }
+                else if (d.Category == DeviceCategory.Keyboard)
+                {
+                    if (IsBetterTrayCandidate(d, keyboard)) keyboard = d;
+                }
+                else if (d.Category == DeviceCategory.Headset || d.Category == DeviceCategory.Earbuds)
+                {
+                    if (IsBetterTrayCandidate(d, headset)) headset = d;
+                }
             }
 
+            List<string> parts = new List<string>(3);
             string mouseText = FormatTrayBattery(mouse);
             string keyboardText = FormatTrayBattery(keyboard);
-            if (!string.IsNullOrEmpty(mouseText) && !string.IsNullOrEmpty(keyboardText))
-            {
-                return "鼠标 " + mouseText + "  |  键盘 " + keyboardText;
-            }
-            if (!string.IsNullOrEmpty(mouseText)) return "鼠标 " + mouseText;
-            if (!string.IsNullOrEmpty(keyboardText)) return "键盘 " + keyboardText;
-            return "";
+            string headsetText = FormatTrayBattery(headset);
+            if (!string.IsNullOrEmpty(mouseText)) parts.Add("鼠标 " + mouseText);
+            if (!string.IsNullOrEmpty(keyboardText)) parts.Add("键盘 " + keyboardText);
+            if (!string.IsNullOrEmpty(headsetText)) parts.Add("耳机 " + headsetText);
+            return string.Join("  |  ", parts.ToArray());
+        }
+
+        private static bool IsWiredKeyboardTransport(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Category != DeviceCategory.Keyboard || string.IsNullOrEmpty(dev.Transport)) return false;
+            return (dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                   dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0 &&
+                   dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        private static int ScoreTrayCandidate(MouseBatteryInfo dev)
+        {
+            if (dev == null) return -1;
+            int score = 0;
+            if (IsWiredKeyboardTransport(dev)) score += 4;
+            if (!dev.IsSleeping) score += 2;
+            if (dev.BatteryPercent >= 0) score += 1;
+            return score;
+        }
+
+        private static bool IsBetterTrayCandidate(MouseBatteryInfo candidate, MouseBatteryInfo current)
+        {
+            if (candidate == null) return false;
+            if (current == null) return true;
+            return ScoreTrayCandidate(candidate) > ScoreTrayCandidate(current);
         }
 
         private static string FormatTrayBattery(MouseBatteryInfo dev)
         {
             if (dev == null) return null;
 
-            bool wiredKeyboard = dev.Category == DeviceCategory.Keyboard && dev.Transport != null &&
-                                 (dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                  dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                                 dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0 &&
-                                 dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0;
-            if (wiredKeyboard) return "供电中";
+            if (IsWiredKeyboardTransport(dev)) return "供电中";
             if (dev.IsSleeping) return "休眠";
             if (dev.IsCharging)
             {
@@ -117,6 +164,96 @@ namespace RazerBatteryTray
             }
             if (dev.BatteryPercent > 0) return dev.BatteryPercent.ToString() + "%";
             return "--";
+        }
+
+        private static string NormalizeKeyboardModelKey(MouseBatteryInfo dev)
+        {
+            if (dev == null) return "";
+            string raw = !string.IsNullOrEmpty(dev.DeviceName) ? dev.DeviceName : dev.CustomName;
+            if (string.IsNullOrEmpty(raw)) return "";
+            StringBuilder sb = new StringBuilder(raw.Length);
+            for (int i = 0; i < raw.Length; i++)
+            {
+                char c = raw[i];
+                if (!char.IsWhiteSpace(c)) sb.Append(char.ToUpperInvariant(c));
+            }
+            return sb.ToString();
+        }
+
+        private static bool AreSameKeyboardModel(string keyA, string keyB)
+        {
+            if (string.IsNullOrEmpty(keyA) || string.IsNullOrEmpty(keyB)) return false;
+            return keyA.IndexOf(keyB, StringComparison.Ordinal) >= 0 ||
+                   keyB.IndexOf(keyA, StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>
+        /// 三通道在线仲裁（USB 有线 / 蓝牙 优先于同型号 2.4G）：
+        /// 仅当有线读到真实电量或充电响应，或蓝牙条目在线且电量 >= 0 时，将同型号 2.4G 条目置为离线休眠。
+        /// 仅插线充电而键盘仍停留在 2.4G 通道时不会误判压制。
+        /// </summary>
+        public static void ApplyCrossTransportKeyboardArbitration(List<MouseBatteryInfo> devices)
+        {
+            if (devices == null || devices.Count < 2) return;
+
+            List<MouseBatteryInfo> activeWired = new List<MouseBatteryInfo>();
+            List<MouseBatteryInfo> activeBt = new List<MouseBatteryInfo>();
+            for (int i = 0; i < devices.Count; i++)
+            {
+                MouseBatteryInfo d = devices[i];
+                if (d == null || d.Category != DeviceCategory.Keyboard || !d.IsConnected) continue;
+                if (IsWiredKeyboardTransport(d) && (d.BatteryPercent >= 0 || d.IsCharging))
+                {
+                    activeWired.Add(d);
+                }
+                else if (d.DeviceId != null && d.DeviceId.StartsWith("BT_", StringComparison.OrdinalIgnoreCase) && d.BatteryPercent >= 0)
+                {
+                    activeBt.Add(d);
+                }
+            }
+
+            if (activeWired.Count == 0 && activeBt.Count == 0) return;
+
+            for (int i = 0; i < devices.Count; i++)
+            {
+                MouseBatteryInfo d = devices[i];
+                if (d == null || d.Category != DeviceCategory.Keyboard) continue;
+                if (IsWiredKeyboardTransport(d)) continue;
+                if (d.DeviceId != null && d.DeviceId.StartsWith("BT_", StringComparison.OrdinalIgnoreCase)) continue;
+
+                string wirelessKey = NormalizeKeyboardModelKey(d);
+                if (string.IsNullOrEmpty(wirelessKey)) continue;
+
+                bool matchedWired = false;
+                for (int wi = 0; wi < activeWired.Count; wi++)
+                {
+                    if (activeWired[wi] != d && AreSameKeyboardModel(wirelessKey, NormalizeKeyboardModelKey(activeWired[wi])))
+                    {
+                        matchedWired = true;
+                        break;
+                    }
+                }
+                if (matchedWired)
+                {
+                    d.IsConnected = false;
+                    d.IsSleeping = true;
+                    d.IsCharging = false;
+                    d.CustomTooltip = "键盘当前走 USB 有线，2.4G 通道视为离线";
+                    continue;
+                }
+
+                for (int bi = 0; bi < activeBt.Count; bi++)
+                {
+                    if (activeBt[bi] != d && AreSameKeyboardModel(wirelessKey, NormalizeKeyboardModelKey(activeBt[bi])))
+                    {
+                        d.IsConnected = false;
+                        d.IsSleeping = true;
+                        d.IsCharging = false;
+                        d.CustomTooltip = "键盘当前走蓝牙，2.4G 通道视为离线";
+                        break;
+                    }
+                }
+            }
         }
 
         // 共享的 VID:PID 指纹（如旧通用记录的 HID:3537:1098）只对没有唯一身份的设备生效。
@@ -127,7 +264,20 @@ namespace RazerBatteryTray
             if (device == null) return false;
             if (deviceIdHidden) return true;
             if (!fingerprintHidden) return false;
+            if (IsBrandScopedDeviceId(device.DeviceId)) return false;
             return !GameSirDeviceHelper.HasPerUnitIdentity(device.DeviceId);
+        }
+
+        private static bool IsBrandScopedDeviceId(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return false;
+            int colon = deviceId.IndexOf(':');
+            if (colon <= 0) return false;
+            string prefix = deviceId.Substring(0, colon);
+            return !prefix.Equals("HID", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("Gaming", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("BT", StringComparison.OrdinalIgnoreCase) &&
+                   !prefix.Equals("BLE", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsDeviceHidden(string deviceId)
@@ -155,6 +305,7 @@ namespace RazerBatteryTray
         public static void HideOrDeleteDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, true);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -196,6 +347,7 @@ namespace RazerBatteryTray
         public static void UnhideDevice(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return;
+            UpdateCorsairUserHiddenMarker(deviceId, false);
             var variants = GetDeviceIdVariants(deviceId);
 
             try
@@ -307,6 +459,32 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+        }
+
+        public static int FindPriorityIndex(List<string> prioList, string deviceId)
+        {
+            if (prioList == null || string.IsNullOrEmpty(deviceId)) return -1;
+            for (int i = 0; i < prioList.Count; i++)
+            {
+                if (string.Equals(prioList[i], deviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            var variants = GetDeviceIdVariants(deviceId);
+            for (int vi = 0; vi < variants.Count; vi++)
+            {
+                string cand = variants[vi];
+                for (int i = 0; i < prioList.Count; i++)
+                {
+                    if (string.Equals(prioList[i], cand, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return i;
+                    }
+                }
+            }
+            return -1;
         }
 
         public static List<string> GetPriorityList()
@@ -481,6 +659,13 @@ namespace RazerBatteryTray
                 string officialName = RazerDeviceHelper.GetRazerOfficialModelName(pid, dev.DeviceName);
                 if (string.IsNullOrEmpty(dev.DeviceName)) dev.DeviceName = officialName;
                 if (dev.Category == DeviceCategory.Generic) dev.Category = RazerDeviceHelper.GetRazerDeviceCategory(pid, officialName);
+            }
+            else if (deviceId.StartsWith("Keychron:3434:D026:MS", StringComparison.OrdinalIgnoreCase) ||
+                     deviceId.StartsWith("Keychron:3434:D060:MS", StringComparison.OrdinalIgnoreCase))
+            {
+                dev.Brand = "Keychron";
+                dev.Category = DeviceCategory.Mouse;
+                dev.DeviceName = "Keychron M6";
             }
             else if (deviceId.StartsWith("Logitech:046D:", StringComparison.OrdinalIgnoreCase) || deviceId.IndexOf("046D", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -745,9 +930,11 @@ namespace RazerBatteryTray
                 var customConfigs = LoadCustomDevices();
                 foreach (var c in customConfigs)
                 {
-                    if (c.DeviceId != null && (c.DeviceId.StartsWith("HyperX:03F0:", StringComparison.OrdinalIgnoreCase) || 
-                                              c.DeviceId.StartsWith("HID:03F0:05B7", StringComparison.OrdinalIgnoreCase) ||
-                                              c.DeviceId.StartsWith("HID:03F0:0C9D", StringComparison.OrdinalIgnoreCase)))
+                    // 飓风3S (02CC / 06BE) 由专属通道独立供电量，不得被旧版飓风3去重逻辑误删配置
+                    if (c.DeviceId != null && !HyperXCloud3SHelper.IsCloud3SIdentifier(c.DeviceId) &&
+                        (c.DeviceId.StartsWith("HyperX:03F0:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:03F0:05B7", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:03F0:0C9D", StringComparison.OrdinalIgnoreCase)))
                     {
                         DeleteCustomDevice(c.DeviceId);
                     }
@@ -821,6 +1008,74 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+        }
+
+        // 记录用户对 Corsair 设备的主动隐藏意图，迁移逻辑据此决定是否自动恢复显示
+        private static void UpdateCorsairUserHiddenMarker(string deviceId, bool hidden)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            try
+            {
+                string lowerId = deviceId.ToLowerInvariant();
+                if (lowerId.Contains("1b1c") &&
+                    (lowerId.Contains("0a97") || lowerId.Contains("0a96") || lowerId.Contains("1bf2")))
+                {
+                    using (RegistryKey root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
+                    {
+                        if (root != null)
+                        {
+                            if (hidden) root.SetValue("CorsairUserHidden", 1, RegistryValueKind.DWord);
+                            else root.DeleteValue("CorsairUserHidden", false);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void CleanupDuplicateCorsairDevices()
+        {
+            try
+            {
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c.DeviceId != null && (c.DeviceId.StartsWith("HID:1B1C:0A97", StringComparison.OrdinalIgnoreCase) ||
+                                               c.DeviceId.StartsWith("HID:1B1C:0A96", StringComparison.OrdinalIgnoreCase) ||
+                                               c.DeviceId.StartsWith("HID:1B1C:1BF2", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                using (RegistryKey root = Registry.CurrentUser.CreateSubKey(@"Software\RazerBatteryTray"))
+                {
+                    if (root != null)
+                    {
+                        object userHidden = root.GetValue("CorsairUserHidden");
+                        bool allowUnhide = (userHidden == null) || (Convert.ToInt32(userHidden) == 0);
+                        if (allowUnhide)
+                        {
+                            UnhideDevice("Corsair:1B1C:0A97");
+                            UnhideDevice("Corsair:1B1C:0A96");
+                            UnhideDevice("Corsair:1B1C:1BF2");
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static bool IsRapooOfficeConfig(CustomDeviceConfig cfg)
+        {
+            if (cfg == null) return false;
+            if (!string.IsNullOrEmpty(cfg.DeviceId) && cfg.DeviceId.IndexOf("24AE:1870", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (!string.IsNullOrEmpty(cfg.HardwareFingerprint) && cfg.HardwareFingerprint.IndexOf("24AE:1870", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         private static void CleanupPhantomAppleDevices()
@@ -922,12 +1177,24 @@ namespace RazerBatteryTray
             var variants = GetDeviceIdVariants(dev.DeviceId);
             int devVid, devPid;
             bool hasVidPid = HardwareDriverBase.TryExtractDeviceVidPid(dev, out devVid, out devPid);
+            IHardwareDriver owner = HardwareDriverRegistry.ResolveDriver(dev);
+            bool strictOwner = HardwareDriverRegistry.RequiresStrictIdentity(owner);
 
             int existingIdx = -1;
             for (int i = 0; i < list.Count; i++)
             {
                 MouseBatteryInfo cur = list[i];
                 if (cur == null) continue;
+
+                bool sameUnit = !string.IsNullOrEmpty(cur.PhysicalUnitId) &&
+                    string.Equals(cur.PhysicalUnitId, dev.PhysicalUnitId, StringComparison.OrdinalIgnoreCase);
+                bool samePath = !string.IsNullOrEmpty(cur.HardwareId) &&
+                    string.Equals(cur.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase);
+                if (!sameUnit && !samePath && strictOwner && !owner.CanHandle(cur)) continue;
+                if (!sameUnit && !string.IsNullOrEmpty(cur.HardwareId) && !string.IsNullOrEmpty(dev.HardwareId) &&
+                    !string.Equals(cur.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.IsNullOrEmpty(cur.PhysicalUnitId) && !string.IsNullOrEmpty(dev.PhysicalUnitId) && !sameUnit) continue;
+                if (sameUnit) { existingIdx = i; break; }
 
                 if (!string.IsNullOrEmpty(cur.DeviceId) && cur.DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase))
                 {
@@ -957,7 +1224,7 @@ namespace RazerBatteryTray
                     int curVid, curPid;
                     if (HardwareDriverBase.TryExtractDeviceVidPid(cur, out curVid, out curPid))
                     {
-                        if (curVid == devVid && curPid == devPid &&
+                        if (curVid == devVid && curPid == devPid && (!strictOwner || owner.CanHandle(cur)) &&
                             (cur.Category == dev.Category || cur.Category == DeviceCategory.Generic || dev.Category == DeviceCategory.Generic))
                         {
                             existingIdx = i;
@@ -970,6 +1237,17 @@ namespace RazerBatteryTray
             if (existingIdx >= 0)
             {
                 MouseBatteryInfo oldDev = list[existingIdx];
+                bool samePhysical = (!string.IsNullOrEmpty(oldDev.PhysicalUnitId) &&
+                    string.Equals(oldDev.PhysicalUnitId, dev.PhysicalUnitId, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(oldDev.HardwareId) && string.Equals(oldDev.HardwareId, dev.HardwareId, StringComparison.OrdinalIgnoreCase));
+                if (samePhysical)
+                {
+                    bool oldLive = !oldDev.IsSleeping && (oldDev.IsConnected || oldDev.IsDonglePresent);
+                    bool newLive = !dev.IsSleeping && (dev.IsConnected || dev.IsDonglePresent);
+                    if (oldLive && !newLive) return;
+                    if (oldLive && newLive && !oldDev.IsDonglePresent && dev.IsDonglePresent) return;
+                    if (oldLive == newLive && oldDev.IsDonglePresent == dev.IsDonglePresent && oldDev.LastUpdated > dev.LastUpdated) return;
+                }
                 dev.IsCustom = oldDev.IsCustom;
                 if (!string.IsNullOrEmpty(oldDev.CustomName)) dev.CustomName = oldDev.CustomName;
                 list[existingIdx] = dev;
@@ -981,9 +1259,46 @@ namespace RazerBatteryTray
             }
         }
 
+        private static void AddDiscoveredDevicesIfAbsent(List<MouseBatteryInfo> list, List<MouseBatteryInfo> devices)
+        {
+            if (list == null || devices == null || devices.Count == 0) return;
+            for (int di = 0; di < devices.Count; di++)
+            {
+                AddDiscoveredDeviceIfAbsent(list, devices[di]);
+            }
+        }
+
+        private static void AddDiscoveredDeviceIfAbsent(List<MouseBatteryInfo> list, MouseBatteryInfo dev)
+        {
+            if (list == null || dev == null || (!dev.IsConnected && !dev.IsDonglePresent)) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (string.Equals(list[i].DeviceId, dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) &&
+                     string.Equals(list[i].HardwareFingerprint, dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+            }
+            dev.IsCustom = false;
+            list.Add(dev);
+            if (dev.BatteryPercent >= 0)
+            {
+                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+            }
+        }
+
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
+            // A complete scan owns its script claim snapshot through built-in enumeration.
+            lock (HardwareDriverRegistry.ScanSyncRoot) { return QueryAllDevicesCore(); }
+        }
+
+        private static List<MouseBatteryInfo> QueryAllDevicesCore()
+        {
             BuiltInDrivers.EnsureRegistered();
+            CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+            List<MouseBatteryInfo> scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
             CleanupDuplicateNuphyDevices();
 
             CleanupDuplicateLogitechDevices();
@@ -993,6 +1308,7 @@ namespace RazerBatteryTray
             CleanupDuplicateHyperXDevices();
 
             CleanupDuplicateSteelSeriesDevices();
+            CleanupDuplicateCorsairDevices();
             CleanupPhantomAppleDevices();
             CleanupDuplicateBluetoothAudioDevices();
 
@@ -1027,6 +1343,18 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 公版 CompX 2.4G 无线键盘 (05AC:024F "2.4G Wireless Receiver", 33B 0xFF60/0x61 电量端点)
+            try
+            {
+                var compX = CompxWirelessKeyboardHelper.QueryDevice();
+                if (compX != null && (compX.IsConnected || compX.IsDonglePresent))
+                {
+                    compX.IsCustom = false;
+                    list.Add(compX);
+                }
+            }
+            catch { }
+
             // 2. Query Rapoo
             try
             {
@@ -1036,6 +1364,36 @@ namespace RazerBatteryTray
                     rapoo.Category = DeviceCategory.Mouse;
                     rapoo.IsCustom = false;
                     list.Add(rapoo);
+                }
+            }
+            catch { }
+
+            // 2.05 Query Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
+            try
+            {
+                var rapooOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                if (rapooOffice != null && (rapooOffice.IsConnected || rapooOffice.IsDonglePresent))
+                {
+                    rapooOffice.Category = DeviceCategory.Mouse;
+                    rapooOffice.IsCustom = false;
+                    list.Add(rapooOffice);
+                    if (rapooOffice.BatteryPercent >= 0)
+                    {
+                        UpdateCustomDeviceBattery(rapooOffice.DeviceId, rapooOffice.BatteryPercent, DateTime.Now);
+                    }
+                }
+            }
+            catch { }
+
+            // 2.1 Query Rapoo VT-series 2.4G receiver 24AE:1851 (0xBA protocol, no feature endpoint)
+            try
+            {
+                var rapooVt = RapooVt1851DeviceHelper.QueryDevice();
+                if (rapooVt != null)
+                {
+                    rapooVt.Category = DeviceCategory.Mouse;
+                    rapooVt.IsCustom = false;
+                    list.Add(rapooVt);
                 }
             }
             catch { }
@@ -1051,6 +1409,22 @@ namespace RazerBatteryTray
                     if (royuan.BatteryPercent >= 0)
                     {
                         UpdateCustomDeviceBattery(royuan.DeviceId, royuan.BatteryPercent, DateTime.Now);
+                    }
+                }
+            }
+            catch { }
+
+            // 2.46 Query VGN V108 (2.4G wireless keyboard receiver, VID 391D / PID 2A02)
+            try
+            {
+                var v108 = VgnKeyboardHelper.QueryVgnV108Info();
+                if (v108 != null && (v108.IsConnected || v108.IsDonglePresent))
+                {
+                    v108.IsCustom = false;
+                    list.Add(v108);
+                    if (v108.BatteryPercent >= 0)
+                    {
+                        UpdateCustomDeviceBattery(v108.DeviceId, v108.BatteryPercent, DateTime.Now);
                     }
                 }
             }
@@ -1088,6 +1462,28 @@ namespace RazerBatteryTray
 
 
 
+            // 2.69 Query Logitech MR0097 (PRO X SUPERLIGHT 2, Built-in Dedicated Driver)
+            try
+            {
+                var mr0097Devices = LogitechMr0097Helper.QueryDevices();
+                if (mr0097Devices != null && mr0097Devices.Count > 0)
+                {
+                    foreach (var dev in mr0097Devices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
+                            MergeExternalDriverDevice(list, dev);
+                            if (dev.BatteryPercent >= 0 && !dev.IsSleeping)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, dev.LastUpdated);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 2.7 Query Logitech (Lightspeed, Unifying, Nano, Wired)
             try
             {
@@ -1098,6 +1494,11 @@ namespace RazerBatteryTray
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                         {
+                            if (list.Exists(x => string.Equals(x.DriverId, LogitechMr0097Helper.DriverKey, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(x.DeviceId, dev.DeviceId, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                continue;
+                            }
                             dev.IsCustom = false;
                             list.Add(dev);
                             if (dev.BatteryPercent >= 0)
@@ -1139,6 +1540,42 @@ namespace RazerBatteryTray
                 if (gamingDevices != null && gamingDevices.Count > 0)
                 {
                     foreach (var dev in gamingDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.92 Query Endgame Gear (XM2we / OP1we 2.4G 双端点 Beken 引擎)
+            try
+            {
+                var eggDevices = EndgameGearDeviceHelper.QueryAllEndgameGearDevices();
+                if (eggDevices != null && eggDevices.Count > 0)
+                {
+                    foreach (var dev in eggDevices)
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                         {
@@ -1276,6 +1713,170 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.965 Query KZZI (K75 tri-mode keyboard, CompX 3554:FA09 shared PID)
+            try
+            {
+                var kzzi = KzziDeviceHelper.QueryKzziDevice();
+                if (kzzi != null && kzzi.IsDonglePresent)
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(kzzi.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(kzzi.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyInList)
+                    {
+                        kzzi.IsCustom = false;
+                        list.Add(kzzi);
+                    }
+                }
+            }
+            catch { }
+
+            // 2.965b Query BLE peripherals (Xbox controller / Bluetooth keyboard / mouse)
+            try
+            {
+                var bleDevices = BleDeviceHelper.QueryAllBlePeripherals();
+                if (bleDevices != null && bleDevices.Count > 0)
+                {
+                    foreach (var dev in bleDevices)
+                    {
+                        if (dev != null && dev.IsConnected)
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.966 Query Ironcat Zero wireless mouse (25A7:FA7C 2.4G)
+            try
+            {
+                var ironcatDevices = IroncatDeviceHelper.QueryAllIroncatDevices();
+                if (ironcatDevices != null && ironcatDevices.Count > 0)
+                {
+                    foreach (var dev in ironcatDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.967 Query MCHOSE G series mouse (G7 2.4G receiver, A8A5:2255)
+            try
+            {
+                var mchoseGMice = MchoseGMouseHelper.QueryAllMchoseGMice();
+                if (mchoseGMice != null && mchoseGMice.Count > 0)
+                {
+                    foreach (var dev in mchoseGMice)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.968 Query MOONDROP headset (GM-01 PRO, 35D8:0133)
+            try
+            {
+                var moondropDevices = MoondropDeviceHelper.QueryAllMoondropDevices();
+                if (moondropDevices != null && moondropDevices.Count > 0)
+                {
+                    foreach (var dev in moondropDevices)
+                    {
+                        if (dev == null || !dev.IsConnected) continue;
+
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 2.97 Query Sony (INZONE Buds WF-G700N wireless earbuds)
             try
             {
@@ -1348,7 +1949,73 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.99 Query ATK (V75X Keyboard) & Sony (DualSense Edge / PULSE Explore)
+            // 2.995 Query VGN N75 PRO (320F:5088 2.4G, 产品串隔离)
+            try
+            {
+                var vgnN75 = VgnN75ProHelper.QueryDevices();
+                if (vgnN75 != null && vgnN75.Count > 0)
+                {
+                    foreach (var dev in vgnN75)
+                    {
+                        if (dev == null || !(dev.IsConnected || dev.IsDonglePresent)) continue;
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.996 Query LEOBOG GM5 PRO (04F3:026F 2.4G, 0x000A/0x0000 32 字节状态帧)
+            try
+            {
+                var leobogDevices = LeobogDeviceHelper.QueryDevices();
+                if (leobogDevices != null && leobogDevices.Count > 0)
+                {
+                    foreach (var dev in leobogDevices)
+                    {
+                        if (dev == null || !(dev.IsConnected || dev.IsDonglePresent)) continue;
+                        bool alreadyInList = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyInList)
+                        {
+                            dev.IsCustom = false;
+                            list.Add(dev);
+                            if (dev.BatteryPercent >= 0)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.99 Query ATK (V75X / VGN V98 PRO) & Sony (DualSense Edge / PULSE Explore)
             try
             {
                 var atkDevices = AtkDeviceHelper.QueryAllAtkDevices();
@@ -1382,6 +2049,11 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+
+            // 2.995 Query ATK A87 PRO 键盘 / 迈从 V9 Turbo+ 耳机 / 北通 BTP-KP20D 手柄 (PR #93, @gallopcsy)
+            try { AddDiscoveredDevicesIfAbsent(list, AtkA87ProHelper.QueryAllA87ProDevices()); } catch { }
+            try { AddDiscoveredDevicesIfAbsent(list, MchoseHeadsetHelper.QueryAllMchoseHeadsetDevices()); } catch { }
+            try { AddDiscoveredDevicesIfAbsent(list, BeitongDeviceHelper.QueryAllBeitongDevices()); } catch { }
 
             try
             {
@@ -1483,6 +2155,14 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.11.1 Query HyperX Cloud III S Wireless (03F0:02CC / 06BE, 64B 0x01C0 电量集合)
+            try
+            {
+                HyperXCloud3SHelper.LoadHardwareCache();
+                AddDiscoveredDeviceIfAbsent(list, HyperXCloud3SHelper.QueryDevice());
+            }
+            catch { }
+
                         // 2.12 Query SteelSeries Devices (Arctis Nova 5 / 5X Wireless Headset)
             try
             {
@@ -1507,6 +2187,66 @@ namespace RazerBatteryTray
                         if (ss.BatteryPercent >= 0)
                         {
                             UpdateCustomDeviceBattery(ss.DeviceId, ss.BatteryPercent, DateTime.Now);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.12b Query Corsair HS80 MAX Wireless headset (1B1C:0A97, Bragi HID control collection)
+            try
+            {
+                var corsair = CorsairDeviceHelper.QueryCorsairDeviceInfo();
+                if (corsair != null && (corsair.IsConnected || corsair.IsDonglePresent))
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(corsair.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(corsair.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyInList)
+                    {
+                        corsair.IsCustom = false;
+                        list.Add(corsair);
+                        if (corsair.BatteryPercent >= 0)
+                        {
+                            UpdateCustomDeviceBattery(corsair.DeviceId, corsair.BatteryPercent, DateTime.Now);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.12c Query Corsair M75 AIR Wireless mouse (SLIPSTREAM 1B1C:1BDC / child PID 1BF2, Bragi 65B)
+            try
+            {
+                var corsairMouse = CorsairDeviceHelper.QueryCorsairMouseInfo();
+                if (corsairMouse != null && (corsairMouse.IsConnected || corsairMouse.IsDonglePresent))
+                {
+                    bool alreadyInList = false;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        if (list[i].DeviceId.Equals(corsairMouse.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                            (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(corsairMouse.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            alreadyInList = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyInList)
+                    {
+                        corsairMouse.IsCustom = false;
+                        list.Add(corsairMouse);
+                        if (corsairMouse.BatteryPercent >= 0)
+                        {
+                            UpdateCustomDeviceBattery(corsairMouse.DeviceId, corsairMouse.BatteryPercent, DateTime.Now);
                         }
                     }
                 }
@@ -1650,6 +2390,34 @@ namespace RazerBatteryTray
                         }
                     }
                 }
+
+                // 2.13d1 ROG DELTA II 无线耳机 (0B05:1AFA)
+                var rogDevices = AsusDeviceHelper.QueryAllRogDevices();
+                if (rogDevices != null && rogDevices.Count > 0)
+                {
+                    foreach (var dev in rogDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            if (!list.Exists(x => string.Equals(x.HardwareFingerprint, dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                list.Add(dev);
+                        }
+                    }
+                }
+
+                // 2.13d2 ROG AZOTH 96 HE 无线/有线键盘 (0B05:1AD0 / 0B05:1C10)
+                var rogKbs = AsusDeviceHelper.QueryAllRogKeyboards();
+                if (rogKbs != null && rogKbs.Count > 0)
+                {
+                    foreach (var dev in rogKbs)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            if (!list.Exists(x => string.Equals(x.DeviceId, dev.DeviceId, StringComparison.OrdinalIgnoreCase)))
+                                list.Add(dev);
+                        }
+                    }
+                }
             }
             catch { }
 
@@ -1674,35 +2442,37 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.14b Query Keychron M6 (Link-KM / USB, Built-in Dedicated Driver)
+            try
+            {
+                var m6Devices = KeychronM6Helper.QueryDevices();
+                if (m6Devices != null && m6Devices.Count > 0)
+                {
+                    foreach (var dev in m6Devices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
+                            MergeExternalDriverDevice(list, dev);
+                            if (dev.BatteryPercent >= 0 && !dev.IsSleeping)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, dev.LastUpdated);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 2.15 Query C# 5.0 Dynamic Script Drivers (Local adapters/*.fp-driver.cs, Priority 300)
             try
             {
-                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
-                var allDrivers = HardwareDriverRegistry.GetAllDriversOrdered();
-                for (int di = 0; di < allDrivers.Count; di++)
+                foreach (MouseBatteryInfo sDev in scriptDevices)
                 {
-                    IHardwareDriver drv = allDrivers[di];
-                    if (drv != null && drv.IsExternalPackage && drv.Priority >= 300 &&
-                        (string.IsNullOrEmpty(drv.DriverId) || !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)))
+                    MergeExternalDriverDevice(list, sDev);
+                    if (sDev.BatteryPercent >= 0 && !sDev.IsSleeping)
                     {
-                        var scriptDevs = drv.QueryDevices();
-                        if (scriptDevs != null && scriptDevs.Count > 0)
-                        {
-                            for (int si = 0; si < scriptDevs.Count; si++)
-                            {
-                                var sDev = scriptDevs[si];
-                                if (sDev != null && (sDev.IsConnected || sDev.IsDonglePresent))
-                                {
-                                    if (string.IsNullOrEmpty(sDev.DriverId)) sDev.DriverId = drv.DriverId;
-                                    drv.PopulateCapabilities(sDev);
-                                    MergeExternalDriverDevice(list, sDev);
-                                    if (sDev.BatteryPercent >= 0)
-                                    {
-                                        UpdateCustomDeviceBattery(sDev.DeviceId, sDev.BatteryPercent, DateTime.Now);
-                                    }
-                                }
-                            }
-                        }
+                        UpdateCustomDeviceBattery(sDev.DeviceId, sDev.BatteryPercent, sDev.LastUpdated);
                     }
                 }
             }
@@ -1799,6 +2569,16 @@ namespace RazerBatteryTray
                     if (existDev != null)
                     {
                         existDev.IsCustom = true;
+                        if (VgnN75ProHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
+                        {
+                            cfg.Category = DeviceCategory.Keyboard;
+                            SaveCustomDevice(cfg);
+                        }
+                        if (LeobogDeviceHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
+                        {
+                            cfg.Category = DeviceCategory.Mouse;
+                            SaveCustomDevice(cfg);
+                        }
                         if (cfg.Category != DeviceCategory.Generic)
                         {
                             existDev.Category = cfg.Category;
@@ -1997,7 +2777,8 @@ namespace RazerBatteryTray
                         }
                         else if (isRapoo)
                         {
-                            var rp = RapooDeviceHelper.QueryRapooDeviceInfo();
+                            bool isOfficeRapoo = IsRapooOfficeConfig(cfg);
+                            var rp = isOfficeRapoo ? RapooDeviceHelper.QueryRapooOfficeDeviceInfo() : RapooDeviceHelper.QueryRapooDeviceInfo();
                             if (rp != null && (rp.IsConnected || rp.IsDonglePresent))
                             {
                                 connected = rp.IsConnected;
@@ -2007,7 +2788,8 @@ namespace RazerBatteryTray
                             else
                             {
                                 connected = false;
-                                batt = RapooDeviceHelper.CachedBatteryPercent > 0 ? RapooDeviceHelper.CachedBatteryPercent : -1;
+                                int cachedRapoo = isOfficeRapoo ? RapooDeviceHelper.CachedOfficeBatteryPercent : RapooDeviceHelper.CachedBatteryPercent;
+                                batt = cachedRapoo > 0 ? cachedRapoo : -1;
                             }
                         }
                         else if (isHyperX)
@@ -2202,7 +2984,7 @@ namespace RazerBatteryTray
                         }
                         else if (isRapoo)
                         {
-                            int cachedRp = RapooDeviceHelper.CachedBatteryPercent;
+                            int cachedRp = IsRapooOfficeConfig(cfg) ? RapooDeviceHelper.CachedOfficeBatteryPercent : RapooDeviceHelper.CachedBatteryPercent;
                             devInfo.BatteryPercent = cachedRp > 0 ? cachedRp : (cfg.CachedBattery > 0 ? cfg.CachedBattery : -1);
                             devInfo.ExactBatteryPercent = devInfo.BatteryPercent;
                         }
@@ -2411,6 +3193,9 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 3.675 三通道键盘在线仲裁（有线/蓝牙有真实响应时将同型号 2.4G 条目置为离线休眠）
+            ApplyCrossTransportKeyboardArbitration(list);
+
             // 3.68 VHF 虚拟 HID 兜底过滤（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
             // 这类设备由远程控制软件通过内核 VHF 总线注册，没有物理电池，
             // 既不是 2.4G 外设也不能监控电量，必须从最终设备列表剔除。
@@ -2438,7 +3223,7 @@ namespace RazerBatteryTray
 
             foreach (var d in list)
             {
-                if (!prioList.Contains(d.DeviceId))
+                if (FindPriorityIndex(prioList, d.DeviceId) < 0)
                 {
                     prioList.Add(d.DeviceId);
                     prioChanged = true;
@@ -2451,8 +3236,8 @@ namespace RazerBatteryTray
 
             list.Sort((a, b) =>
             {
-                int ia = prioList.IndexOf(a.DeviceId);
-                int ib = prioList.IndexOf(b.DeviceId);
+                int ia = FindPriorityIndex(prioList, a.DeviceId);
+                int ib = FindPriorityIndex(prioList, b.DeviceId);
                 if (ia < 0) ia = 9999;
                 if (ib < 0) ib = 9999;
                 return ia.CompareTo(ib);

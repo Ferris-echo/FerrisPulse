@@ -29,7 +29,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempDll)) {
 }
 
 try {
-    $assembly = [System.Reflection.Assembly]::LoadFrom($tempDll)
+    $assembly = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($tempDll))
 
     # 1. 验证自替换命令生成
     $mgrType = $assembly.GetType("RazerBatteryTray.UpdateManager")

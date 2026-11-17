@@ -217,7 +217,7 @@ flowchart TD
 | **索尼 (Sony)** | **INZONE Buds 无线入耳** (`054C:0EC2`)<br>**INZONE H5 头戴电竞耳机** (`054C:0EBF`)<br>**PULSE Explore TWS 电竞耳机** (`054C:0ECC`/`0ED0`)<br>**DualSense Edge PS5 无线精英手柄** (`054C:0DF2`) | **左耳、右耳、充电盒独立三路 1% 物理电量**、索尼私有 HCI 封装解析、2 字节载荷自适应单路电量、Feature Report `0xB0` 双耳 16 级电量、**PS Link 与 USB 充电盒双通道内存合并**、手柄 10% 物理档位与充电感知。 |
 | **罗技 (Logitech)** | **G502 X PLUS 旗舰无线鼠标** (`046D:C095`)<br>**G304 / C53F 经典无线鼠标**<br>**G PRO X Wireless 旗舰无线电竞耳机** (`046D:0ABA`) | 解决双端点竞争与短报告崩溃、20 字节 HID++ 2.0 握手、**Feature 0x2201 Func 2 真实 DPI 寄存器直读**（彻底消除 200 DPI 偏差）、HID++ 4.2 专属 `0x1F20` ADC 毫伏放电曲线拟合算法。 |
 | **漫步者 (EDIFIER)** | **花再 Halo Space 极光空间头戴耳机** (`2D99:E049`) | 64 字节 EC 私有协议、`XOR 0xA5` 载荷掩码解密、累加和校验算法，真实读取耳机电量、固件版本、设备名称与蓝牙 MAC 地址。 |
-| **华硕 (ASUS ROG)** | **ROG 夜魔 (Azoth) 客制化机械键盘**<br>**ROG PELTA 无线游戏耳机** (`0B05:1B84`)<br>**ROG 游侠 Scope II RX / 96 Wireless** (`0B05:1AB5`) | 穿透 ROG Omni 接收器 (`1ACE`) 握手配对 `1A85`、64/65 字节专用控制通道，直接读取键盘与耳机的实时物理电量与充电状态。 |
+| **华硕 (ASUS ROG)** | **ROG 夜魔 (Azoth) 客制化机械键盘**<br>**ROG AZOTH 96 HE Wireless** (`0B05:1AD0` / 有线 `1C10`)<br>**ROG DELTA II 无线游戏耳机** (`0B05:1AFA`)<br>**ROG PELTA 无线游戏耳机** (`0B05:1B84`)<br>**ROG 游侠 Scope II RX / 96 Wireless** (`0B05:1AB5`) | 穿透 ROG Omni 接收器 (`1ACE`) 握手配对 `1A85`、SpeedNova 8K (`1AD0`) / 有线 (`1C10`) / 耳机 (`1AFA`) 64/65 字节专用控制通道直读电量与充电状态，支持 **2.4G / USB 有线 / 蓝牙三通道在线仲裁**。 |
 | **VGN / VXE (蜻蜓)** | **蜻蜓 3 Pro 游戏鼠标** (`391D:1A03`)<br>**Neon75 客制化机械键盘** (`3151:5038`) | Yjx 易捷讯私有协议、65B 中断 OUT `0x30` 查询与 **8000Hz 读写**、65B 中断 `0xF7` 状态帧与 Bit7 校验和，**彻底根除拔线仍显示 100% 充电的假死 Bug**。 |
 | **造品 (Zaopin)** | **Zaopin Z2 三模电竞鼠标** (`3554:F526`/`F527`) | CompX 协议隔离 1K/4K 双 PID，基于官方 **21 阶锂电池放电曲线与 12mV 步进**精准电压拟合，定制 Zaopin 官方橙色主题。 |
 | **宏碁 (Acer)** | **OMR331 / R332 旗舰无线鼠标** | 连续 4 天实机抓包对比，纠正状态位 `[15]`，精准锁定充电标志位 `[13]` 与真实电量 `[14]`，实现防伪充电跳变修正。 |
@@ -299,6 +299,21 @@ flowchart TD
 | **社区群友“无情卍空虚” (“d”)** | 适配 **赛睿 Arctis Nova 5 / Nova 5X** 无线耳机，攻破 0x00B0 报文状态查询与解析 |
 | **社区群友“okbeng”** | 适配雷蛇 **旋风黑鲨 V2 Pro 2.4G (2023款)**（64B 中断端点 PA/PI 协议）与 **DeathAdder V2 X HyperSpeed** |
 | **社区群友“rm -rf /*”** | 深度参与无极缩放、交互细节与 FDAS 适配包系统的实机体验测试与建议反馈 |
+| **B站网友“工程机风格”** | 适配 **华硕 ROG AZOTH 96 HE Wireless (`1AD0`) / 有线 (`1C10`)** 键盘与 **ROG DELTA II (`1AFA`)** 无线耳机；贡献 **2.4G / USB 有线 / 蓝牙三通道在线仲裁** 与托盘 **鼠标 \| 键盘 \| 耳机** 三段摘要优化 |
+| **[@gallopcsy](https://github.com/gallopcsy)** | 适配 **ATK A87 PRO** 键盘（`373B:111F`, VIA 33B 端点与公版 VID 隔离）、**北通 BTP-KP20D** 手柄（推送式 `00FF/0003` 64B）与 **迈从 V9 Turbo+** 耳机（`3837:600A`, 证伪 `0x1A` 降级帧） (#93) |
+| **[@GaiusC](https://github.com/GaiusC)** | 适配 **罗技 G PRO X SUPERLIGHT 2 (MR0097)** 与 **Keychron M6 (`3434:D026`/`D060`)**，并贡献外置脚本精确端点归属、源码级实例缓存、`PhysicalUnitId` 跨传输关联与只读 DPI 门禁架构升级 (#90) |
+| **[@Go2Heart](https://github.com/Go2Heart)** | 适配 **DS5Dongle 3.22H (`054C:0CE6`)** 接收器只读电量查询（固件校验 `LCT616-DS5 3.22H` + F9 状态帧） (#86) |
+| **[@afwfv](https://github.com/afwfv)** | 适配 **HyperX 飓风 3S 无线 (`03F0:02CC/06BE`)**（`0x01C0/64B` 端点隔离与充电事件时效窗口）与 **公版 CompX 2.4G 无线键盘 (`05AC:024F`)** (#83) |
+| **[@ertutio](https://github.com/ertutio)** | 贡献 **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份识别与 **PMO WAVE75** 蓝牙键盘分类 (#80) |
+| **[@limuxi10086](https://github.com/limuxi10086)** | 适配 **美商海盗船 HS80 MAX Wireless (`1B1C:0A97/0A96`)** 耳机与 **M75 AIR (`1B1C:1BDC/1BF2`)** 鼠标（Bragi 65B 电量/DPI/XY/回报率） (#85) |
+| **[@ysy41527624](https://github.com/ysy41527624)** | 适配 **雷柏 VT 系列 2.4G 接收器 (`24AE:1851`)**（32B `0xBA` EEPROM 电量/7 档 DPI/8K 回报率读写） (#76) |
+| **[@yangziyu1230](https://github.com/yangziyu1230)** | 适配 **雷柏 MT760 办公系列 (`24AE:1870`)**（`FF00:000E` 32B 协议、7 档 DPI 扩展渲染） (#75) |
+| **[@SnivyJ](https://github.com/SnivyJ)** | 适配 **VGN V108 2.4G 键盘 (`391D:2A02`)**（`FF02/0002` 20B `0x13` 帧族电量与充电） (#71) |
+| **[@xinyulan810](https://github.com/xinyulan810)** | 适配 **迈从 G98V2 (`41E4:2004`)**、**迈从 G7 (`A8A5:2255`)** 与 **水月雨 GM-01 PRO (`35D8:0133`)** 电量与状态识别 (#64) |
+| **[@ZoveD](https://github.com/ZoveD)** | 适配 **VGN N75 PRO (`320F:5088`)** 键盘与 **LEOBOG GM5 PRO (`04F3:026F`)** 鼠标电量及休眠记忆 (#63) |
+| **[@747891392](https://github.com/747891392)** | 适配 **Endgame Gear XM2we (`3367:1961`)** 双端点 Beken 鼠标与 **VGN V98 PRO (`320F:5088`)** 键盘 (#61) |
+| **[@a492877018](https://github.com/a492877018)** | 补充 **VGN V98 Pro V2 (`320F:5088/5055`)** 实机满电位 (`0x02`) 与错误帧 (`0xFF`) 校验 (#70) |
+| **[@Luoxia992](https://github.com/Luoxia992)** | 适配 **因科特 Ironcat Zero (`25A7:FA7C`)**、**KZZI K75 (`3554:FA09` 避让识别)** 与 **BLE 外设 (`045E:0B13` Xbox 手柄)** (#55) |
 
 > 💡 **期待你的名字镌刻在此！**  
 > 无论是一份 Wireshark 抓包报文、一次协议逆向推演，还是借助 AI 智能体写出的设备适配驱动，只要经过验证合入主干，你的名字都将被永久记录在灵脉开源殿堂中！

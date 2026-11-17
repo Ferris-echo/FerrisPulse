@@ -3,17 +3,9 @@ $testFiles = Get-ChildItem (Join-Path $PSScriptRoot "..\tests\test_*.ps1")
 $allPassed = $true
 $summary = @()
 
-# 1. 生产环境注册表防污染快照，严格保护用户真实外设与电竞配置
-$regPath = "HKCU:\Software\FerrisPulse"
-$regBackup = @{}
-if (Test-Path $regPath) {
-    $props = Get-ItemProperty -Path $regPath
-    foreach ($prop in $props.PSObject.Properties) {
-        if ($prop.Name -notmatch "^__" -and $prop.Name -notmatch "^PS") {
-            $regBackup[$prop.Name] = $prop.Value
-        }
-    }
-}
+# 1. 生产环境注册表防污染深快照，同时保护 FerrisPulse 与 RazerBatteryTray（含外设优先级与状态记忆）
+. (Join-Path $PSScriptRoot "TestRegistryGuard.ps1")
+$regSnapshot = Save-TestRegistrySnapshot -Roots @("HKCU:\Software\FerrisPulse", "HKCU:\Software\RazerBatteryTray")
 
 try {
     foreach ($tf in $testFiles) {
@@ -55,12 +47,8 @@ try {
 }
 finally {
     # 彻底恢复用户生产环境注册表，杜绝自动化测试篡改用户的电竞优化与外设记忆
-    if (Test-Path $regPath) {
-        foreach ($k in $regBackup.Keys) {
-            Set-ItemProperty -Path $regPath -Name $k -Value $regBackup[$k] -ErrorAction SilentlyContinue
-        }
-        Write-Host "`n[SAFEGUARD] 已恢复用户生产注册表快照，保护电竞 DPI / 回报率开关记忆。" -ForegroundColor DarkGray
-    }
+    Restore-TestRegistrySnapshot -Snapshot $regSnapshot
+    Write-Host "`n[SAFEGUARD] 已回滚用户生产注册表快照（应用设置 + 外设优先级与状态记忆）。" -ForegroundColor DarkGray
 }
 
 if (-not $allPassed) {

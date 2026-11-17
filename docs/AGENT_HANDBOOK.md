@@ -46,6 +46,8 @@
    - **Priority 200 (`*.fp-adapter.json`)**：FDAS v2.0 声明式扩展包，支持多 PID `devices` 矩阵、`setStagesTxTemplate` 与 `customActions`。
    - **Priority 100 (`BuiltInDrivers`)**：内置驱动插件集，支持被同 `DriverId` 或同 `VID:PID` 的外部包无缝热覆盖。
 3. **按物理指纹细粒度互斥锁**：`HardwareCommandBus.GetDeviceLock` 按 `VID:PID` 加锁，防止 50ms 高频 `FastQueryDpi` 与后台电量轮询并发交错。
+4. **外置包精确端点归属**：脚本必须先完成身份校验，再通过 `ClaimedDevicePaths` 发布精确路径，内置驱动打开句柄前跳过已接管端点；仅靠最终列表去重不能避免重复协议访问。普通扫描与设备向导共用 `HardwareDriverRegistry.ScanSyncRoot` 扫描锁，每轮先暂存结果，回调异常不发布半份结果，显式空路径数组不能回退到 `HardwareId`。
+5. **脚本实例寿命与同款设备隔离**：`CsScriptDriverLoader.Cache.cs` 按完整源码复用已编译实例，改变或删除脚本时仅撤销原实例。`VID/PID`/槽位不是物理唯一键，端点状态与命令路由必须包含完整 HID 路径，跨传输已确认关系通过 `PhysicalUnitId` 独立维护。
 
 ### 3.3 原生 DWM 弹窗动效、抗白框与坐标绝对记忆
 1. **严禁 `AnimateWindow` 与 `Minimized` 隐藏**：`AnimateWindow` 会在深色模式下闪现白框；`Minimized` 会导致还原时从底栏飞出。
@@ -58,6 +60,7 @@
 4. **8K 接收器中断端点谨慎预排空 (`DrainReports`)**：部分仅暴露 Interrupt In/Out 端点（无 Feature Report）的 8K 接收器（如 ATK F1 Ultimate 2.0 `373B:11D9`），在 `WriteFile` 前执行 `DrainReports` 会打断接收器与鼠标的无线握手状态机，此时应直接写入查询帧并按报表头过滤响应。
 5. **警惕无线链路微状态位伪装充电**：部分接收器（如宏碁 OMR331 `249A:5C2F`）响应帧中的状态字节在未插线时也会随鼠标唤醒/休眠在 `0x01/0x00` 间跳变。未证实为真实 USB 充电位前，切勿盲目绑定为 `isCharging`，以免闪电图标反复横跳。
 6. **物理事实优先，严禁盲扫异构协议或虚标能力**：严禁向同一设备盲目轮番发送多套异构 Feature Report；未实机验证 DPI/回报率写指令的设备，必须显式设置 `SupportsDpi = false`、`SupportsPollingRate = false`，宁缺毋滥。
+7. **同一设备双形态 PID 合并仲裁**：当同一外设在 USB 充电与 2.4G 接收器下呈现不同 PID（如 ROG PELTA 充电 `0x1B82` 与接收器 `0x1B84`）时，应合并至单一规范 `DeviceId` 呈现，避免卡片裂变或插线失联。
 
 ---
 

@@ -54,9 +54,11 @@ Assert ($t.GetMethod('IsSupportedEndpoint',$flags).Invoke($null,@($desc))) 'PE L
 $desc.UsagePage=0xFF07
 Assert (-not $t.GetMethod('IsSupportedEndpoint',$flags).Invoke($null,@($desc))) 'no FF07 feature channel'
 $desc.UsagePage=0xFF00; $desc.ProductId=0x1B82
+Assert ($t.GetMethod('IsSupportedEndpoint',$flags).Invoke($null,@($desc))) 'PELTA USB charging PID 1B82 allowed'
+$desc.ProductId=0x1B85
 Assert (-not $t.GetMethod('IsSupportedEndpoint',$flags).Invoke($null,@($desc))) 'untested PID not enabled'
 $gaming=$asm.GetType('RazerBatteryTray.UniversalGamingDeviceHelper')
-foreach ($pidText in @('1b84','1ab5')) {
+foreach ($pidText in @('1b84','1b82','1ab5')) {
     Assert (-not $gaming.GetMethod('IsSupportedGamingDevice').Invoke($null,@(0x0B05,"hid#vid_0b05&pid_$pidText",'ROG'))) 'known ASUS non-mouse excluded'
 }
 $dm=$asm.GetType('RazerBatteryTray.DeviceManager')
@@ -84,4 +86,7 @@ Assert (-not $state.Ready -and -not $state.Charging) 'failed query never claims 
 $desc.ProductId=0x1B84
 $sleep=$build.Invoke($null,@($desc,39,$false,$false,$stamp))
 Assert ($sleep.IsSleeping -and $sleep.BatteryPercent -eq 39 -and -not $sleep.IsCharging) 'standby retains real battery'
-Write-Host 'PASS: ASUS PELTA replay, bounds, NAK, endpoint isolation, categories and aliases'
+$desc.ProductId=0x1B82
+$usbChg=$build.Invoke($null,@($desc,63,$true,$true,$stamp))
+Assert ($usbChg.DeviceId -eq 'ASUS:0B05:1B84' -and $usbChg.Transport -eq 'USB 有线' -and -not $usbChg.IsDonglePresent -and $usbChg.IsCharging -and $usbChg.BatteryPercent -eq 63) 'USB charging merges onto canonical 1B84 identity'
+Write-Host 'PASS: ASUS PELTA replay, bounds, NAK, endpoint isolation, USB 1B82 arbitration, categories and aliases'

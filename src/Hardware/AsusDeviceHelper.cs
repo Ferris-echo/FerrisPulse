@@ -3,9 +3,11 @@
 // 核心职责:
 //   1. ROG PELTA 0B05:1B84 的电量/充电双查询；Scope II RX (1AB5) 有线键盘仅识别。
 //   2. ROG 夜魔 Azoth (1A85) 经由 ROG OMNI 接收器 (1ACE) 的配对/电量/充电双模探测。
+//   3. ROG AZOTH 96 HE Wireless (1AD0)、ROG DELTA II (1AFA)、ROG AZOTH 96 HE 有线 (1C10)
+//      由社区贡献者“工程机风格”实机适配并合入 (见 AsusDeviceHelper.Rog.cs)。
 // 协议依据:
 //   G-Helper AsusHeadset/Pelta/AsusKeyboard 协议说明及本机实测，独立实现。
-// 依赖关系: HidTransport.cs, MouseBatteryInfo.cs；仅 Win32 HID / .NET 4.0。
+// 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, DriverStateStore.cs；仅 Win32 HID / .NET 4.0。
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 // 1. C# 5.0 规范，保留 BOM，无外部依赖。
 // 2. 仅精确型号白名单，禁止配置写入及虚构电量。
@@ -16,10 +18,11 @@ using System.Diagnostics;
 
 namespace RazerBatteryTray
 {
-    public static class AsusDeviceHelper
+    public static partial class AsusDeviceHelper
     {
         public const int VendorId = 0x0B05;
         public const int PeltaReceiverPid = 0x1B84;
+        public const int PeltaUsbPid = 0x1B82;
         public const int ScopeIIRxPid = 0x1AB5;
         public const int OmniReceiverPid = 0x1ACE;
         public const int AzothPid = 0x1A85;
@@ -46,8 +49,10 @@ namespace RazerBatteryTray
         public static bool IsSupportedEndpoint(HidDeviceDescriptor descriptor)
         {
             if (descriptor == null || descriptor.VendorId != VendorId) return false;
-            if (descriptor.ProductId != PeltaReceiverPid && descriptor.ProductId != ScopeIIRxPid) return false;
-            int length = descriptor.ProductId == PeltaReceiverPid ? 64 : 65;
+            if (descriptor.ProductId != PeltaReceiverPid &&
+                descriptor.ProductId != PeltaUsbPid &&
+                descriptor.ProductId != ScopeIIRxPid) return false;
+            int length = (descriptor.ProductId == ScopeIIRxPid) ? 65 : 64;
             return descriptor.UsagePage == 0xFF00 && descriptor.Usage == 1 &&
                 descriptor.InputReportLength == length && descriptor.OutputReportLength == length;
         }
@@ -126,23 +131,43 @@ namespace RazerBatteryTray
         internal static MouseBatteryInfo BuildDeviceInfo(HidDeviceDescriptor descriptor, int battery, bool charging, bool ready, DateTime updated)
         {
             bool keyboard = descriptor.ProductId == ScopeIIRxPid;
+            bool isPeltaUsb = descriptor.ProductId == PeltaUsbPid;
             MouseBatteryInfo info = new MouseBatteryInfo();
-            info.DeviceId = string.Format("ASUS:{0:X4}:{1:X4}", VendorId, descriptor.ProductId);
-            info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", VendorId, descriptor.ProductId);
+            info.DeviceId = keyboard
+                ? string.Format("ASUS:{0:X4}:{1:X4}", VendorId, ScopeIIRxPid)
+                : string.Format("ASUS:{0:X4}:{1:X4}", VendorId, PeltaReceiverPid);
+            info.HardwareFingerprint = keyboard
+                ? string.Format("HID:{0:X4}:{1:X4}", VendorId, ScopeIIRxPid)
+                : string.Format("HID:{0:X4}:{1:X4}", VendorId, PeltaReceiverPid);
             info.HardwareId = info.HardwareFingerprint;
             info.Brand = "ASUS";
             info.DeviceName = keyboard ? "ROG STRIX SCOPE II RX" : "ROG PELTA";
             info.Category = keyboard ? DeviceCategory.Keyboard : DeviceCategory.Headset;
-            info.Transport = keyboard ? "USB 有线" : "2.4G 无线";
-            info.IsConnected = keyboard || ready || battery >= 0;
-            info.IsSleeping = !keyboard && !ready && battery >= 0;
-            info.IsDonglePresent = !keyboard;
-            info.IsCharging = !keyboard && ready && charging;
+            info.Transport = (keyboard || isPeltaUsb) ? "USB 有线" : "2.4G 无线";
+            info.IsConnected = keyboard || isPeltaUsb || ready || battery >= 0;
+            info.IsSleeping = !keyboard && !isPeltaUsb && !ready && battery >= 0;
+            info.IsDonglePresent = !keyboard && !isPeltaUsb;
+            info.IsCharging = !keyboard && (ready || isPeltaUsb) && charging;
             info.BatteryPercent = keyboard ? -1 : battery;
             info.ExactBatteryPercent = info.BatteryPercent;
             info.LastUpdated = updated;
-            info.CustomTooltip = keyboard ? "USB 有线键盘，无电池" : (!ready ? "接收器在位；耳机状态未确认，显示最后真实电量" : null);
+            info.CustomTooltip = keyboard
+                ? "USB 有线键盘，无电池"
+                : (isPeltaUsb
+                    ? (!ready ? "USB 有线连接；耳机电量未确认" : null)
+                    : (!ready ? "接收器在位；耳机状态未确认，显示最后真实电量" : null));
             return info;
+        }
+
+        private static DeviceState EnsureDeviceState(string key)
+        {
+            DeviceState state;
+            if (!states.TryGetValue(key, out state))
+            {
+                state = new DeviceState();
+                states.Add(key, state);
+            }
+            return state;
         }
 
         public static List<MouseBatteryInfo> QueryAllAsusDevices()
@@ -151,34 +176,71 @@ namespace RazerBatteryTray
             {
                 List<MouseBatteryInfo> result = new List<MouseBatteryInfo>();
                 List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorId, 0);
-                HashSet<int> seen = new HashSet<int>();
+                HidDeviceDescriptor peltaUsb = null;
+                HidDeviceDescriptor peltaDongle = null;
+                bool scopeAdded = false;
+
                 foreach (HidDeviceDescriptor descriptor in descriptors)
                 {
-                    if (!IsSupportedEndpoint(descriptor) || !seen.Add(descriptor.ProductId)) continue;
+                    if (!IsSupportedEndpoint(descriptor)) continue;
                     if (descriptor.ProductId == ScopeIIRxPid)
                     {
-                        result.Add(BuildDeviceInfo(descriptor, -1, false, true, DateTime.Now));
-                        continue;
+                        if (!scopeAdded)
+                        {
+                            scopeAdded = true;
+                            result.Add(BuildDeviceInfo(descriptor, -1, false, true, DateTime.Now));
+                        }
                     }
-                    DeviceState state;
-                    if (!states.TryGetValue(descriptor.DevicePath, out state))
+                    else if (descriptor.ProductId == PeltaUsbPid && peltaUsb == null)
                     {
-                        state = new DeviceState();
-                        states.Add(descriptor.DevicePath, state);
+                        peltaUsb = descriptor;
                     }
-                    int elapsed = unchecked(Environment.TickCount - state.QueryTick);
-                    if (!state.HasQueried || elapsed < 0 || elapsed >= QueryIntervalMs)
+                    else if (descriptor.ProductId == PeltaReceiverPid && peltaDongle == null)
                     {
-                        try { ReadState(descriptor, state); }
-                        catch { state.Ready = false; state.Charging = false; state.ChargingKnown = false; }
-                        state.QueryTick = Environment.TickCount;
-                        state.HasQueried = true;
+                        peltaDongle = descriptor;
                     }
-                    MouseBatteryInfo info = BuildDeviceInfo(descriptor, state.Battery, state.Charging, state.Ready, state.LastUpdated);
-                    info.IsChargingUnknown = state.Ready && !state.ChargingKnown;
+                }
+
+                // 双形态仲裁：插上 USB 充电线 (0x1B82) 时优先读取耳机本体端点，拔线后平滑回落 2.4G 接收器 (0x1B84)
+                HidDeviceDescriptor activePelta = null;
+                DeviceState peltaState = EnsureDeviceState("ASUS:0B05:1B84:PELTA");
+                if (peltaUsb != null)
+                {
+                    int usbElapsed = unchecked(Environment.TickCount - peltaState.QueryTick);
+                    if (!peltaState.HasQueried || usbElapsed < 0 || usbElapsed >= QueryIntervalMs || peltaDongle != null)
+                    {
+                        try { ReadState(peltaUsb, peltaState); }
+                        catch { peltaState.Ready = false; peltaState.Charging = false; peltaState.ChargingKnown = false; }
+                        peltaState.QueryTick = Environment.TickCount;
+                        peltaState.HasQueried = true;
+                    }
+                    if (peltaState.Ready || peltaDongle == null)
+                    {
+                        activePelta = peltaUsb;
+                    }
+                }
+
+                if (activePelta == null && peltaDongle != null)
+                {
+                    activePelta = peltaDongle;
+                    int dongleElapsed = unchecked(Environment.TickCount - peltaState.QueryTick);
+                    if (!peltaState.HasQueried || dongleElapsed < 0 || dongleElapsed >= QueryIntervalMs || peltaUsb != null)
+                    {
+                        try { ReadState(peltaDongle, peltaState); }
+                        catch { peltaState.Ready = false; peltaState.Charging = false; peltaState.ChargingKnown = false; }
+                        peltaState.QueryTick = Environment.TickCount;
+                        peltaState.HasQueried = true;
+                    }
+                }
+
+                if (activePelta != null)
+                {
+                    MouseBatteryInfo info = BuildDeviceInfo(activePelta, peltaState.Battery, peltaState.Charging, peltaState.Ready, peltaState.LastUpdated);
+                    info.IsChargingUnknown = peltaState.Ready && !peltaState.ChargingKnown;
                     if (info.IsChargingUnknown) info.CustomTooltip = "电量已读取；充电状态未知";
                     result.Add(info);
                 }
+
                 return result;
             }
         }

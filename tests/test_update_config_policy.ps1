@@ -28,7 +28,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempDll)) {
 }
 
 try {
-    $assembly = [System.Reflection.Assembly]::LoadFrom($tempDll)
+    $assembly = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($tempDll))
     $configMgrType = $assembly.GetType("RazerBatteryTray.ConfigManager")
     if ($null -eq $configMgrType) {
         Write-Error "FAIL: RazerBatteryTray.ConfigManager type not found!"

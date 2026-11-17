@@ -45,6 +45,7 @@ namespace RazerBatteryTray
         public const int PidCloud3Wireless = 0x05B7;     // 飓风3无线版接收器
         public const int PidCloud3WirelessAlt = 0x0C9D;  // 飓风3无线版接收器（批次变体）
         private const int PidCloud3SWireless = 0x06BE;   // 飓风3S无线接收器：报文协议不同，显式排除
+        private const int PidCloud3SWirelessAlt = 0x02CC; // 飓风3S无线接收器（另一批次）：由 HyperXCloud3SHelper 独占
 
         private const int ReadBudgetMs = 240;            // 单次轮询读取总预算
         private const int SingleReadTimeoutMs = 120;     // 单报文读取等待上限
@@ -383,7 +384,8 @@ namespace RazerBatteryTray
                 if (IsSupportedVidPid(attr.VendorID, attr.ProductID)) return 2;
 
                 // 飓风3S 无线接收器使用另一套报文协议，避免误解析
-                if (attr.VendorID == VendorIdHp && attr.ProductID == PidCloud3SWireless) return 0;
+                if (attr.VendorID == VendorIdHp &&
+                    (attr.ProductID == PidCloud3SWireless || attr.ProductID == PidCloud3SWirelessAlt)) return 0;
 
                 // 兼容未知批次 PID：VID 属于 HP 且产品名明确标注 HyperX / Cloud 系列
                 if (attr.VendorID == VendorIdHp)

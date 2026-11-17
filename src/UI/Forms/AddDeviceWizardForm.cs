@@ -3,6 +3,7 @@
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
 //   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
+//   扫描与后台轮询共享端点归属锁；脚本先查询一次，再由内置扫描跳过已接管端点。
 // 依赖关系: Controls.*, Hardware.DeviceManager, Core.ConfigManager, Models.CustomDeviceConfig
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -590,6 +591,10 @@ namespace RazerBatteryTray
             lblTestStatus.Text = "正在检索在线 2.4G 接收器、HID 外设与蓝牙设备...";
 
             ThreadPool.QueueUserWorkItem((state) => {
+                lock (HardwareDriverRegistry.ScanSyncRoot)
+                {
+                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+                var scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
                 var tempConfigs = new List<CustomDeviceConfig>();
                 var existingConfigs = DeviceManager.LoadCustomDevices();
 
@@ -661,6 +666,31 @@ namespace RazerBatteryTray
                             HardwareFingerprint = rp.DeviceId
                         };
                         tempConfigs.Add(cfg);
+                    }
+                }
+                catch { }
+
+                // 2.1 Scan Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
+                try
+                {
+                    var rpOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                    if (rpOffice != null && (rpOffice.IsConnected || rpOffice.IsDonglePresent))
+                    {
+                        if (!tempConfigs.Exists(c => c.DeviceId == rpOffice.DeviceId ||
+                            (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == rpOffice.HardwareFingerprint)))
+                        {
+                            var cfg = new CustomDeviceConfig
+                            {
+                                DeviceId = rpOffice.DeviceId,
+                                OriginalName = rpOffice.DeviceName,
+                                CustomName = resolveCustomName(rpOffice.DeviceId, rpOffice.DisplayName, rpOffice.DeviceName),
+                                Category = resolveCategory(rpOffice.DeviceId, DeviceCategory.Mouse),
+                                Transport = "2.4G 无线",
+                                CachedBattery = rpOffice.BatteryPercent,
+                                HardwareFingerprint = rpOffice.HardwareFingerprint
+                            };
+                            tempConfigs.Add(cfg);
+                        }
                     }
                 }
                 catch { }
@@ -748,9 +778,34 @@ namespace RazerBatteryTray
                 }
                 catch { }
 
-                // 2.55 Scan Logitech Devices (Lightspeed / Unifying / Nano / Wired)
+                // 2.55 Scan Logitech Devices (MR0097 first so exclusive endpoints are skipped, then Lightspeed / Unifying / Nano / Wired)
+                List<MouseBatteryInfo> mr0097List = null;
                 try
                 {
+                    mr0097List = LogitechMr0097Helper.QueryDevices();
+                    if (mr0097List != null)
+                    {
+                        foreach (var dev in mr0097List)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId))
+                                {
+                                    var cfg = new CustomDeviceConfig
+                                    {
+                                        DeviceId = dev.DeviceId,
+                                        OriginalName = dev.DeviceName,
+                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                        Category = resolveCategory(dev.DeviceId, dev.Category),
+                                        Transport = dev.Transport ?? "Lightspeed 无线",
+                                        CachedBattery = dev.BatteryPercent,
+                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                    };
+                                    tempConfigs.Add(cfg);
+                                }
+                            }
+                        }
+                    }
                     var logiList = LogitechDeviceHelper.QueryAllLogitechDevices();
                     if (logiList != null)
                     {
@@ -873,7 +928,6 @@ namespace RazerBatteryTray
                 // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins)
                 try
                 {
-                    CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
                     var fdasList = FdasRuntimeHelper.QueryAllFdasDevices();
                     if (fdasList != null)
                     {
@@ -906,7 +960,11 @@ namespace RazerBatteryTray
                         {
                             var drv = drivers[di];
                             if (drv == null) continue;
-                            var dList = drv.QueryDevices();
+                            var dList = drv.IsExternalPackage && drv.Priority >= 300 && !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)
+                                ? scriptDevices.FindAll(d => string.Equals(d.DriverId, drv.DriverId, StringComparison.OrdinalIgnoreCase))
+                                : (string.Equals(drv.DriverId, LogitechMr0097Helper.DriverKey, StringComparison.OrdinalIgnoreCase) && mr0097List != null
+                                    ? mr0097List
+                                    : drv.QueryDevices());
                             if (dList == null) continue;
                             for (int k = 0; k < dList.Count; k++)
                             {
@@ -1010,6 +1068,7 @@ namespace RazerBatteryTray
                     }));
                 }
                 catch { }
+                }
             });
         }
 
@@ -1190,6 +1249,12 @@ namespace RazerBatteryTray
                 case 0x0C45: return "松翰 / 黑爵 (AJAZZ)";
                 case 0x258A: return "赛诺伟思 / 达摩鲨 (Darmoshark) / 多彩 (Delux)";
                 case 0x24AE: return "雷柏 (Rapoo)";
+                case 0x25A7:
+                {
+                    string ironcatCombined = ((prodStr ?? "") + " " + (mfgStr ?? "")).ToLowerInvariant();
+                    if (ironcatCombined.Contains("ironcat")) return "因科特 (Ironcat)";
+                    return "Attack Shark / 康普讯公版 (Compx OEM)";
+                }
                 case 0x3554:
                     if (!string.IsNullOrEmpty(prodStr) || !string.IsNullOrEmpty(mfgStr))
                     {

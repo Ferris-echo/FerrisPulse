@@ -29,7 +29,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempDll)) {
 }
 
 try {
-    $assembly = [System.Reflection.Assembly]::LoadFrom($tempDll)
+    $assembly = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($tempDll))
     $formType = $assembly.GetType("RazerBatteryTray.UpdateNoticeForm")
     if ($null -eq $formType) {
         Write-Error "FAIL: RazerBatteryTray.UpdateNoticeForm type not found!"

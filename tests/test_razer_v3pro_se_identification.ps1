@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $asmPath = Join-Path $PSScriptRoot "..\FerrisPulse.exe"
 if (-not (Test-Path $asmPath)) { $asmPath = "FerrisPulse.exe" }
 $fullPath = (Resolve-Path $asmPath).Path
-$asm = [System.Reflection.Assembly]::LoadFile($fullPath)
+$asm = [System.Reflection.Assembly]::Load([System.IO.File]::ReadAllBytes($fullPath))
 
 $tRazer = $asm.GetType("RazerBatteryTray.RazerDeviceHelper")
 if ($tRazer -eq $null) {

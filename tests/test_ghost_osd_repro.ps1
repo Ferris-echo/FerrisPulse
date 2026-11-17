@@ -1,5 +1,7 @@
 ﻿# Regression test for Ghost OSD Popup bug
 # Root cause: Missing packet class/id validation and unvalidated stage values in Razer FastQueryDpi & DpiMonitorWorker
+# ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+$ErrorActionPreference = 'Stop'
 $currentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $currentDir
 $exePath = Join-Path $root "FerrisPulse.exe"
@@ -10,11 +12,9 @@ $rdh = $asm.GetType('RazerBatteryTray.RazerDeviceHelper')
 $mQuery = $rdh.GetMethod('QueryAllRazerDevices', [System.Reflection.BindingFlags]'Static,Public')
 $devs = $mQuery.Invoke($null, @())
 
-$methods = $rdh.GetMethods([System.Reflection.BindingFlags]'Static,Public')
-$mFast = $null
-foreach ($m in $methods) {
-    if ($m.Name -eq 'FastQueryDpi') { $mFast = $m; break; }
-}
+$parameterTypes = [Type[]]@([int].MakeByRefType(), [int].MakeByRefType(), [int].MakeByRefType(), [string])
+$mFast = $rdh.GetMethod('FastQueryDpi', [System.Reflection.BindingFlags]'Static,Public', $null, $parameterTypes, $null)
+if ($null -eq $mFast) { throw 'Missing FastQueryDpi(out dpi, out stage, out count, deviceId) overload' }
 
 $lastMonitoredRazerDpis = @{}
 $lastMonitoredRazerStages = @{}

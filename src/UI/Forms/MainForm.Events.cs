@@ -426,7 +426,22 @@ namespace RazerBatteryTray
 
             string devId = targetMouse.DeviceId ?? "";
 
-
+            // 精确到型号：只要设备标识与原始输入路径都能解析出 VID/PID，就必须同厂商同型号才算本设备，
+            // 防止「本卡片设备已关机，挪动另一只同厂鼠标」把异设备活动算到当前卡片头上。
+            int devVid, devPid, pathVid, pathPid;
+            bool hasDevIds = HardwareDriverBase.TryExtractVidPidFromString(devId, out devVid, out devPid);
+            if (!hasDevIds) hasDevIds = HardwareDriverBase.TryExtractVidPidFromString(targetMouse.HardwareId, out devVid, out devPid);
+            bool hasPathIds = HardwareDriverBase.TryExtractVidPidFromString(path, out pathVid, out pathPid);
+            if (hasDevIds && hasPathIds)
+            {
+                if (devVid != pathVid) return false;
+                if (devVid == 0x1532 &&
+                    RazerDeviceHelper.NormalizeRazerPid(devPid) == RazerDeviceHelper.NormalizeRazerPid(pathPid))
+                {
+                    return true;
+                }
+                return devPid == pathPid;
+            }
 
             if (brand.Equals("Razer", StringComparison.OrdinalIgnoreCase) || devId.IndexOf("1532", StringComparison.OrdinalIgnoreCase) >= 0)
 
@@ -542,6 +557,22 @@ namespace RazerBatteryTray
 
 
 
+        private void QueuePassiveWakeRefresh(int delayMs)
+        {
+            if (isPassiveWakePollingQueued) return;
+            isPassiveWakePollingQueued = true;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(delayMs);
+                isPassiveWakePollingQueued = false;
+                try
+                {
+                    this.BeginInvoke(new Action(() => RefreshBatteryStatus(false)));
+                }
+                catch { }
+            });
+        }
+
         private void HandleMouseWakeInput(IntPtr hRawInput)
 
         {
@@ -552,7 +583,9 @@ namespace RazerBatteryTray
 
                 var cur = selectedDevice ?? lastInfo;
 
-                if (cur == null || !cur.IsConnected) return;
+                if (cur == null) return;
+
+                bool curOnline = cur.IsConnected;
 
 
 
@@ -654,7 +687,7 @@ namespace RazerBatteryTray
 
 
 
-                            bool wasSleeping = cur.IsSleeping || isMouseSleeping;
+                            bool wasSleeping = curOnline && (cur.IsSleeping || isMouseSleeping);
 
                             bool wasDpiSleeping = isDpiMonitorSleeping;
 
@@ -692,36 +725,12 @@ namespace RazerBatteryTray
 
                                 catch { }
 
+                                QueuePassiveWakeRefresh(800);
 
-
-                                if (!isPassiveWakePollingQueued)
-
-                                {
-
-                                    isPassiveWakePollingQueued = true;
-
-                                    ThreadPool.QueueUserWorkItem(_ =>
-
-                                    {
-
-                                        Thread.Sleep(800);
-
-                                        isPassiveWakePollingQueued = false;
-
-                                        try
-
-                                        {
-
-                                            this.BeginInvoke(new Action(() => RefreshBatteryStatus(false)));
-
-                                        }
-
-                                        catch { }
-
-                                    });
-
-                                }
-
+                            }
+                            else if (!curOnline)
+                            {
+                                QueuePassiveWakeRefresh(120);
                             }
 
 

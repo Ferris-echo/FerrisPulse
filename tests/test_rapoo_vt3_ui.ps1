@@ -31,7 +31,7 @@ try {
     $info.DpiStages=[int[]]@(400,800,1200,1600,3200,6400); $info.DpiStagesY=[int[]]@(400,800,1200,1600,3200,6400)
     [void]$t.GetMethod('UpdateUI',$flags).Invoke($f,@($info,$false))
     $buttons=Control 'btnDpiStages'
-    Assert ($buttons.Length -eq 6 -and $buttons[5].Text -eq '6400') 'Sixth hardware DPI stage missing from main UI'
+    Assert ($buttons.Length -ge 6 -and $buttons[5].Text -eq '6400') 'Sixth hardware DPI stage missing from main UI'
     Assert ($buttons[3].Selected -and !$buttons[2].Selected) '1600 DPI status highlighted the wrong hardware stage'
     $dialogType=$a.GetType('RazerBatteryTray.DpiManagementDialog')
     $capType=$a.GetType('RazerBatteryTray.RazerDeviceHelper+RazerDpiCapability')

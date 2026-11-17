@@ -509,9 +509,24 @@ namespace RazerBatteryTray
 
             int lastRightX = delX;
 
-            // 4. Battery / Status Pill before Delete Button
-            string battStr = item.IsConnected ? (item.Battery + "%") : (item.Battery > 0 ? (item.Battery + "% 离线") : "离线");
-            Color battColor = item.IsConnected ? item.AccentColor : Color.FromArgb(140, 145, 155);
+            // 4. Battery / Status Pill before Delete Button (三态：离线 / 待机 / 在线)
+            string battStr;
+            Color battColor;
+            if (!item.IsConnected)
+            {
+                battStr = item.Battery > 0 ? (item.Battery + "% 离线") : "离线";
+                battColor = Color.FromArgb(140, 145, 155);
+            }
+            else if (item.IsSleeping)
+            {
+                battStr = item.Battery > 0 ? (item.Battery + "% 待机") : "待机";
+                battColor = Color.FromArgb(120, 150, 195);
+            }
+            else
+            {
+                battStr = item.Battery > 0 ? (item.Battery + "%") : "--";
+                battColor = item.AccentColor;
+            }
             int battX = lastRightX;
             using (var battFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.8F, FontStyle.Bold, DpiScale))
             {

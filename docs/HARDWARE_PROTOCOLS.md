@@ -66,6 +66,12 @@
   - 仅暴露 `UsagePage 0xFF02 / Usage 0x0002` 的 **17/17 字节 Interrupt 端点**（`FeatureReportByteLength == 0`）。
   - **严禁在 `WriteFile` 前执行 `DrainReports`**，否则会打断 8K 接收器与鼠标的无线握手状态机。
   - 发送 `08 04 00 ... 49`（Beken `0x55` 校验和），读取 `08 04 00 00 00 02 <batt> <chg> <mv_hi> <mv_lo> ...`。
+- **ATK A9 Ultimate (`373B:11D9`, PR #80, 贡献者 `@ertutio`)**:
+  - `373B:11D9` 为共享接收器：先读取上述 `0x04` 电量，再发 `08 10 00 ... 3D` 查询 CID/MID；仅当 17 字节回复格式/状态/`0x55` 校验有效且 `CID=1, MID=3` 时显示为 `ATK A9 Ultimate`，否则保持 F1 Ultimate 2.0 路径。
+- **PMO WAVE75 蓝牙 (PR #80, 贡献者 `@ertutio`)**: 按蓝牙设备名 `WAVE75` / `WAVE 75` 归类为键盘，沿用标准蓝牙电量读取路径。
+- **ATK A87 PRO 三模键盘 (`373B:111F`, `AtkA87ProHelper.cs`, PR #93, 贡献者 `@gallopcsy`)**:
+  - `UsagePage 0xFF60 / Usage 0x0061` 33 字节中断端点（禁在 `WriteReport` 前 `DrainReports`，写超时需 `400ms`）。
+  - 查询 `00 02 96 24`，回复 `00 02 96 24 <pct> <status>`（`status & 0x01` 为充电标志；`pct==0 && status==0` 为休眠帧须丢弃）。`UniversalGamingDeviceHelper` 按 `pid_111f` 排除。
 
 ### 1.6 迈从 (MCHOSE) A5 V2 Ultra 鼠标与 G87 V2 键盘
 - **A5 V2 Ultra (`MchoseMouseHelper.cs`)**：
@@ -158,3 +164,63 @@
    - **协议**: 帧头 `2E AA EC <cmd> <len_hi> <len_lo>`，载荷逐字节 `XOR 0xA5` 掩码，校验和为从下标 1 起算的 8 位累加和。
    - **指令**: `0xD0` 读电量（`0x86 ^ 0xA5 = 35%`）、`0xC9` 读 UTF-8 名称、`0xC6` 固件版本。
    - **注意**: 2.4G 无线模式下一旦接充电线会被设备端硬件强制关机，诚实缺省 `isCharging = false`，不臆造充电标志。
+8. **华硕 ROG AZOTH 96 HE / DELTA II 系列 (`AsusDeviceHelper.Rog.cs`)**（B站社区贡献者 **“工程机风格”** 贡献）:
+   - **通道与四元组隔离 (`VID=0x0B05`, `UsagePage=0xFF00 / Usage=0x0001`)**:
+     - `0x1AD0` (**ROG AZOTH 96 HE Wireless**, SpeedNova 8K 接收器 `mi_02&col02`): `64/64B`，Report ID `0x02`（注意避开接收器上的鼠标槽 `0xFF01/0x0001`）。
+     - `0x1AFA` (**ROG DELTA II 2.4GHz** 耳机, `mi_03&col04`): `64/64B`，Report ID `0xCC`（复用 PELTA 同族 `{CC 12 07}` 电量、`{CC 12 08}` 充电查询）。
+     - `0x1C10` (**ROG AZOTH 96 HE** USB 有线, `mi_01`): `65/65B`，Report ID `0x00`。
+   - **Azoth 96 HE 报文**:
+     - 就绪探测 `{rid 12 00}`：`RX[5] != 0xFA`；注意 `1AD0` 接收器在位时即使键盘已切至有线/蓝牙仍回 `RX[5]=0x01`，不可单凭就绪帧判在线。
+     - 电量/充电 `{rid 12 01}`：`RX[5]==0 && RX[6]<=100 && RX[9]<=1`，电量在 `RX[6]`，充电位 `RX[9]==1`（`RX[12]` 为动态电流类漂移值，非电量）；休眠/切换待机帧为 `02 FF AA`。
+   - **三通道在线仲裁**: 仅当 USB 有线通道读到真实电量/充电响应，或蓝牙键盘（`BT_`）在线且电量 `>=0` 时，按型号归一化包含匹配将同型号 2.4G 条目置为离线休眠（避免仅插线充电时误压制）。
+9. **DS5Dongle LCT616-DS5 3.22H (`054C:0CE6`, `Ds5DongleDeviceHelper.cs`, PR #86, 贡献者 `@Go2Heart`)**:
+   - 精确匹配 `054C:0CE6` / `UsagePage 1 / Usage 5` / `In=64 Out=48 Feat=128`。
+   - 只读 `HidD_GetFeature` `0xF8` 严格校验固件串 `LCT616-DS5 3.22H` 后读取 `0xF9`：`byte[12]` 为 10% 硬件档位电量，`byte[13]` 为状态（0 放电 / 1 充电 / 2 满电），`0xFF` 判为未知，绝不发送写指令。
+10. **HyperX Cloud III S Wireless (`03F0:02CC` / `06BE`, `HyperXCloud3SHelper.cs`, PR #83, 贡献者 `@afwfv`)**:
+   - 精确锁定 `UsagePage 0x01C0 / Usage 0x0001 / 64B` 端点（隔离 `0xFF13/62B` 固件端点与 `0x170F/8B` 按键端点）。
+   - 查询 `0C 02 03 01 00 06 00`，回复 `0C 02 03 01 00 06 <pct> <f1> <f2>`；充电事件 `0D 02 03 00 0A <state>` 带 10 分钟时效窗口，超时降级为未知。
+11. **公版 CompX 2.4G 无线键盘 (`05AC:024F`, `CompxWirelessKeyboardHelper.cs`, PR #83, 贡献者 `@afwfv`)**:
+   - 借用 Apple VID/PID，通过产品串 `"2.4G Wireless Receiver"` 与 `GanssDeviceHelper` 隔离；走 `UsagePage 0xFF60 / Usage 0x0061 / 33B`（避开 `65B` 配置通道），查询 `00 20 01 ... 21`，回复 `byte[4]` 为电量。
+12. **北通 BTP-KP20D XINPUT 手柄 (`20BC:5159`, `BeitongDeviceHelper.cs`, PR #93, 贡献者 `@gallopcsy`)**:
+   - 纯推送式 `UsagePage 0x00FF / Usage 0x0003 / 64B` 中断端点，帧头 `02 15`，`byte[2]` 为电量、`byte[4] & 0x01` 为充电位。
+13. **迈从 V9 Turbo+ 无线耳机 (`3837:600A`, `MchoseHeadsetHelper.cs`, PR #93, 贡献者 `@gallopcsy`)**:
+   - 请求-应答式 `UsagePage 0xFF90 / Usage 0x0001 / 64B`，查询 `55 65 01`，回复 `55 65 <pct> <status>`；`55 65 00 1A` 为链路降级帧而非充电位，必须整帧丢弃并回退缓存，不声明充电位。
+
+## Logitech G PRO X SUPERLIGHT 2（MR0097）实机记录（`LogitechMr0097Helper.cs`, PR #90, 贡献者 `@GaiusC`）
+
+内置驱动 `BuiltIn:LogitechMR0097`（`Priority 100`，允许 `External` `Priority 300` 热覆盖），专属接管接收器无其余设备时屏蔽 `LogitechDeviceHelper` 重复访问。2026-11-09 迁移实测首次 `ROOT/0003` 回复延迟 1059ms，后续查询 7ms；身份发现允许 2000ms 有界冷启动等待，其余命令保持 500ms 短超时，写指令不自动重发。多接收器命令端点按完整 HID 路径与槽位保存。
+
+接收器为 `046D:C54D`（配对槽位 1/2），有线为 `046D:C09B`（直连地址 `FF`）。两种传输均使用 `FF00/0002`、Input/Output/Feature 长度 `20/20/0` 的 HID++ 长报告端点，通过特性 `0003` 读到型号标识 `40 A9 C0 9B 00 00`。无线写操作前重新检查此标识。以下为 `@GaiusC` 提供的社区实机采样（特性索引动态发现，省略末尾零填充）：
+
+| 查询 | 实机响应与解释 |
+|---|---|
+| `1004` Unified Battery，函数 1 | 无线 `11 01 06 19 59 08 00 00` 为 89% 放电；有线 `11 FF 06 19 3C 04 01 01` 为 60% 充电；拔线后 `11 01 06 19 3E 04 00 00` 为 62% 放电。偏移 4 为百分比，5 为等级，6 为充电状态。 |
+| `2202` 扩展 DPI，函数 5 | `11 01 09 59 00 06 40 03 20 06 40 03 20 02`。当前 X/Y 分别位于偏移 5 和 9（大端），均为 1600。偏移 7 和 11 均为默认 800。 |
+| `8061` 回报率，函数 2 | 无线参数 01，有线参数 00。返回索引 03 表示 1000 Hz。无线尝试设置 500 Hz 收到 HID++ 错误 02；扩展 DPI 尝试设置 1600 × 1650 收到错误 05（只读能力 `SupportsDpiWrite = false`, `SupportsPollingRateWrite = false`）。 |
+| `8100` 板载档位 | 模式 01、布局版本 07。函数 4 读当前扇区，函数 5 读偏移 0、16 的两块。档位表从偏移 4 起，每档 5 字节（小端 X、小端 Y、LOD），读到 800、1200、1600、2400、3200。函数 B 读零基索引，函数 C 选择已有档位，切换后双端回读核验索引和双轴 DPI。 |
+
+驱动仅对已识别无线设备和已验证的 5 档板载布局开放切换（`SupportsDpiStages`），选择前重读档表并保持原表数值不变。协议对照见 [Solaar 同型号硬件记录](https://github.com/pwr-Solaar/Solaar/issues/2207) 与 [libratbag 板载档位命令](https://github.com/libratbag/libratbag/blob/master/src/hidpp20.c)。
+
+## Keychron M6 via Link-KM / USB（`KeychronM6Helper.cs`, PR #90, 贡献者 `@GaiusC`）
+
+接收器为 `3434:D026`（Keychron Link-KM，`MI_01/COL02`），有线为 `3434:D060`（`MI_04`），均限定 `FFC1/0001`、Input/Output/Feature `64/64/0` 专用控制端点。`UniversalGamingDeviceHelper` 显式排除这两个 PID，且仅接受完成 `B5 02` 身份握手的端点。协议源于官方 Keychron Launcher `main.281a047df556abfc.js`（Win32 完整帧含首字节 Report ID）：
+
+| 操作 | TX | RX |
+| --- | --- | --- |
+| 配对鼠标身份（target 1） | `B5 02 01` | `B6 02 04 00 34 34 60 D0 03 01 11` |
+| 接收器身份（target 0） | `B5 02 00` | `B6 02 02 00 34 34 26 D0 03 01 01` |
+| USB 鼠标身份（target 0） | `B5 02 00` | `B6 02`，偏移 4–7 为 `34 34 60 D0` |
+| 电量与状态 | `B3 06` | `B4 06 ...` 偏移 20：`56h` (86% 放电)、`D0h` (80% 充电)、`D6h` (86% 充电)、`5Ch` (92% 放电) |
+
+低七位为百分比，最高位 (`0x80`) 为经 2026-11-09 实测确认的充电标志。读取超时回退同路径 `DriverStateStore` 缓存并标记休眠/充电未知；通过 `PhysicalUnitId` 与 `HKCU\Software\FerrisPulse\Keychron\WiredReceivers` 关联同实物有线与无线状态，实时优先于休眠，有线优先于接收器。能力仅开放电量 (`SupportsBattery = true`)，DPI/回报率保持禁用。
+
+## 社区批次集成协议摘要 (PR #55 / #61 / #63 / #64 / #71 / #75 / #76 / #85)
+
+1. **雷柏 VT 系列 2.4G (`24AE:1851`, `RapooVt1851DeviceHelper.cs`, PR #76, `@ysy41527624`)**：`UsagePage 0xFF00 / Usage 0x0E` 32 字节配置帧 `BA A5 <cmd>` + `HidD_GetInputReport` 回读，`BB B0 02` 周期状态推送；支持 7 档 DPI (`0x888`)、125–8000Hz (`0x880`) 及电量/充电状态。
+2. **雷柏 MT760 办公系列 (`24AE:1870`, `RapooDeviceHelper.MT760.cs`, PR #75, `@yangziyu1230`)**：`UsagePage 0xFF00 / Usage 0x0E` 32B，`BA A5 AA` 读取电量与 `0x02` 充电位，支持 50–4000 DPI（7 档）及 125–1000Hz。
+3. **VGN V108 2.4G 键盘 (`391D:2A02`, `VgnKeyboardHelper.cs`, PR #71, `@SnivyJ`)**：`UsagePage 0xFF02 / Usage 0x0002` 20B 中断通道，0x13 帧族（`0x4A` 电量与高半字节充电位、`0x05` 型号码 `0x30`），末字节 8 位累加和。
+4. **美商海盗船 HS80 MAX (`1B1C:0A97/0A96`) 与 M75 AIR (`1B1C:1BDC/1BF2`, `CorsairDeviceHelper*.cs`, PR #85, `@limuxi10086`)**：Bragi 65B 协议（通用游戏引擎显式排除 `0A97/0A96/1BDC`），HS80 MAX 只读电量，M75 AIR 支持电量与 DPI/XY/回报率控制。
+5. **迈从 G98V2 (`41E4:2004`) / G7 (`A8A5:2255`) 与水月雨 GM-01 PRO (`35D8:0133`, PR #64, `@xinyulan810`)**：G98V2 复用 20B SINOWEALTH `0x13/0x4A` 帧（型号字节 `0x18`）；G7 走 `00 55 30 A5` 65B WebHID 帧；GM-01 PRO 走 `0x0C/0x0001` 64B `4B 80 27 00` 并由 `GenericHidHelper` 按专属设备排除。
+6. **VGN N75 PRO (`320F:5088`, PR #63, `@ZoveD`)、VGN V98 PRO (`320F:5088`, PR #61, `@747891392`) 与 LEOBOG GM5 PRO (`04F3:026F`, PR #63, `@ZoveD`)**：`320F:5088` 按产品串在 ATK V75X / VGN V98 PRO / VGN N75 PRO 间严格互斥；GM5 PRO 走 `0x000A/0x0000` 32B 推送帧（`[1]=awake`, `[4]=pct`）。
+7. **Endgame Gear XM2we (`3367:1961`, `EndgameGearDeviceHelper.cs`, PR #61, `@747891392`)**：双端点 Beken（Feature `0x08` TX / Interrupt IN `0x09` RX，`0x55` 校验和），通用游戏引擎已移出 `VID_ENDGAME_GEAR`。
+8. **因科特 Ironcat Zero (`25A7:FA7C`)、KZZI K75 (`3554:FA09` 指纹避让) 与 BLE Xbox 手柄 (`045E:0B13`, PR #55, `@Luoxia992`)**：`25A7:FA7C` 走 17B `0x09 0x04` 电量/毫伏（校验和 `0x55 - sum(0..15)`）；`3554:FA09` 先检测 KZZI `0x05` 指纹防误标为 G75 PRO；`BleDeviceHelper` 统一暴露 Xbox BLE (`0x180F`) 等蓝牙电量卡片。

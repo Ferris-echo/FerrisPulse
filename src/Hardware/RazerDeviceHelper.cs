@@ -167,10 +167,15 @@ namespace RazerBatteryTray
             return GetRazerDeviceCategory(pid, productName) == DeviceCategory.Keyboard;
         }
 
+        private const int LinkDownOfflineThreshold = 2;
+
         public static MouseBatteryInfo CreateFallbackDeviceInfo(string normId, int curPid, string resolvedModelName, bool isDongle, RazerDeviceHardwareState stState)
         {
             DeviceCategory devCategory = GetRazerDeviceCategory(curPid, resolvedModelName);
             bool isNonBatteryDevice = (devCategory == DeviceCategory.Keyboard || devCategory == DeviceCategory.Headset);
+            int linkDownStreak = (stState != null) ? stState.ConsecutiveLinkDown : 0;
+            // 只对 2.4G 接收器通道判定链路丢失：有线通道不存在关机，0x04 多为命令不支持
+            bool linkLost = isDongle && linkDownStreak >= LinkDownOfflineThreshold;
 
             int cachedPct;
             double cachedExact;
@@ -188,7 +193,7 @@ namespace RazerBatteryTray
             else
             {
                 // 鼠标等无线设备待机防抖决策
-                cachedPct = (stState != null && stState.BatteryPercent > 0) ? stState.BatteryPercent : (CachedBatteryPercent > 0 ? CachedBatteryPercent : 50);
+                cachedPct = (stState != null && stState.BatteryPercent > 0) ? stState.BatteryPercent : (CachedBatteryPercent > 0 ? CachedBatteryPercent : (linkLost ? -1 : 50));
                 cachedExact = (stState != null && stState.ExactBatteryPercent > 0) ? stState.ExactBatteryPercent : (CachedExactBatteryPercent > 0 ? CachedExactBatteryPercent : (double)cachedPct);
                 
                 bool isActuallySleeping = false;
@@ -204,8 +209,13 @@ namespace RazerBatteryTray
                     isActuallySleeping = true;
                 }
 
-                isSleeping = isActuallySleeping;
+                isSleeping = linkLost ? false : isActuallySleeping;
                 transport = isDongle ? "2.4G 无线" : "USB 有线";
+                if (linkLost && cachedPct <= 0)
+                {
+                    cachedPct = -1;
+                    cachedExact = 0.0;
+                }
             }
 
             string dName = !string.IsNullOrEmpty(resolvedModelName) && !resolvedModelName.Equals("Razer Mouse", StringComparison.OrdinalIgnoreCase)
@@ -217,7 +227,7 @@ namespace RazerBatteryTray
                 DeviceId = normId,
                 Brand = "Razer",
                 Category = devCategory,
-                IsConnected = true,
+                IsConnected = !linkLost,
                 IsSleeping = isSleeping,
                 IsDonglePresent = isDongle,
                 Transport = transport,
@@ -1226,6 +1236,7 @@ namespace RazerBatteryTray
                                                 bool prepended = (caps.FeatureReportByteLength == 91);
                                                 int offset = prepended ? 1 : 0;
                                                 bool querySuccess = false;
+                                                bool linkDownReply = false;
 
                                                 int pct = 0;
                                                 double exactPct = 0.0;
@@ -1252,6 +1263,7 @@ namespace RazerBatteryTray
                                                         if (HidD_GetFeature(handle, resp, resp.Length))
                                                         {
                                                             byte status = resp[offset + 0];
+                                                            if (status == 0x04) linkDownReply = true;
                                                             byte cmdClass = resp[offset + 6];
                                                             byte cmdId = resp[offset + 7];
                                                             byte rawBatt = resp[offset + 9];
@@ -1411,6 +1423,7 @@ namespace RazerBatteryTray
                                                     stState.ActiveTransactionId = successfulTid;
                                                     stState.LastUpdated = DateTime.Now;
                                                     stState.ConsecutiveFailures = 0;
+                                                    stState.ConsecutiveLinkDown = 0;
                                                     stState.LastSuccessfulCommunication = DateTime.Now;
 
                                                     var activeDev = new MouseBatteryInfo
@@ -1458,6 +1471,7 @@ namespace RazerBatteryTray
                                                 else
                                                 {
                                                     stState.ConsecutiveFailures++;
+                                                    if (linkDownReply) stState.ConsecutiveLinkDown++; else stState.ConsecutiveLinkDown = 0;
 
                                                     // Device didn't respond (e.g. asleep or off).
                                                     // Save handle path so wake attempts or FastQueryDpi can reach it.

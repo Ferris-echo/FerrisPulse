@@ -265,7 +265,7 @@ namespace RazerBatteryTray
             lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             cardPerformance.Controls.Add(lblDpiTitle);
 
-            btnDpiStages = new ModernSegmentButton[6];
+            btnDpiStages = new ModernSegmentButton[8];
             for (int i = 0; i < btnDpiStages.Length; i++)
             {
                 int index = i;
@@ -1193,9 +1193,10 @@ namespace RazerBatteryTray
             int gap = (int)(5 * dpiScale);
             int manageBtnW = segH;
 
-            int count = Math.Max(1, Math.Min(btnDpiStages.Length, dpiStageList.Count));
+            int count = Math.Min(btnDpiStages.Length, dpiStageList.Count);
+            if (selectedDevice != null && selectedDevice.SupportsDpiWrite == false && selectedDevice.DpiStageCount == 0) count = 0;
             int remainingW = availableW - manageBtnW - gap;
-            int stageW = (remainingW - (count - 1) * gap) / count;
+            int stageW = (remainingW - (count - 1) * gap) / Math.Max(1, count);
 
             dpiStageValues = dpiStageList.ToArray();
 
@@ -1238,7 +1239,7 @@ namespace RazerBatteryTray
                 }
             }
 
-            btnDpiManage.Visible = true;
+            btnDpiManage.Visible = selectedDevice == null || selectedDevice.SupportsDpiWrite != false;
             btnDpiManage.Location = new Point(dpiStartX + count * (stageW + gap), r1Y);
             btnDpiManage.Size = new Size(manageBtnW, segH);
 
@@ -2090,7 +2091,7 @@ namespace RazerBatteryTray
         private void OpenDpiManagementDialog()
         {
             var curDev = selectedDevice;
-            if (curDev == null) return;
+            if (curDev == null || curDev.SupportsDpiWrite == false) return;
             if (!IsDeviceSupportingAutoGameRate(curDev)) return;
             HardwareDriverRegistry.EnsureCapabilitiesInitialized(curDev);
 
@@ -2377,8 +2378,8 @@ namespace RazerBatteryTray
                     var prioList = DeviceManager.GetPriorityList();
                     activeDevices.Sort(delegate(MouseBatteryInfo a, MouseBatteryInfo b)
                     {
-                        int ia = prioList.IndexOf(a.DeviceId);
-                        int ib = prioList.IndexOf(b.DeviceId);
+                        int ia = DeviceManager.FindPriorityIndex(prioList, a.DeviceId);
+                        int ib = DeviceManager.FindPriorityIndex(prioList, b.DeviceId);
                         if (ia < 0) ia = 9999;
                         if (ib < 0) ib = 9999;
                         return ia.CompareTo(ib);

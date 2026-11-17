@@ -8,7 +8,7 @@
 
 //   将软件内置的所有硬件协议 Helper (Razer, Logitech, Rapoo, Valkyrie, MCHOSE,
 
-//   NuPhy, VGN, Flydigi, Sony, Apple, HyperX, SteelSeries, UniversalGaming)
+//   NuPhy, VGN, Flydigi, Sony, Apple, HyperX, SteelSeries, ASUS, UniversalGaming)
 
 //   封装为标准 IHardwareDriver 插件实例 (Priority = 100)，声明真实的
 
@@ -70,9 +70,17 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new RazerHeadsetDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new LogitechMr0097Driver());
+
                 HardwareDriverRegistry.RegisterDriver(new LogitechMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new KeychronM6Driver());
+
                 HardwareDriverRegistry.RegisterDriver(new RapooMouseDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new RapooVt1851MouseDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new RapooOfficeMouseDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new ValkyrieMouseDriver());
 
@@ -90,17 +98,33 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new SonyInzoneDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new Ds5DongleDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new AppleDeviceDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new HyperXHeadsetDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new SteelSeriesHeadsetDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new CorsairHeadsetDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new CorsairMouseDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new AcerMouseDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new IroncatMouseDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new BlePeripheralDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new KzziKeyboardDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new SinoWealthDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new AsusDeviceDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new UniversalGamingDriver());
+
+                HardwareDriverRegistry.RegisterDriver(new EndgameGearDriver());
 
             }
 
@@ -664,6 +688,232 @@ namespace RazerBatteryTray
         {
 
             return RapooDeviceHelper.SetRapooPollingRate(rateHz);
+
+        }
+
+    }
+
+    public sealed class RapooVt1851MouseDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:RapooVt1851Mouse"; } }
+
+        public override string Brand { get { return "Rapoo"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return RapooVt1851DeviceHelper.IsSupportedDevice(vid, pid);
+
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null || dev.DeviceId == null) return false;
+
+            return dev.DeviceId.StartsWith("RapooVT:24AE:1851", StringComparison.OrdinalIgnoreCase);
+
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            RapooVt1851DeviceHelper.PopulateCapabilities(dev);
+
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo info = RapooVt1851DeviceHelper.QueryDevice();
+
+            if (info != null)
+
+            {
+
+                PopulateCapabilities(info);
+
+                list.Add(info);
+
+            }
+
+            return list;
+
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+
+        {
+
+            return RapooVt1851DeviceHelper.FastQueryDpi(dev, out dpiX, out dpiY, out stage, out count);
+
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+
+        {
+
+            return RapooVt1851DeviceHelper.SetDpi(dev, dpiX, dpiY, stage);
+
+        }
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+
+        {
+
+            return RapooVt1851DeviceHelper.UpdateHardwareStages(dev, activeStage, stagesX, stagesY);
+
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+
+        {
+
+            return RapooVt1851DeviceHelper.SetPollingRate(dev, rateHz);
+
+        }
+
+    }
+
+    public sealed class RapooOfficeMouseDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return "BuiltIn:RapooOfficeMouse"; } }
+
+        public override string Brand { get { return "Rapoo"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return vid == 0x24AE && pid == 0x1870;
+
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return false;
+
+            if (dev.DeviceId != null && dev.DeviceId.StartsWith("Rapoo:24AE:1870", StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (dev.HardwareFingerprint != null && dev.HardwareFingerprint.StartsWith("HID:24AE:1870", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = true;
+
+            dev.Capabilities.SupportsDpiStages = true;
+
+            dev.Capabilities.SupportsPollingRate = true;
+
+            // MT760 办公系列每档只有单一 DPI，没有 XY 独立双轴能力，严禁虚标。
+
+            dev.Capabilities.SupportsXyIndependence = false;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = true;
+
+            dev.Capabilities.SupportedPollingRates = new int[] { 125, 250, 500, 1000 };
+
+            dev.Capabilities.MinDpi = 50;
+
+            dev.Capabilities.MaxDpi = 4000;
+
+            dev.Capabilities.DpiStep = 50;
+
+            dev.Capabilities.SensorDescription = "雷柏 MT760 系列办公光学传感器 (50–4,000 DPI，7 档)";
+
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo info = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+
+            if (info != null && (info.IsConnected || info.IsDonglePresent))
+
+            {
+
+                info.Category = DeviceCategory.Mouse;
+
+                PopulateCapabilities(info);
+
+                list.Add(info);
+
+            }
+
+            return list;
+
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+
+        {
+
+            return RapooDeviceHelper.FastQueryOfficeDpi(out dpiX, out dpiY, out stage, out count);
+
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+
+        {
+
+            return RapooDeviceHelper.SetOfficeDpi(dpiX, dpiY, stage);
+
+        }
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+
+        {
+
+            return RapooDeviceHelper.UpdateOfficeHardwareStages(activeStage, stagesX, stagesY);
+
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+
+        {
+
+            return RapooDeviceHelper.SetOfficePollingRate(rateHz);
 
         }
 
@@ -1369,6 +1619,9 @@ namespace RazerBatteryTray
 
             if (FdasRuntimeHelper.IsFdasDevice(dev.DeviceId)) return false;
 
+            // VGN 品牌同时覆盖键盘与鼠标；本驱动只负责鼠标，键盘（Neon75 / N75 PRO / V108）必须走电量-only 路径。
+            if (dev.Category != DeviceCategory.Mouse) return false;
+
             return string.Equals(dev.Brand, "VGN", StringComparison.OrdinalIgnoreCase) ||
 
                    string.Equals(dev.Brand, "Zaopin", StringComparison.OrdinalIgnoreCase) ||
@@ -1867,7 +2120,204 @@ namespace RazerBatteryTray
 
     }
 
+    public sealed class CorsairHeadsetDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:CorsairHeadset"; } }
 
+        public override string Brand { get { return "Corsair"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return CorsairDeviceHelper.IsSupportedVidPid(vid, pid);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null) return false;
+
+            // Corsair 同时存在耳机与鼠标驱动，必须按品类隔离，防止耳机驱动吞掉 M75 AIR 的 DPI 指令。
+            if (dev.Category != DeviceCategory.Headset && dev.Category != DeviceCategory.Earbuds) return false;
+
+            if (!string.IsNullOrEmpty(dev.DriverId) &&
+                string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (!string.IsNullOrEmpty(dev.DeviceId) &&
+                dev.DeviceId.StartsWith("Corsair:", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return string.Equals(dev.Brand, "Corsair", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dev.Brand, "美商海盗船", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = false;
+
+            dev.Capabilities.SupportsDpiStages = false;
+
+            dev.Capabilities.SupportsPollingRate = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+
+            MouseBatteryInfo corsair = CorsairDeviceHelper.QueryCorsairDeviceInfo();
+
+            if (corsair != null && (corsair.IsConnected || corsair.IsDonglePresent))
+            {
+                PopulateCapabilities(corsair);
+
+                list.Add(corsair);
+            }
+
+            return list;
+        }
+    }
+
+    public sealed class CorsairMouseDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:CorsairMouse"; } }
+
+        public override string Brand { get { return "Corsair"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return CorsairDeviceHelper.IsSupportedMouseVidPid(vid, pid);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Category != DeviceCategory.Mouse) return false;
+
+            if (!string.IsNullOrEmpty(dev.DriverId) &&
+                string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            if (!string.IsNullOrEmpty(dev.DeviceId) &&
+                dev.DeviceId.StartsWith("Corsair:1B1C:1BF2", StringComparison.OrdinalIgnoreCase)) return true;
+
+            return string.Equals(dev.Brand, "Corsair", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dev.Brand, "美商海盗船", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+            dev.Capabilities.SupportsDpi = true;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsPollingRate = true;
+            dev.Capabilities.SupportsXyIndependence = true;
+            dev.Capabilities.SupportsFastDpiMonitor = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.Capabilities.MinDpi = 100;
+            dev.Capabilities.MaxDpi = 26000;
+            dev.Capabilities.DpiStep = 50;
+            dev.Capabilities.SensorDescription = "Corsair MARKSMAN S 光学传感器";
+
+            int[] rates = CorsairDeviceHelper.GetSupportedPollingRates();
+            dev.SupportedPollingRates = rates;
+            dev.MaxPollingRate = 1000;
+            dev.Capabilities.SupportedPollingRates = rates;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+            MouseBatteryInfo mouse = CorsairDeviceHelper.QueryCorsairMouseInfo();
+            if (mouse != null && (mouse.IsConnected || mouse.IsDonglePresent))
+            {
+                PopulateCapabilities(mouse);
+                list.Add(mouse);
+            }
+            return list;
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+        {
+            stage = 0;
+            count = 1;
+            return CorsairDeviceHelper.QueryMouseDpi(out dpiX, out dpiY);
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+        {
+            return CorsairDeviceHelper.SetMouseDpi(dpiX, dpiY);
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+        {
+            return CorsairDeviceHelper.SetMousePollingRate(rateHz);
+        }
+    }
+
+    /// <summary>
+    /// Endgame Gear (3367:1961 XM2we / 3367:1960 OP1we) 双端点 Beken 电量驱动。
+    /// 命令走 0xFF02/0x0002 的 17 字节 Feature(0x08)，应答走 0xFF01/0x0000 的 17 字节 Interrupt IN(0x09)。
+    /// 仅声明实机验证过的电量能力；DPI / 回报率写指令尚未验证，保持关闭。
+    /// </summary>
+    public sealed class EndgameGearDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:EndgameGear"; } }
+
+        public override string Brand { get { return "Endgame Gear"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null) return false;
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+            return dev.DeviceId != null && dev.DeviceId.StartsWith("EGG:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+            dev.Capabilities.SupportsDpi = false;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.SupportsDpiWrite = false;
+            dev.SupportsPollingRateWrite = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = EndgameGearDeviceHelper.QueryAllEndgameGearDevices();
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            }
+            return list ?? new List<MouseBatteryInfo>();
+        }
+    }
 
     public sealed class UniversalGamingDriver : HardwareDriverBase
 
@@ -2241,6 +2691,165 @@ namespace RazerBatteryTray
                 for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
             }
             return list ?? new List<MouseBatteryInfo>();
+        }
+    }
+
+    public sealed class LogitechMr0097Driver : HardwareDriverBase
+    {
+        public override string DriverId { get { return LogitechMr0097Helper.DriverKey; } }
+
+        public override string Brand { get { return "Logitech"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return vid == 0x046D && (pid == 0xC54D || pid == 0xC09B);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            return LogitechMr0097Helper.IsVerifiedDevice(dev);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            if (!CanHandle(dev))
+            {
+                dev.Capabilities.SupportsBattery = false;
+                dev.Capabilities.SupportsDpi = false;
+                dev.Capabilities.SupportsDpiStages = false;
+                dev.Capabilities.SupportsPollingRate = false;
+                dev.Capabilities.SupportsXyIndependence = false;
+                dev.Capabilities.SupportsHardwareDpiMonitor = false;
+                return;
+            }
+            dev.DriverId = DriverId;
+            dev.Capabilities.SupportsBattery = true;
+            dev.Capabilities.SupportsDpi = false;
+            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = true;
+            dev.Capabilities.SupportsDpiStages = dev.IsDonglePresent && !dev.IsSleeping && dev.DpiStageCount == 5;
+            dev.Capabilities.MinDpi = 100;
+            dev.Capabilities.MaxDpi = 44000;
+            dev.Capabilities.DpiStep = 50;
+            dev.Capabilities.SensorDescription = "HERO 2 · 已验证只读性能 / 现有板载档位选择";
+            dev.SupportsDpiWrite = false;
+            dev.SupportsPollingRateWrite = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = LogitechMr0097Helper.QueryDevices();
+            for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            return list;
+        }
+
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int x, out int y, out int stage, out int count)
+        {
+            x = y = stage = count = 0;
+            return CanHandle(dev) && LogitechMr0097Helper.FastQueryDpi(dev, out x, out y, out stage, out count);
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int x, int y, int stage)
+        {
+            return CanHandle(dev) && LogitechMr0097Helper.SelectOnboardStage(dev, stage, x, y > 0 ? y : x);
+        }
+    }
+
+    public sealed class KeychronM6Driver : HardwareDriverBase
+    {
+        public override string DriverId { get { return KeychronM6Helper.DriverKey; } }
+
+        public override string Brand { get { return "Keychron"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return vid == 0x3434 && (pid == 0xD026 || pid == 0xD060);
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            return KeychronM6Helper.IsVerifiedDevice(dev);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            bool verified = CanHandle(dev);
+            if (verified) dev.DriverId = DriverId;
+            dev.Capabilities.SupportsBattery = verified;
+            dev.Capabilities.SupportsDpi = false;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.SupportsDpiWrite = false;
+            dev.SupportsPollingRateWrite = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = KeychronM6Helper.QueryDevices();
+            for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            return list;
+        }
+    }
+
+    public sealed class AsusDeviceDriver : HardwareDriverBase
+    {
+        public override string DriverId { get { return "BuiltIn:Asus"; } }
+
+        public override string Brand { get { return "ASUS"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null) return false;
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(dev.Brand, "ASUS", StringComparison.OrdinalIgnoreCase)) return true;
+            return dev.DeviceId != null && dev.DeviceId.StartsWith("ASUS:0B05:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = (dev.Category == DeviceCategory.Headset) || (dev.BatteryPercent >= 0);
+            dev.Capabilities.SupportsDpi = false;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+            List<MouseBatteryInfo> baseDevs = AsusDeviceHelper.QueryAllAsusDevices();
+            if (baseDevs != null) list.AddRange(baseDevs);
+            List<MouseBatteryInfo> omniKbs = AsusDeviceHelper.QueryAllKeyboards();
+            if (omniKbs != null) list.AddRange(omniKbs);
+            List<MouseBatteryInfo> rogDevs = AsusDeviceHelper.QueryAllRogDevices();
+            if (rogDevs != null) list.AddRange(rogDevs);
+            List<MouseBatteryInfo> rogKbs = AsusDeviceHelper.QueryAllRogKeyboards();
+            if (rogKbs != null) list.AddRange(rogKbs);
+
+            for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            return list;
         }
     }
 

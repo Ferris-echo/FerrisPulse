@@ -969,6 +969,10 @@ namespace RazerBatteryTray
 
             SteelSeriesDeviceHelper.LoadHardwareCache();
 
+            CorsairDeviceHelper.LoadHardwareCache();
+
+            CorsairDeviceHelper.LoadMouseHardwareCache();
+
             InitializeFormUI();
 
             InitializeTray();
@@ -1610,6 +1614,16 @@ namespace RazerBatteryTray
                 try { singleInstanceWakeupEvent.Close(); } catch { }
 
                 singleInstanceWakeupEvent = null;
+
+            }
+
+            if (trayDeviceItemFont != null)
+
+            {
+
+                try { trayDeviceItemFont.Dispose(); } catch { }
+
+                trayDeviceItemFont = null;
 
             }
 

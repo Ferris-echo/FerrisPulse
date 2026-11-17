@@ -254,7 +254,7 @@ namespace RazerBatteryTray
                                 string lower = devicePath.ToLower();
                                 // Skip known handled or internal non-mouse devices
                                 if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||
-                                    lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
+                                    lower.Contains("vid_320f") || lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
                                     lower.Contains("vid_17ef") || lower.Contains("vid_054c") || lower.Contains("vid_37d7") || lower.Contains("vid_3837") || lower.Contains("syna") || lower.Contains("tencent") || lower.Contains("virtual") ||
                                     ValkyrieDeviceHelper.IsValkyrieDevice(lower) || AcerDeviceHelper.IsAcerMouse(lower) || lower.Contains("vid_258a&pid_010c"))
                                 {
@@ -309,12 +309,15 @@ namespace RazerBatteryTray
                                             bool isMouse = (caps.UsagePage == 0x01 && caps.Usage == 0x02) ||
                                                            (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("mouse") || prod.Contains("鼠标")));
 
-                                            if (isGamepad || isHeadset || isDongle || isKeyboard || isMouse)
-                                            {
-                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                                attr.Size = Marshal.SizeOf(attr);
-                                                RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
 
+                                            // 水月雨 GM-01 PRO 由专属 MoondropDeviceHelper 负责注册，通用扫描不再泛化它。
+                                            bool managedByDedicatedDriver = MoondropDeviceHelper.IsManagedDevice(attr.VendorID, attr.ProductID);
+
+                                            if (!managedByDedicatedDriver && (isGamepad || isHeadset || isDongle || isKeyboard || isMouse))
+                                            {
                                                 string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
                                                 string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 
