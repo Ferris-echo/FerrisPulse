@@ -1,11 +1,17 @@
 ﻿{
-    "latestVersion":  "2.3.1",
-    "releaseDate":  "2026-11-12",
+    "latestVersion":  "2.3.2",
+    "releaseDate":  "2026-11-17",
     "minSupportedVersion":  "1.0.0",
-    "downloadUrl":  "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.1/FerrisPulse.exe",
-    "sha256":  "5ab012e485e99a6d15444702dc671125fc8caac804ef36b62744b58e0da0dadf",
-    "fileSize":  1266688,
+    "downloadUrl":  "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.2/FerrisPulse.exe",
+    "sha256":  "c4d3085ebaf07523bc8446c8450813db82c3253ef4403adee4f9ecf96604fda4",
+    "fileSize":  1418240,
     "changelog":  [
-                      "修复已知bug"
+                      "【新增外设】新增华硕 ROG AZOTH 96 HE (0B05:1AD0/1C10) 键盘与 ROG DELTA II (0B05:1AFA) 无线耳机实时电量支持",
+                      "【新增外设】新增迈从 MCHOSE K7 V2 Ultra+ 三模鼠标 (4D 协议族 3837:1018/4028/4026)、K99 V3 三模键盘 (3837:3033/2020/BLE 07D7:EFFF) 及 G98V2/G7/V9 Turbo+ 支持",
+                      "【新增外设】新增 VXE 蜻蜓 R1 星闪版 (373B:1216 BITMOUSE NearLink) 电量/电压/充电监测，以及 ATK A87 PRO/A9 Ultimate、PMO WAVE75 与北通 BTP-KP20D 支持",
+                      "【新增外设】新增罗技 GPW2 MR0097、Keychron M6、海盗船 HS80 MAX/M75 AIR、雷柏 VT(1851)/MT760(1870)、VGN V108/N75 Pro/V98 Pro、HyperX Cloud III S、DS5Dongle、Endgame Gear XM2we、LEOBOG GM5 PRO、水月雨 GM-01 PRO、因科特 Ironcat Zero、KZZI K75 及 BLE Xbox 手柄支持",
+                      "【架构与体验】新增外置驱动源码级缓存与精确端点归属隔离、三通道在线状态仲裁、托盘「鼠标|键盘|耳机」三段摘要、跨形态聚焦记忆与左列自适应宽度排版",
+                      "【问题修复】修复板载 DPI 档位越界扩档与默认值伪造、电竞开关未勾选误改硬件、复合外设品类固化误判、K99 V3 充电冻结虚高读数、设备优先级变体丢失、ROG PELTA 充电分身、雷蛇 0x04 离线误判与托盘菜单闪烁问题",
+                      "【致谢名单】特别鸣谢 B站网友「工程机风格」、群友「冻干咸鱼」及 @MattiaBinotto19、@GaiusC、@gallopcsy、@Go2Heart、@afwfv、@ertutio、@limuxi10086、@ysy41527624、@yangziyu1230、@SnivyJ、@xinyulan810、@ZoveD、@747891392、@a492877018、@Luoxia992、@CZYMZX、@longshuzyyy、@SuYe1145 等社区贡献者！"
                   ]
 }
