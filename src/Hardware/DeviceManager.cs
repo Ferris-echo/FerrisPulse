@@ -67,7 +67,7 @@ namespace RazerBatteryTray
                     }
                 }
 
-                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron" };
+                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "VXE", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -1575,6 +1575,41 @@ namespace RazerBatteryTray
                             if (dev.BatteryPercent >= 0)
                             {
                                 UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 2.88 Query VXE Dragonfly R1 NearLink (373B:1216 BITMOUSE 64B, by 冻干咸鱼)
+            try
+            {
+                var vxeNearLinkDevs = VxeNearLinkDeviceHelper.QueryAllDevices();
+                if (vxeNearLinkDevs != null && vxeNearLinkDevs.Count > 0)
+                {
+                    foreach (var dev in vxeNearLinkDevs)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            bool alreadyInList = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                if (list[i].DeviceId.Equals(dev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrEmpty(list[i].HardwareFingerprint) && list[i].HardwareFingerprint.Equals(dev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    alreadyInList = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyInList)
+                            {
+                                dev.IsCustom = false;
+                                list.Add(dev);
+                                if (dev.BatteryPercent >= 0)
+                                {
+                                    UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, DateTime.Now);
+                                }
                             }
                         }
                     }

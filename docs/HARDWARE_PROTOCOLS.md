@@ -72,6 +72,9 @@
 - **ATK A87 PRO 三模键盘 (`373B:111F`, `AtkA87ProHelper.cs`, PR #93, 贡献者 `@gallopcsy`)**:
   - `UsagePage 0xFF60 / Usage 0x0061` 33 字节中断端点（禁在 `WriteReport` 前 `DrainReports`，写超时需 `400ms`）。
   - 查询 `00 02 96 24`，回复 `00 02 96 24 <pct> <status>`（`status & 0x01` 为充电标志；`pct==0 && status==0` 为休眠帧须丢弃）。`UniversalGamingDeviceHelper` 按 `pid_111f` 排除。
+- **VXE 蜻蜓 R1 星闪版 (`373B:1216`, `VxeNearLinkDeviceHelper.cs`, 贡献者 “冻干咸鱼”)**:
+  - `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点（`HidD_SetOutputReport` 下发 + OVERLAPPED `ReadFile` 读取），走 **BITMOUSE 63B 帧 + Report ID `0x08`**（逆向自 ATK HUB 3.2.30 `app.asar`）。
+  - 报文布局：`[0]=0x08`, `[1]=sum([2..63])&0xFF`, `[2]=0x72`, `[3]=2`, `[4]=sn`, `[5]=target(0x01)`, `[6]=cmdId`, `[7]=1`；`cmd 7` 返回 `rx[1]=0x72, rx[5]=0x07, rx[7]=pct(0..100), rx[8..9]=mV(LE)`，`cmd 15 (0x0F)` 返回 `rx[7]!=0` 为充电标志；`SupportsDpi = false`、`SupportsPollingRate = false`，并在 `UniversalGamingDeviceHelper` 按 `pid_1216` 隔离。
 
 ### 1.6 迈从 (MCHOSE) A5 V2 Ultra 鼠标与 G87 V2 键盘
 - **A5 V2 Ultra (`MchoseMouseHelper.cs`)**：

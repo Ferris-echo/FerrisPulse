@@ -2,9 +2,10 @@
 // 模块名称: HidTransport.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
+// CORE_CAPABILITY: ZERO-DEPENDENCY WIN32 HID TRANSPORT
 //   零依赖 Win32 HID 底层通信总线：SetupAPI 枚举、HidD 属性/能力查询、
-//   重叠 I/O 读写与超时取消。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
-//   供 Flydigi / MCHOSE 等新品牌 Helper 复用。
+//   重叠 I/O 读写与超时取消（含 HidD_SetOutputReport 封装）。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
+//   供 Flydigi / MCHOSE / VXE 等品牌 Helper 复用。
 // 依赖关系: 仅 .NET 4.0 核心程序集 + hid.dll / setupapi.dll / kernel32.dll
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -151,6 +152,9 @@ namespace RazerBatteryTray
 
         [DllImport("hid.dll", SetLastError = true)]
         private static extern bool HidD_GetFeature(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        private static extern bool HidD_SetOutputReport(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateFile(string FileName, uint DesiredAccess, uint ShareMode, IntPtr SecurityAttributes, uint CreationDisposition, uint FlagsAndAttributes, IntPtr TemplateFile);
@@ -442,6 +446,12 @@ namespace RazerBatteryTray
         {
             if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
             return HidD_GetFeature(handle, buffer, buffer.Length);
+        }
+
+        public static bool SetOutputReport(IntPtr handle, byte[] buffer)
+        {
+            if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
+            return HidD_SetOutputReport(handle, buffer, buffer.Length);
         }
 
         public static bool DrainReports(IntPtr handle, int length, int maxReports)

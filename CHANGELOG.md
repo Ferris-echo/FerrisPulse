@@ -25,7 +25,8 @@
   - **HyperX Cloud III S Wireless (`03F0:02CC`/`06BE`)** 耳机与 **公版 CompX 2.4G 无线键盘 (`05AC:024F`)**（#83）；
   - **ATK A9 Ultimate** 共享接收器 (`373B:11D9`) CID/MID 身份判定与 **PMO WAVE75** 蓝牙键盘识别（#80）；
   - **迈从 (MCHOSE) K7 V2 Ultra+ 三模游戏鼠标（4D 中断帧协议族，`3837:1018` / `0x4028` / `0x4026`）**（#74, 感谢 `@MattiaBinotto19`）：新增 `MchoseMouse4DHelper`，支持 2.4G / USB 有线 / 蓝牙 GATT 电池与能力按形态分流、42,000 DPI PAW3950 与 6 档回报率控制、HasY 双轴真值判定，并与旧 A5 V2 协议按 PID 物理隔离；
-  - **迈从 (MCHOSE) K99 V3 三模机械键盘（`3837:3033` 2.4G / `3837:2020` 有线 / 公版 BLE `07D7:EFFF`）**（#68, 感谢 `@MattiaBinotto19`）：修正 `0x55` 性能帧 `[41]` 位域（`bit7` 充电 + 低 7 位电量）与 `[43]` 传输形态解析，新增有线 `0x2020` 双端点并集与充电冻结电量防护、`ChargingFlagMeansUsbPoweredOnly` 能力契约、以及 `07D7:EFFF` 叠加 `MCHOSE` 前缀两段式 GATT 读取，三形态统一归至 `MCHOSE:3837:3033`。
+  - **迈从 (MCHOSE) K99 V3 三模机械键盘（`3837:3033` 2.4G / `3837:2020` 有线 / 公版 BLE `07D7:EFFF`）**（#68, 感谢 `@MattiaBinotto19`）：修正 `0x55` 性能帧 `[41]` 位域（`bit7` 充电 + 低 7 位电量）与 `[43]` 传输形态解析，新增有线 `0x2020` 双端点并集与充电冻结电量防护、`ChargingFlagMeansUsbPoweredOnly` 能力契约、以及 `07D7:EFFF` 叠加 `MCHOSE` 前缀两段式 GATT 读取，三形态统一归至 `MCHOSE:3837:3033`；
+  - **VXE 蜻蜓 R1 星闪版 (`373B:1216`, NearLink BITMOUSE 协议)**（感谢群友 **“冻干咸鱼”** 逆向贡献）：新增 `VxeNearLinkDeviceHelper` 与 `BuiltIn:VxeNearLink` 驱动，通过 `FF05/0001` 64 字节厂商端点收发 BITMOUSE `0x08/0x72` 帧读取实时电量、毫伏电压与充电状态，接入 `DriverStateStore` 持久化休眠缓存并与通用 Beken `0x373B` 引擎按 `pid_1216` 隔离。
 
 ### 🔋 三通道仲裁与托盘摘要升级
 - **2.4G / USB 有线 / 蓝牙三通道在线仲裁**：当同型号三模键盘通过 USB 有线或蓝牙取得真实在线电量/充电响应时，自动将已切离的 2.4G 接收器条目置为离线休眠（仅插线充电而开关仍在 2.4G 时不误压制），消除同一键盘多条“在线”卡片分身。

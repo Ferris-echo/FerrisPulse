@@ -1845,6 +1845,13 @@ namespace RazerBatteryTray
                     currentActiveDpiY = (selectedDevice.DpiY > 0) ? selectedDevice.DpiY : selectedDevice.Dpi;
                 }
             }
+            else if (selectedDevice != null && selectedDevice.DpiStages != null && activeStage > 0 && activeStage <= selectedDevice.DpiStages.Length)
+            {
+                currentActiveDpi = selectedDevice.DpiStages[activeStage - 1];
+                currentActiveDpiY = (selectedDevice.DpiStagesY != null && selectedDevice.DpiStagesY.Length >= activeStage)
+                    ? selectedDevice.DpiStagesY[activeStage - 1]
+                    : currentActiveDpi;
+            }
             else if (selectedDevice != null && selectedDevice.Dpi > 0)
             {
                 currentActiveDpi = selectedDevice.Dpi;
@@ -1933,9 +1940,12 @@ namespace RazerBatteryTray
             if (btnGameDpiStages != null)
             {
                 int targetGameStageHighlight = isGamingActive ? effectiveGameStage : gameDpiStage;
+                int gameDpiStageCap = (dpiStageList != null && dpiStageList.Count > 0)
+                    ? dpiStageList.Count
+                    : ((selectedDevice != null && selectedDevice.DpiStages != null) ? selectedDevice.DpiStages.Length : 0);
                 for (int i = 0; i < btnGameDpiStages.Length; i++)
                 {
-                    if (btnGameDpiStages[i] != null && dpiStageList != null && i < dpiStageList.Count)
+                    if (btnGameDpiStages[i] != null && i < gameDpiStageCap)
                     {
                         bool isSel = ((i + 1) == targetGameStageHighlight);
                         btnGameDpiStages[i].Selected = isSel;

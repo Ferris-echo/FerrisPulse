@@ -1362,10 +1362,9 @@ namespace RazerBatteryTray
                 else
                 {
                     targetStage = (desktopDpiStage > 0) ? desktopDpiStage : 1;
-                    desktopDpiStage = 0;
                 }
 
-                if (targetStage < 1 || targetStage > stageCapGame) targetStage = 1;
+                if (targetStage < 1 || (stageCapGame > 0 && targetStage > stageCapGame)) targetStage = 1;
             }
 
             // 设备未上报档位表时，退回它自报的当前 DPI，绝不凭空写 800 DPI。
@@ -2189,7 +2188,11 @@ namespace RazerBatteryTray
 
             if (devices != null && devices.Count > 0)
             {
-                if (selectedDevice != null && deviceSelectionPinnedByUser)
+                bool hasPhysicalSiblingTransition = selectedDevice != null && !string.IsNullOrEmpty(selectedDevice.PhysicalUnitId) &&
+                    devices.Exists(d => d != null &&
+                        string.Equals(d.PhysicalUnitId, selectedDevice.PhysicalUnitId, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase));
+                if (selectedDevice != null && (deviceSelectionPinnedByUser || hasPhysicalSiblingTransition))
                 {
                     var match = devices.Find(d => string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
                         ?? devices.Find(d => !string.IsNullOrEmpty(selectedDevice.PhysicalUnitId) &&

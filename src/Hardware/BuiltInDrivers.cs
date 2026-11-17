@@ -94,6 +94,8 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new VgnMouseDriver());
 
+                HardwareDriverRegistry.RegisterDriver(new VxeNearLinkDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new FlydigiGamepadDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new SonyInzoneDriver());
@@ -2910,6 +2912,92 @@ namespace RazerBatteryTray
             for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
             return list;
         }
+    }
+
+    public sealed class VxeNearLinkDriver : HardwareDriverBase
+
+    {
+
+        public override string DriverId { get { return VxeNearLinkDeviceHelper.DriverIdName; } }
+
+        public override string Brand { get { return "VXE"; } }
+
+        public override int Priority { get { return 100; } }
+
+        public override bool IsExternalPackage { get { return false; } }
+
+        public override bool MatchesVidPid(int vid, int pid)
+
+        {
+
+            return VxeNearLinkDeviceHelper.IsSupportedVidPid(vid, pid);
+
+        }
+
+        public override bool CanHandle(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return false;
+
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+
+            int vid, pid;
+
+            if (TryExtractDeviceVidPid(dev, out vid, out pid))
+
+            {
+
+                return MatchesVidPid(vid, pid);
+
+            }
+
+            return false;
+
+        }
+
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+
+        {
+
+            if (dev == null) return;
+
+            if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
+
+            if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
+
+            dev.Capabilities.SupportsBattery = true;
+
+            dev.Capabilities.SupportsDpi = false;
+
+            dev.Capabilities.SupportsDpiStages = false;
+
+            dev.Capabilities.SupportsPollingRate = false;
+
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+
+            dev.Capabilities.SupportsXyIndependence = false;
+
+        }
+
+        public override List<MouseBatteryInfo> QueryDevices()
+
+        {
+
+            List<MouseBatteryInfo> list = VxeNearLinkDeviceHelper.QueryAllDevices();
+
+            if (list != null)
+
+            {
+
+                for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+
+            }
+
+            return list ?? new List<MouseBatteryInfo>();
+
+        }
+
     }
 
 }
