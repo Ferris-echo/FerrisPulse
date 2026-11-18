@@ -1585,10 +1585,11 @@ namespace RazerBatteryTray
             // 2.88 Query VXE Dragonfly R1 NearLink (373B:1216 BITMOUSE 64B, by 冻干咸鱼)
             try
             {
-                var vxeNearLinkDevs = VxeNearLinkDeviceHelper.QueryAllDevices();
-                if (vxeNearLinkDevs != null && vxeNearLinkDevs.Count > 0)
+                var bitMouseDevices = VxeNearLinkDeviceHelper.QueryAllDevices();
+                bitMouseDevices.AddRange(AtkPhantomDeviceHelper.QueryAllDevices());
+                if (bitMouseDevices != null && bitMouseDevices.Count > 0)
                 {
-                    foreach (var dev in vxeNearLinkDevs)
+                    foreach (var dev in bitMouseDevices)
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                         {
