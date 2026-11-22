@@ -25,6 +25,18 @@ if (-not $specText.Contains("FDAS v1.0") -or -not $specText.Contains("capabiliti
 }
 Write-Host "PASS: docs/ADAPTER_SPECIFICATION.md 完整就绪" -ForegroundColor Green
 
+Write-Host "--- 1b. FDAS v2.0 sample integrity (JZ M5 362D:D107) ---" -ForegroundColor Cyan
+$jzAdapter = Join-Path $ProjectDir 'examples/adapters/jz_m5.fp-adapter.json'
+Assert-Bom $jzAdapter
+$jzObj = [IO.File]::ReadAllText($jzAdapter) | ConvertFrom-Json
+if ($jzObj.fdasVersion -ne '2.0' -or $jzObj.hardware.vendorId -ne '0x362D' -or $jzObj.hardware.productId -ne '0xD107') {
+    Write-Host "FAIL: JZ M5 FDAS v2.0 contract incomplete" -ForegroundColor Red; exit 1
+}
+if ([int]$jzObj.capabilities.battery.batteryPercentByteOffset -ne 19) {
+    Write-Host "FAIL: JZ M5 battery offset must be 19" -ForegroundColor Red; exit 1
+}
+Write-Host "PASS: JZ M5 FDAS v2.0 sample contract ready" -ForegroundColor Green
+
 $mchoseSample = "$ProjectDir\examples\adapters\mchose_a5_v2_ultra.fp-adapter.json"
 $sonySample = "$ProjectDir\examples\adapters\sony_inzone_buds.fp-adapter.json"
 Assert-Bom $mchoseSample

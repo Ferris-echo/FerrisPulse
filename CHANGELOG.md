@@ -4,6 +4,11 @@
 
 ---
 
+## 🚀 [Unreleased] - 2026-11-23 (京造 JZ M5 · Wireless Link-KM 只读适配)
+
+### 🖱️ 新增鼠标支持
+- **京造 JZ M5 三模鼠标** (362D:D107 Wireless Link-KM 2.4G 接收器)，新增 JzM5Helper 内置只读电量引擎与 FDAS v2.0 声明式样例。协议来自官方 WebHID wukong.jd.com 与 V-Conet/wukong-driver 交叉逆向：FFC1/0001 64B B3/B4/B5/B6 帧族，B5 02 版本握手确认身份，B3 06 第 19 字节低 7 位电量、bit7 充电位。隔离 FF60/0061 键盘端点，通用引擎避让；关闭 DPI/回报率写能力；配套回放测试与 FDAS 校验通过。
+
 ## 🚀 [v2.3.2] - 2026-11-17 (全景外设扩容、迈从全系深耕、VXE星闪版与架构加固)
 
 ### 🖱️ 新增鼠标支持

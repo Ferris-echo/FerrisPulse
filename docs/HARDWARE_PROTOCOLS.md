@@ -181,6 +181,15 @@
 
 ---
 
+### 1.9b 京造 JZ M5 三模鼠标 2.4G 接收器 (362D:D107, JzM5Helper.cs)
+
+- 通道: Wireless Link-KM 接收器精确锁定 VID=0x362D / PID=0xD107 / UsagePage=0xFFC1 / Usage=0x0001 / In=64 Out=64 Feature=0；同接收器另有 FF60/0061 33B 键盘通道必须排除，通用引擎对 pid_d107 避让。
+- 帧族: 官方 WebHID (wukong.jd.com / Keychron Launcher) 8k 协议；WebHID 载荷为 B5/B6(20B)、B3/B4(63B)，Win32 完整报告前置 Report ID 后为 21B/64B；固件按首字节命令字匹配，ACK 可在任一 INPUT 报告上到达。
+- 身份握手: B5 02 请求，B6 02 回复载荷 02 02 00 2D 36 07 D1 07 01 01（协议 2 / VID 362D / PID D107 / 固件 1.0.7 / workMode 1=2.4G）；证据见 V-Conet/wukong-driver docs/PROTOCOL.md。
+- 电量: B3 06 请求，B4 06 回复载荷第 19 字节低 7 位为 0..100 百分比，bit7 为实测充电位；回放样本 0x58 = 88% 放电。读取失败回退 DriverStateStore 同路径休眠缓存，绝不把 0 当 0%。
+- 能力门禁: 官方网页虽含 0x40 DPI / 0x41 回报率写指令，本包只做只读电量，SupportsDpi/SupportsPollingRate/SupportsDpiWrite/SupportsPollingRateWrite 全部 false；绝不盲发 0x07 或未知地址写指令，防止冲毁 EEPROM / RF 配对表。
+- 形态限制: 蓝牙连接只暴露标准 HID 无 FFC1 厂商配置接口，网页与本地工具均不可读写设置，本驱动不覆盖该形态。
+
 ### 1.9 赛诺韦尔 (SinoWealth) 多模键鼠接收器 `258A:010C` (`SinoWealthDeviceHelper.cs`)
 - **定位**: `0x258A` 是 SinoWealth **芯片厂商** ID，被大量贴牌键鼠共用（达尔优 / 多彩 / 狼蛛 / 红龙等）。`010C` 是多模键鼠套装接收器：`MI_00` = 键盘、`MI_01` = 鼠标 + 厂商集合（COL03/05/06）。
 - **厂商集合布局（实机 `Get-PnpDevice` + 探针枚举）**:
