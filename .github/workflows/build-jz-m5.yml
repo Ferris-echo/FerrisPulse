@@ -1,7 +1,12 @@
-﻿name: Build JZ M5 Fork
+﻿name: Build JZ M5
 
 on:
   workflow_dispatch:
+    inputs:
+      build_ref:
+        description: 'Branch to build'
+        required: false
+        default: 'feat/jz-m5-wireless-link-km'
 
 permissions:
   contents: read
@@ -12,6 +17,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build_ref || 'feat/jz-m5-wireless-link-km' }}
 
       - name: Compile FerrisPulse (C# 5.0)
         shell: cmd
