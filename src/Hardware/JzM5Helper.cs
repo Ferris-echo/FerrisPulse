@@ -83,9 +83,10 @@ namespace RazerBatteryTray
             return true;
         }
 
-        private static byte[] Query(IntPtr handle, byte report, byte command, int payloadLen)
+        private static byte[] Query(IntPtr handle, byte report, byte command)
         {
-            byte[] tx = new byte[payloadLen + 1];
+            // HID 端点要求写满整份 64 字节报告；短写 (21B/64B) 会被设备静默丢弃，握手永不成功。
+            byte[] tx = new byte[ReportLength];
             tx[0] = report;
             tx[1] = command;
             if (!HidTransport.WriteReport(handle, tx, tx.Length, 500)) return null;
@@ -180,7 +181,7 @@ namespace RazerBatteryTray
                     if (!HidTransport.IsValidHandle(handle)) continue;
                     try
                     {
-                        byte[] identity = Query(handle, ReportOutSmall, 0x02, 20);
+                        byte[] identity = Query(handle, ReportOutSmall, 0x02);
                         if (!IsVersionIdentity(identity))
                         {
                             lastReadings.Remove(endpoint.DevicePath);
@@ -189,7 +190,7 @@ namespace RazerBatteryTray
                         verifiedPaths[endpoint.DevicePath] = StateKey;
                         int percent;
                         bool charging;
-                        byte[] info = Query(handle, ReportOutLarge, 0x06, 63);
+                        byte[] info = Query(handle, ReportOutLarge, 0x06);
                         MouseBatteryInfo state;
                         if (TryParseBattery(info, out percent, out charging))
                         {

@@ -65,6 +65,9 @@ $dm = [IO.File]::ReadAllText((Join-Path $ProjectDir 'src/Hardware/DeviceManager.
 Assert ($dm.Contains('JzM5Helper.QueryDevices()')) 'DeviceManager 必须挂载 JZ M5 扫描'
 $drv = [RazerBatteryTray.JzM5Driver]::new()
 Assert ($drv.MatchesVidPid(0x362D, 0xD107)) 'JzM5Driver 必须匹配 VID:PID'
+$helperSrc = [IO.File]::ReadAllText((Join-Path $ProjectDir 'src/Hardware/JzM5Helper.cs'))
+Assert ($helperSrc.Contains('byte[] tx = new byte[ReportLength];')) '查询帧必须写满 64 字节报告 (禁止 21B 短写)'
+Assert (-not $helperSrc.Contains('payloadLen + 1')) '不得残留按 payload 长度短写的旧逻辑'
 Assert (-not $drv.MatchesVidPid(0x3434, 0xD026)) 'JzM5Driver 不得匹配 Keychron M6'
 $dev = [RazerBatteryTray.JzM5Helper]::CreateState($ep, 88, $false, $false, [DateTime]::Now)
 $drv.PopulateCapabilities($dev)
