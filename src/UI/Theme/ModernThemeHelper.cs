@@ -2,8 +2,8 @@
 // 模块名称: ModernThemeHelper.cs
 // 所属区域: UI/Theme (现代设计系统与主题渲染层)
 // 核心职责:
-//   提供 Windows 11 云母/沉浸式暗黑样式 DWM 设置、设备类型专属现代矢量图形绘制、
-//   抗锯齿圆角几何生成以及矢量充电闪电图标渲染。
+//   提供 Windows 11 云母/沉浸式暗黑样式 DWM 设置、Win10 无边框原生 DWM 阴影/动画兼容、
+//   设备类型专属现代矢量图形绘制、抗锯齿圆角几何生成以及矢量充电闪电图标渲染。
 // 依赖关系: Models.DeviceCategory, NativeMethods
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -23,6 +23,18 @@ namespace RazerBatteryTray
     {
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MARGINS
+        {
+            public int LeftWidth;
+            public int RightWidth;
+            public int TopHeight;
+            public int BottomHeight;
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS pMarInset);
 
         private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
@@ -57,6 +69,24 @@ namespace RazerBatteryTray
 
                 int borderCol = 0x003A2E2A;
                 DwmSetWindowAttribute(hWnd, DWMWA_BORDER_COLOR, ref borderCol, sizeof(int));
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Windows 10 (Build &lt; 22000) 无边框窗口在使用 WS_CAPTION + WM_NCCALCSIZE 时需向底部扩展 1px DWM 阴影以保持原生开关动画与阴影；
+        /// Windows 11 (Build &gt;= 22000) 已由 DWMWA_WINDOW_CORNER_PREFERENCE 原生提供圆角、阴影与动画，无需额外扩展避免底部 1px 玻璃溢光。
+        /// </summary>
+        public static void ApplyFramelessLegacyShadowIfNeeded(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return;
+            try
+            {
+                if (Environment.OSVersion.Version.Build < 22000)
+                {
+                    MARGINS margins = new MARGINS { LeftWidth = 0, RightWidth = 0, TopHeight = 0, BottomHeight = 1 };
+                    DwmExtendFrameIntoClientArea(hWnd, ref margins);
+                }
             }
             catch { }
         }

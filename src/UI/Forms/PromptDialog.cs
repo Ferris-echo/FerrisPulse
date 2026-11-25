@@ -99,6 +99,9 @@ namespace RazerBatteryTray
             btnOk.Click += (s, e) => { this.DialogResult = DialogResult.OK; this.Close(); };
             this.Controls.Add(btnOk);
 
+            this.modernChromeTitlePadLeftBase = 20;
+            AttachModernChrome(title, null, 42, true, false);
+
             this.KeyPreview = true;
             this.KeyDown += (s, e) =>
             {

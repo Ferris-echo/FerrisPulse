@@ -793,6 +793,17 @@ public static class LogitechDeviceHelper
         return 10;
     }
 
+    public static byte[] GetTargetDeviceIndices(int pid, bool isDongle)
+    {
+        if (isDongle)
+        {
+            return (pid == 0xC52B || pid == 0xC542)
+                ? new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 }
+                : new byte[] { 0x01, 0x02 };
+        }
+        return new byte[] { 0xFF, 0x01 };
+    }
+
     public static bool TryParseHidpp10BatteryReply(byte[] rx, out int batteryPercent, out bool isCharging)
     {
         batteryPercent = -1;
@@ -1110,9 +1121,7 @@ public static class LogitechDeviceHelper
                                              foundPid == 0xC52B || foundPid == 0xC534 || foundPid == 0xC52F || 
                                              foundPid == 0xC542 || (foundPid >= 0xC500 && foundPid <= 0xC5FF));
 
-                            byte[] targetIndices = isDongle 
-                                ? ((foundPid == 0xC52B || foundPid == 0xC542) ? new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 } : new byte[] { 0x01, 0x02 }) 
-                                : new byte[] { 0xFF };
+                            byte[] targetIndices = GetTargetDeviceIndices(foundPid, isDongle);
 
                             foreach (byte devIdx in targetIndices)
                             {

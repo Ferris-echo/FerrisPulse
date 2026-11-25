@@ -94,6 +94,7 @@ namespace RazerBatteryTray
             lblTitle.ForeColor = Color.FromArgb(0, 229, 255);
             lblTitle.SetBounds(Scale(20), Scale(16), Scale(420), Scale(32));
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
 
             Label lblSub = new Label();
             lblSub.Text = "主灯效 · USB 有线设置通道";
@@ -245,6 +246,11 @@ namespace RazerBatteryTray
             btnClose = MakeButton("关闭", 380, 390, 58, Color.FromArgb(70, 78, 92));
             btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(btnClose);
+
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            this.modernChromeTitlePadLeftBase = 20;
+            AttachModernChrome("VGN Neon75 Ultra 灯光调节", redundantTitle, 8, true, true);
         }
 
         private ModernButton MakeButton(string text, int x, int y, int w, Color accent)

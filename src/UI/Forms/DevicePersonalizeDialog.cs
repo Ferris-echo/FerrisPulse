@@ -95,6 +95,7 @@ namespace RazerBatteryTray
             lblTitle.Location = new Point(pad, (int)(14 * dpiScale));
             lblTitle.AutoSize = true;
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
 
             var lblSub = new Label();
             lblSub.Text = "原始型号: " + (string.IsNullOrEmpty(this.originalName) ? "未知设备" : this.originalName);
@@ -239,6 +240,10 @@ namespace RazerBatteryTray
                 if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; CommitAndClose(); }
                 else if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; this.DialogResult = DialogResult.Cancel; this.Close(); }
             };
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            this.modernChromeTitlePadLeftBase = 18;
+            AttachModernChrome("设备外观与名称设置", redundantTitle, 14, true, true);
             RefreshPreviews();
         }
 

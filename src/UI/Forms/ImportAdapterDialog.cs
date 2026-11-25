@@ -70,6 +70,7 @@ namespace RazerBatteryTray
             lblTitle.Location = new Point(pad, Scale(12));
             lblTitle.AutoSize = true;
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
 
             Label lblDesc = new Label();
             lblDesc.Text = "支持粘贴 FDAS v2.0 (.fp-adapter.json) 或 C# 5.0 驱动脚本 (.fp-driver.cs)：";
@@ -233,6 +234,10 @@ namespace RazerBatteryTray
             btnSaveAndApply.Size = new Size(applyW, btnH);
             btnSaveAndApply.Click += (s, e) => SaveAndApplyAdapter();
             this.Controls.Add(btnSaveAndApply);
+
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            AttachModernChrome("导入 AI 外设扩展包 (FDAS v2.0 / .fp-driver.cs)", redundantTitle, 16, true, true);
 
             // Auto-check clipboard on load
             this.Shown += (s, e) =>

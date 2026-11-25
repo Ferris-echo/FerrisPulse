@@ -141,7 +141,6 @@ namespace RazerBatteryTray
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(13, 16, 23);
             this.ForeColor = Color.White;
-            try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch { }
 
             int clientW = S(420);
             int clientH = S(530);
@@ -149,9 +148,9 @@ namespace RazerBatteryTray
 
             int pad = S(16);
 
-            // 1. Title Header
+            // 1. Title Header (由 AttachModernChrome 自动提升为自绘标题栏)
             Label lblTitle = new Label();
-            lblTitle.Text = deviceName + " · 回报率档位配置";
+            lblTitle.Text = "回报率档位配置";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(245, 248, 252);
             lblTitle.Location = new Point(pad, S(12));
@@ -159,11 +158,12 @@ namespace RazerBatteryTray
             lblTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblTitle);
 
-            // 2. Subtitle Note
+            // 2. Subtitle Note (设备名称置于副标题避免大标题截断)
             Label lblSub = new Label();
-            lblSub.Text = "选择需要在主面板快捷切换的回报率档位 (最多勾选 5 档)";
+            lblSub.Text = deviceName + " · 选择主面板快捷切换档位 (最多 5 档)";
             lblSub.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular);
             lblSub.ForeColor = Color.FromArgb(120, 135, 155);
+            lblSub.AutoEllipsis = true;
             lblSub.Location = new Point(pad, S(36));
             lblSub.Size = new Size(clientW - pad * 2, S(18));
             lblSub.BackColor = Color.Transparent;
@@ -279,6 +279,8 @@ namespace RazerBatteryTray
             btnSave.Location = new Point(clientW - pad - btnSaveW, S(480));
             btnSave.Click += (s, e) => SaveAndClose();
             this.Controls.Add(btnSave);
+
+            AttachModernChrome("回报率档位配置", lblTitle, 18, true, true);
         }
 
         private Button CreatePresetButton(string text, int x, int width, int[] rates)

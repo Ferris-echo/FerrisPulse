@@ -25,6 +25,7 @@ namespace RazerBatteryTray
         private int lastTrayDoubleClickTick = 0;
         private Font trayDeviceItemFont;
         private HashSet<ToolStripDropDown> configuredSubMenuDropDowns;
+        private bool pendingTrayMenuRefresh = false;
 
         private void ConfigureSubMenuDropDown(ToolStripDropDown dropDown)
         {
@@ -74,6 +75,13 @@ namespace RazerBatteryTray
                     {
                         e.Cancel = true;
                     }
+                }
+            };
+            contextMenu.Closed += (s, e) => {
+                if (pendingTrayMenuRefresh)
+                {
+                    pendingTrayMenuRefresh = false;
+                    UpdateTrayDeviceMenuItems();
                 }
             };
 
@@ -751,6 +759,17 @@ namespace RazerBatteryTray
 
             int iconSize = GetTrayIconSize();
             bool allowLowBatteryTrayColor = IsEffectiveLowBatteryTrayColorEnabled();
+            if (plans != null)
+            {
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    if (plans[i] != null)
+                    {
+                        plans[i].TrayStyle = trayStyle;
+                        plans[i].AllowLowBatteryTrayColor = allowLowBatteryTrayColor;
+                    }
+                }
+            }
             multiTrayHost.SyncSlots(plans, delegate(TraySlotPlanItem slot)
             {
                 using (Bitmap bmp = DrawTrayBitmapWithOptions(slot.Percent, slot.IsCharging, slot.VisualConnected, trayStyle, iconSize, slot.IsSleeping, slot.AccentColor, allowLowBatteryTrayColor))
@@ -847,6 +866,13 @@ namespace RazerBatteryTray
         private void UpdateTrayDeviceMenuItems()
         {
             if (contextMenu == null) return;
+            // 右键菜单正在展开时严禁移除/重建菜单项，否则移动鼠标或轮询刷新会引起整个右键菜单剧烈闪烁
+            if (contextMenu.Visible)
+            {
+                pendingTrayMenuRefresh = true;
+                return;
+            }
+            pendingTrayMenuRefresh = false;
 
             foreach (var item in dynamicDeviceMenuItems)
             {
@@ -919,7 +945,20 @@ namespace RazerBatteryTray
                     }
                     else
                     {
-                        if (dev.IsCharging)
+                        bool isWiredNoBatt = dev.BatteryPercent < 0 &&
+                                             !dev.IsCharging &&
+                                             !dev.IsSleeping &&
+                                             !dev.IsDonglePresent &&
+                                             dev.Transport != null &&
+                                             (dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                              dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                             dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                             dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0;
+                        if (isWiredNoBatt)
+                        {
+                            battStr = "供电中";
+                        }
+                        else if (dev.IsCharging)
                         {
                             battStr = string.Format("{0}% (充电中)", dev.BatteryPercent > 0 ? dev.BatteryPercent : 0);
                         }
@@ -2058,7 +2097,7 @@ namespace RazerBatteryTray
             if (pending != null && UpdateManager.IsNewerVersion(pending.LatestVersion, UpdateManager.CurrentVersion))
             {
                 // 0ms 秒开：直接从内存缓存打开更新弹窗，弹窗内 SWR 后台静默并发复检
-                UpdateNoticeForm.ShowUpdateDialog(this, pending, UpdateManager.CurrentVersion);
+                UpdateNoticeForm.ShowUpdateDialog(this, pending, UpdateManager.CurrentVersion, this.dpiScale);
             }
             else
             {

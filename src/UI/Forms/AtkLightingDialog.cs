@@ -72,7 +72,7 @@ namespace RazerBatteryTray
             PrepareButton(applyButton, "应用并校验");
             applyButton.BorderColor = Color.FromArgb(195, 155, 85);
             applyButton.TextColor = Color.FromArgb(235, 200, 130);
-            Control[] children = { titleLabel, subtitleLabel, enabledBox, modeLabel, modeBox, brightnessLabel, brightnessBox, speedLabel, speedBox, colorLabel, colorButton, rainbowBox, hintLabel, statusLabel, reloadButton, applyButton };
+            Control[] children = { subtitleLabel, enabledBox, modeLabel, modeBox, brightnessLabel, brightnessBox, speedLabel, speedBox, colorLabel, colorButton, rainbowBox, hintLabel, statusLabel, reloadButton, applyButton };
             Controls.AddRange(children);
             modeBox.SelectedIndexChanged += delegate { UpdateAvailability(); };
             rainbowBox.CheckedChanged += delegate { UpdateAvailability(); };
@@ -91,8 +91,15 @@ namespace RazerBatteryTray
             {
                 if (busy && args.CloseReason == CloseReason.UserClosing) args.Cancel = true;
             };
+            this.modernChromeTitlePadLeftBase = 20;
+            AttachModernChrome("ATK V75X 灯光控制", null, 0, false, true);
             OnApplyDpiScale(dpiScale);
             UpdateAvailability();
+        }
+
+        protected override bool CanCloseViaModernChrome()
+        {
+            return !busy;
         }
 
         protected override void OnShown(EventArgs args)
@@ -111,24 +118,24 @@ namespace RazerBatteryTray
                 Font = layoutFont;
                 if (previous != null) previous.Dispose();
             }
-            ClientSize = Scale(new Size(500, 444));
-            titleLabel.Bounds = Scale(new Rectangle(20, 16, 460, 28));
-            subtitleLabel.Bounds = Scale(new Rectangle(20, 46, 460, 24));
-            enabledBox.Bounds = Scale(new Rectangle(20, 82, 460, 28));
-            modeLabel.Bounds = Scale(new Rectangle(20, 126, 90, 28));
-            modeBox.Bounds = Scale(new Rectangle(126, 122, 354, 30));
-            brightnessLabel.Bounds = Scale(new Rectangle(20, 170, 90, 28));
-            brightnessBox.Bounds = Scale(new Rectangle(126, 166, 354, 30));
-            speedLabel.Bounds = Scale(new Rectangle(20, 214, 90, 28));
-            speedBox.Bounds = Scale(new Rectangle(126, 210, 354, 30));
-            colorLabel.Bounds = Scale(new Rectangle(20, 258, 90, 28));
-            colorButton.Bounds = Scale(new Rectangle(126, 254, 160, 32));
-            rainbowBox.Bounds = Scale(new Rectangle(310, 254, 170, 32));
-            hintLabel.Bounds = Scale(new Rectangle(20, 302, 460, 46));
-            statusLabel.Bounds = Scale(new Rectangle(20, 350, 460, 40));
-            reloadButton.Bounds = Scale(new Rectangle(20, 398, 130, 32));
-            applyButton.Bounds = Scale(new Rectangle(330, 398, 150, 32));
+            ClientSize = Scale(new Size(500, 468));
+            subtitleLabel.Bounds = Scale(new Rectangle(20, 56, 460, 24));
+            enabledBox.Bounds = Scale(new Rectangle(20, 90, 460, 28));
+            modeLabel.Bounds = Scale(new Rectangle(20, 134, 90, 28));
+            modeBox.Bounds = Scale(new Rectangle(126, 130, 354, 30));
+            brightnessLabel.Bounds = Scale(new Rectangle(20, 178, 90, 28));
+            brightnessBox.Bounds = Scale(new Rectangle(126, 174, 354, 30));
+            speedLabel.Bounds = Scale(new Rectangle(20, 222, 90, 28));
+            speedBox.Bounds = Scale(new Rectangle(126, 218, 354, 30));
+            colorLabel.Bounds = Scale(new Rectangle(20, 266, 90, 28));
+            colorButton.Bounds = Scale(new Rectangle(126, 262, 160, 32));
+            rainbowBox.Bounds = Scale(new Rectangle(310, 262, 170, 32));
+            hintLabel.Bounds = Scale(new Rectangle(20, 310, 460, 46));
+            statusLabel.Bounds = Scale(new Rectangle(20, 362, 460, 40));
+            reloadButton.Bounds = Scale(new Rectangle(20, 412, 130, 32));
+            applyButton.Bounds = Scale(new Rectangle(330, 412, 150, 32));
             foreach (ModernButton button in new ModernButton[] { colorButton, reloadButton, applyButton }) button.CornerRadius = Scale(6);
+            LayoutModernChrome();
         }
 
         protected override void Dispose(bool disposing)

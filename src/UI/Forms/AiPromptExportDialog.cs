@@ -259,6 +259,9 @@ namespace RazerBatteryTray
             btnCopyPrompt.Size = new Size(btnCopyW, btnH);
             btnCopyPrompt.Click += BtnCopyPrompt_Click;
             this.Controls.Add(btnCopyPrompt);
+
+            AttachModernChrome("AI 适配提示词导出中心 (多设备)", lblTitle, 18, true, true);
+            lblTitle = null;
         }
 
         private void BuildDetailsPanel(int pnlW, int pnlH)

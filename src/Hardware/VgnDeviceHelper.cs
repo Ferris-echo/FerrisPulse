@@ -219,6 +219,29 @@ namespace RazerBatteryTray
             return usagePage == 0xFF02 && usage == 0x0002 && inputLength == 17 && outputLength == 17;
         }
 
+        public static bool TryExtractVgnBatteryFromReply(byte[] rxBat, out int batteryPercent, out bool isCharging, out int voltageMv)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            voltageMv = 0;
+            if (rxBat == null || rxBat.Length <= 8) return false;
+
+            int bVal = rxBat[6];
+            if (bVal < 0 || bVal > 100) return false;
+
+            batteryPercent = bVal;
+            isCharging = (rxBat[7] == 1);
+            if (rxBat.Length > 9)
+            {
+                int vMv = (rxBat[8] << 8) | rxBat[9];
+                if (vMv >= 3000 && vMv <= 4500)
+                {
+                    voltageMv = vMv;
+                }
+            }
+            return true;
+        }
+
         public static bool ParseBatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
         {
             batteryPercent = -1;
@@ -1222,36 +1245,45 @@ namespace RazerBatteryTray
 
                                                         // 3. Online Check (Command 3)
                                                         byte[] rxOnline = SendAndReceive(handle, hEvent, BuildReport17(3, null), caps.InputReportByteLength, 300);
-                                                        if (rxOnline != null && rxOnline.Length > 6 && rxOnline[6] > 0)
+                                                        bool onlineConfirmed = (rxOnline != null && rxOnline.Length > 6 && rxOnline[6] > 0);
+                                                        bool explicitSleep = (rxOnline != null && rxOnline.Length > 6 && rxOnline[6] == 0);
+                                                        if (onlineConfirmed || (!explicitSleep && rxOnline == null))
                                                         {
-                                                            isMouseOnline = true;
-
-                                                            // 4. Query Battery (Command 4)：校验响应命令号 rx[1]==0x04，防止读到握手/在线探测的错位残留响应
+                                                            // 4. Query Battery (Command 4)：优先校验 rx[1]==0x04；兼容非标准 0x3554 克隆固件直接回电量帧
                                                             byte[] rxBat = null;
+                                                            byte[] fallbackBat = null;
                                                             for (int bRetry = 0; bRetry < 3; bRetry++)
                                                             {
-                                                                rxBat = SendAndReceive(handle, hEvent, BuildReport17(4, null), caps.InputReportByteLength, 400);
-                                                                if (rxBat != null && rxBat.Length > 8 && rxBat[1] == 0x04)
+                                                                byte[] candBat = SendAndReceive(handle, hEvent, BuildReport17(4, null), caps.InputReportByteLength, 400);
+                                                                if (candBat != null && candBat.Length > 8 && candBat[1] == 0x04)
                                                                 {
+                                                                    rxBat = candBat;
                                                                     break;
                                                                 }
-                                                                rxBat = null;
-                                                            }
-                                                            if (rxBat != null && rxBat.Length > 9)
-                                                            {
-                                                                int bVal = rxBat[6];
-                                                                if (bVal >= 0 && bVal <= 100)
+                                                                if (fallbackBat == null && candBat != null && candBat.Length > 8 && candBat[6] <= 100)
                                                                 {
-                                                                    foundBattery = bVal;
-                                                                    foundCharging = (rxBat[7] == 1);
-                                                                    // bytes[8..9] = 电池电压（mV，大端），如 10 61 → 4193mV
-                                                                    int vMv = (rxBat[8] << 8) | rxBat[9];
-                                                                    if (vMv >= 3000 && vMv <= 4500)
-                                                                    {
-                                                                        foundVoltageMv = vMv;
-                                                                    }
+                                                                    fallbackBat = candBat;
                                                                 }
                                                             }
+                                                            if (rxBat == null) rxBat = fallbackBat;
+
+                                                            int parsedBatt, parsedMv;
+                                                            bool parsedChg;
+                                                            if (TryExtractVgnBatteryFromReply(rxBat, out parsedBatt, out parsedChg, out parsedMv))
+                                                            {
+                                                                foundBattery = parsedBatt;
+                                                                foundCharging = parsedChg;
+                                                                if (parsedMv >= 3000 && parsedMv <= 4500)
+                                                                {
+                                                                    foundVoltageMv = parsedMv;
+                                                                }
+                                                                if (!onlineConfirmed) isMouseOnline = true;
+                                                            }
+                                                        }
+
+                                                        if (onlineConfirmed)
+                                                        {
+                                                            isMouseOnline = true;
 
                                                             // 5. Query Current DPI Stage (地址 0x04，读 2 字节 value + 奇偶校验 0x55-value)：校验响应命令号 rx[1]==0x08
                                                             byte[] rxStage = null;

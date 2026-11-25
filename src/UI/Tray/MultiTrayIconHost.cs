@@ -392,12 +392,15 @@ namespace RazerBatteryTray
 
         private static string BuildVisualSignature(TraySlotPlanItem plan)
         {
-            return string.Format("{0}|{1}|{2}|{3}|{4}",
+            return string.Format("{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}",
                 plan.Percent,
                 plan.IsCharging ? 1 : 0,
                 plan.VisualConnected ? 1 : 0,
+                plan.IsSleeping ? 1 : 0,
                 plan.IsFallback ? 1 : 0,
-                plan.AccentColor.ToArgb());
+                plan.AccentColor.ToArgb(),
+                plan.TrayStyle,
+                plan.AllowLowBatteryTrayColor ? 1 : 0);
         }
 
         private static string NormalizeTooltip(string tip)

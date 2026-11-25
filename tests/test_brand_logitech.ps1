@@ -258,4 +258,12 @@ Invoke-TestCase "Logitech.EndpointScoringAndHidpp10Fallback" {
     $args07 = [object[]]@($rx07, [int]0, $false)
     $ok07 = [bool]$mHidpp10.Invoke($null, $args07)
     Assert-True ($ok07 -and $args07[1] -eq 50 -and $args07[2] -eq $false) "HID++ 1.0 reg 0x07 status"
+
+    # Non-0xC5xx slot fallback (0xFF wired + 0x01 wireless) matches v2.0.1
+    $mIdx = $tLogi.GetMethod("GetTargetDeviceIndices", $bfPubStatic)
+    Assert-True ($null -ne $mIdx) "GetTargetDeviceIndices exists"
+    $nonDongleSlots = [byte[]]$mIdx.Invoke($null, @([int]0x4074, $false))
+    Assert-True ($nonDongleSlots.Length -eq 2 -and $nonDongleSlots[0] -eq 0xFF -and $nonDongleSlots[1] -eq 0x01) "Non-0xC5xx includes 0xFF and 0x01 fallback"
+    $unifyingSlots = [byte[]]$mIdx.Invoke($null, @([int]0xC52B, $true))
+    Assert-Equal 6 $unifyingSlots.Length "Unifying probes 6 slots"
 }

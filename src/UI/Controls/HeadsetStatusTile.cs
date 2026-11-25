@@ -40,9 +40,9 @@ namespace RazerBatteryTray
             BackColor = Color.Transparent;
             DpiScale = 1.0f;
             AccentColor = Color.FromArgb(90, 160, 255);
-            Title = "蓝牙高质量音频 · Windows 原生 PnP 状态感知";
+            Title = "蓝牙音频";
             StatusText = "已连接并处于就绪状态";
-            Footnote = "支持一键打开系统声音面板切换默认输出端点";
+            Footnote = "";
         }
 
         protected override void OnMouseMove(MouseEventArgs e)

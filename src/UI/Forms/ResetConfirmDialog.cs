@@ -29,7 +29,6 @@ namespace RazerBatteryTray
     public class ResetConfirmDialog : DpiAwareForm
     {
         private RoundedCard cardInfo;
-        private Label lblTitle;
         private Label lblDesc;
         private Label lblItem1;
         private Label lblItem2;
@@ -73,16 +72,8 @@ namespace RazerBatteryTray
                 }
             };
 
-            lblTitle = new Label();
-            lblTitle.Text = "深度重置与历史数据清理";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(245, 248, 255);
-            lblTitle.BackColor = Color.Transparent;
-            lblTitle.AutoSize = true;
-            this.Controls.Add(lblTitle);
-
             lblDesc = new Label();
-            lblDesc.Text = "如果遇到开机启动两个软件、或新版看不到新适配设备，可通过下方选项一键清理所有历史残留：";
+            lblDesc.Text = "清理旧版残留配置、自启动项与设备缓存：";
             lblDesc.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular);
             lblDesc.ForeColor = Color.FromArgb(170, 178, 195);
             lblDesc.BackColor = Color.Transparent;
@@ -119,7 +110,7 @@ namespace RazerBatteryTray
             cardInfo.Controls.Add(lblItem3);
 
             btnResetRestart = new ModernButton();
-            btnResetRestart.Text = "🔄 一键重置并重启软件 (推荐 · 解决异常与设备识别)";
+            btnResetRestart.Text = "重置配置并重启（推荐）";
             btnResetRestart.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
             btnResetRestart.NormalColor = Color.FromArgb(22, 52, 40);
             btnResetRestart.HoverColor = Color.FromArgb(30, 72, 55);
@@ -137,7 +128,7 @@ namespace RazerBatteryTray
             this.Controls.Add(btnResetRestart);
 
             btnCleanExit = new ModernButton();
-            btnCleanExit.Text = "🗑️ 彻底清理所有数据并退出 (纯净卸载 · 移除快捷方式)";
+            btnCleanExit.Text = "彻底清理数据并退出";
             btnCleanExit.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold);
             btnCleanExit.NormalColor = Color.FromArgb(52, 24, 28);
             btnCleanExit.HoverColor = Color.FromArgb(72, 32, 38);
@@ -173,6 +164,8 @@ namespace RazerBatteryTray
             this.Controls.Add(btnCancel);
 
             ApplyResetDialogLayout();
+            this.modernChromeTitlePadLeftBase = 22;
+            AttachModernChrome("深度重置与历史数据清理", null, 0, false, false);
         }
 
         private void ApplyResetDialogLayout()
@@ -181,18 +174,13 @@ namespace RazerBatteryTray
             int padX = Scale(22);
             int contentW = clientW - (padX * 2);
 
-            if (lblTitle != null)
-            {
-                lblTitle.Location = new Point(padX, Scale(18));
-            }
-
             if (lblDesc != null)
             {
-                lblDesc.Location = new Point(padX, Scale(48));
+                lblDesc.Location = new Point(padX, Scale(58));
                 lblDesc.Size = new Size(contentW, Scale(38));
             }
 
-            int cardY = Scale(92);
+            int cardY = Scale(102);
             int cardH = Scale(104);
             if (cardInfo != null)
             {
@@ -234,6 +222,7 @@ namespace RazerBatteryTray
 
             int clientH = b3Y + Scale(32) + Scale(18);
             this.ClientSize = new Size(clientW, clientH);
+            LayoutModernChrome();
         }
 
         protected override void OnApplyDpiScale(float scale)

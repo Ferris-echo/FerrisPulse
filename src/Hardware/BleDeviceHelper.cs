@@ -107,7 +107,8 @@ namespace RazerBatteryTray
                 return DeviceCategory.Gamepad;
             }
             if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("kzzi") ||
-                lower.Contains("k75") || lower.Contains("keychron"))
+                lower.Contains("k75") || lower.Contains("keychron") || lower.Contains("aula") ||
+                lower.Contains("f75") || lower.Contains("f87") || lower.Contains("f99") || lower.Contains("s98"))
             {
                 return DeviceCategory.Keyboard;
             }
@@ -124,6 +125,7 @@ namespace RazerBatteryTray
             string lower = name.ToLowerInvariant();
             if (lower.Contains("xbox")) return "Microsoft";
             if (lower.Contains("kzzi") || lower.Contains("k75")) return "KZZI";
+            if (lower.Contains("aula") || lower.Contains("f75") || lower.Contains("f87") || lower.Contains("f99")) return "AULA";
             if (lower.Contains("ironcat")) return "Ironcat";
             if (lower.Contains("dualsense") || lower.Contains("dualshock")) return "Sony";
             if (lower.Contains("logitech") || lower.Contains("mx ")) return "Logitech";

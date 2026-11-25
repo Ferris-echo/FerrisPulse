@@ -144,6 +144,9 @@ namespace RazerBatteryTray
                 if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; CommitAndClose(); }
                 else if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; this.DialogResult = DialogResult.Cancel; this.Close(); }
             };
+
+            this.modernChromeTitlePadLeftBase = 18;
+            AttachModernChrome("低电量提醒方式设置 (≤20%)", lblTitle, 14, true, true);
         }
 
         private ModernCheckBox AddOptionRow(RoundedCard parent, int x, int y, int width, string title, string desc, bool initialChecked)

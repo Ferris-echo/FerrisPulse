@@ -252,11 +252,10 @@ namespace RazerBatteryTray
                                     continue;
                                 }
                                 string lower = devicePath.ToLower();
-                                // Skip known handled or internal non-mouse devices
-                                if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||
-                                    lower.Contains("vid_320f") || lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
-                                    lower.Contains("vid_17ef") || lower.Contains("vid_054c") || lower.Contains("vid_37d7") || lower.Contains("vid_3837") || lower.Contains("syna") || lower.Contains("tencent") || lower.Contains("virtual") ||
-                                    ValkyrieDeviceHelper.IsValkyrieDevice(lower) || AcerDeviceHelper.IsAcerMouse(lower) || lower.Contains("vid_258a&pid_010c"))
+                                // Skip internal non-peripheral sensors/touchpads and strict single-model PIDs owned by dedicated helpers
+                                if (lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") ||
+                                    lower.Contains("vid_048d") || lower.Contains("vid_17ef") || lower.Contains("syna") ||
+                                    lower.Contains("tencent") || lower.Contains("virtual") || AcerDeviceHelper.IsAcerMouse(lower))
                                 {
                                     Marshal.FreeHGlobal(detailBuffer);
                                     ifData.cbSize = Marshal.SizeOf(ifData);
@@ -319,6 +318,27 @@ namespace RazerBatteryTray
                                             if (!managedByDedicatedDriver && (isGamepad || isHeadset || isDongle || isKeyboard || isMouse))
                                             {
                                                 string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                if (existingIds != null)
+                                                {
+                                                    bool alreadyClaimed = existingIds.Contains(key) ||
+                                                        existingIds.Contains("HID:" + key) ||
+                                                        existingIds.Contains(string.Format("vid_{0:X4}&pid_{1:X4}", attr.VendorID, attr.ProductID));
+                                                    if (!alreadyClaimed && attr.VendorID == 0x1532)
+                                                    {
+                                                        int normRzPid = RazerDeviceHelper.NormalizeRazerPid(attr.ProductID);
+                                                        string rzKey = string.Format("1532:{0:X4}", normRzPid);
+                                                        alreadyClaimed = existingIds.Contains(rzKey) ||
+                                                            existingIds.Contains("Razer:" + rzKey) ||
+                                                            existingIds.Contains("HID:" + rzKey);
+                                                    }
+                                                    if (alreadyClaimed)
+                                                    {
+                                                        Marshal.FreeHGlobal(detailBuffer);
+                                                        ifData.cbSize = Marshal.SizeOf(ifData);
+                                                        continue;
+                                                    }
+                                                }
+
                                                 string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 
                                                 DeviceCategory devCat = DeviceCategory.Generic;

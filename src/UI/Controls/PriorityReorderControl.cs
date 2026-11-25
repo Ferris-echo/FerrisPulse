@@ -2,8 +2,9 @@
 // 模块名称: PriorityReorderControl.cs
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
-//   现代化设备托盘优先级拖拽排序控件，支持卡片流体跟随拖拽、物理弹簧阻尼回弹过渡动画、
-//   固定序号槽位渲染、双色主题色点个性化触发、微型矢量删除/隐藏设备按钮、平滑细滚动条与全矢量无极缩放。
+//   现代化设备托盘优先级拖拽排序控件，支持静止态全宽卡片内嵌纯白个位数序号 (1/2/3...)，
+//   拖拽时平滑剥离让出左侧静止数字轨道（目标落位高亮品牌色微光徽章、松手丝滑合回全宽），
+//   物理弹簧阻尼回弹、双色主题色点个性化触发、微型矢量删除/隐藏设备按钮与全矢量无极缩放。
 // 依赖关系: Models.PriorityItem, Hardware.DeviceManager, Theme.ModernThemeHelper, RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -25,6 +26,7 @@ namespace RazerBatteryTray
     {
         public List<PriorityItem> Items = new List<PriorityItem>();
         public float DpiScale = 1.0f;
+        public int ActiveTraySlotCount { get; set; }
 
         private int draggedIndex = -1;
         private int currentDropIndex = -1;
@@ -36,12 +38,16 @@ namespace RazerBatteryTray
         private int scrollY = 0;
         private int hoveredDeleteIndex = -1;
         private int hoveredSwatchIndex = -1;
+        private float dragSplitProgress = 0.0f;
+
+        public float DragSplitProgress { get { return dragSplitProgress; } }
 
         public event Action OrderChanged;
         public event Action<int> SwatchClicked;
 
         public PriorityReorderControl()
         {
+            ActiveTraySlotCount = 1;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Color.FromArgb(18, 19, 23);
             DoubleBuffered = true;
@@ -65,6 +71,19 @@ namespace RazerBatteryTray
                     }
                 }
 
+                float targetSplit = isDragging ? 1.0f : 0.0f;
+                float splitDiff = targetSplit - dragSplitProgress;
+                if (Math.Abs(splitDiff) > 0.01f)
+                {
+                    dragSplitProgress += splitDiff * 0.28f;
+                    needsRedraw = true;
+                }
+                else if (dragSplitProgress != targetSplit)
+                {
+                    dragSplitProgress = targetSplit;
+                    needsRedraw = true;
+                }
+
                 if (settlingItem != null && Math.Abs(settlingItem.TargetY - settlingItem.CurrentY) < 0.5f)
                 {
                     settlingItem.CurrentY = settlingItem.TargetY;
@@ -73,7 +92,7 @@ namespace RazerBatteryTray
                 }
 
                 if (needsRedraw) Invalidate();
-                else if (!isDragging && settlingItem == null) animTimer.Stop();
+                else if (!isDragging && settlingItem == null && Math.Abs(dragSplitProgress) < 0.01f) animTimer.Stop();
             };
         }
 
@@ -134,18 +153,50 @@ namespace RazerBatteryTray
             }
         }
 
+        private void GetLayoutMetrics(out int padX, out int rankColW, out int cardStartX, out int cardW)
+        {
+            int maxScroll = GetMaxScroll();
+            int rightMargin = maxScroll > 0 ? (int)(10 * DpiScale) : 0;
+            padX = 0;
+            rankColW = 0;
+            cardStartX = 0;
+            cardW = Math.Max(80, Width - rightMargin - 1);
+        }
+
+        public int GetLiveDisplayRank(int itemIndex)
+        {
+            if (!isDragging || draggedIndex < 0 || currentDropIndex < 0)
+            {
+                return itemIndex + 1;
+            }
+            if (itemIndex == draggedIndex)
+            {
+                return currentDropIndex + 1;
+            }
+            if (draggedIndex < currentDropIndex)
+            {
+                if (itemIndex > draggedIndex && itemIndex <= currentDropIndex) return itemIndex;
+                return itemIndex + 1;
+            }
+            if (draggedIndex > currentDropIndex)
+            {
+                if (itemIndex >= currentDropIndex && itemIndex < draggedIndex) return itemIndex + 2;
+                return itemIndex + 1;
+            }
+            return itemIndex + 1;
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
             if (e.Button == MouseButtons.Left && Items.Count > 0)
             {
                 int itemH = GetItemHeight();
-                int padX = (int)(8 * DpiScale);
-                int rankColW = (int)(26 * DpiScale);
-                int cardStartX = padX + rankColW + (int)(8 * DpiScale);
-                int maxScroll = GetMaxScroll();
-                int rightMargin = maxScroll > 0 ? (int)(12 * DpiScale) : 0;
-                int cardW = Width - cardStartX - (int)(10 * DpiScale) - rightMargin;
+                int padX;
+                int rankColW;
+                int cardStartX;
+                int cardW;
+                GetLayoutMetrics(out padX, out rankColW, out cardStartX, out cardW);
                 int gripW = (int)(18 * DpiScale);
                 int delW = (int)(22 * DpiScale);
 
@@ -255,12 +306,11 @@ namespace RazerBatteryTray
                 int newHoverDel = -1;
                 int newHoverSw = -1;
                 int itemH = GetItemHeight();
-                int padX = (int)(8 * DpiScale);
-                int rankColW = (int)(26 * DpiScale);
-                int cardStartX = padX + rankColW + (int)(8 * DpiScale);
-                int maxScroll = GetMaxScroll();
-                int rightMargin = maxScroll > 0 ? (int)(12 * DpiScale) : 0;
-                int cardW = Width - cardStartX - (int)(10 * DpiScale) - rightMargin;
+                int padX;
+                int rankColW;
+                int cardStartX;
+                int cardW;
+                GetLayoutMetrics(out padX, out rankColW, out cardStartX, out cardW);
                 int gripW = (int)(18 * DpiScale);
                 int delW = (int)(22 * DpiScale);
                 int swW = Math.Max(14, (int)(20 * DpiScale));
@@ -340,6 +390,16 @@ namespace RazerBatteryTray
             }
         }
 
+        private static Color BlendColor(Color a, Color b, float t)
+        {
+            if (t <= 0f) return a;
+            if (t >= 1f) return b;
+            int r = (int)Math.Round(a.R + (b.R - a.R) * t);
+            int g = (int)Math.Round(a.G + (b.G - a.G) * t);
+            int bl = (int)Math.Round(a.B + (b.B - a.B) * t);
+            return Color.FromArgb(r, g, bl);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
@@ -348,24 +408,86 @@ namespace RazerBatteryTray
             g.Clear(BackColor);
 
             int maxScroll = GetMaxScroll();
-            int rightMargin = maxScroll > 0 ? (int)(12 * DpiScale) : 0;
             int itemH = GetItemHeight();
             int itemGap = GetItemGap();
             int totalH = itemH + itemGap;
-            int padX = (int)(8 * DpiScale);
-            int rankColW = (int)(26 * DpiScale);
-            int cardStartX = padX + rankColW + (int)(8 * DpiScale);
-            int cardW = Width - cardStartX - (int)(10 * DpiScale) - rightMargin;
+            int padX;
+            int rankColW;
+            int cardStartX;
+            int cardW;
+            GetLayoutMetrics(out padX, out rankColW, out cardStartX, out cardW);
 
-            var state = g.Save();
-            g.TranslateTransform(0, -scrollY);
+            float p = dragSplitProgress;
+            int railW = (int)(36 * DpiScale);
+            int splitShift = (int)Math.Round(railW * p);
+            int drawCardX = cardStartX + splitShift;
+            int drawCardW = Math.Max(60, cardW - splitShift);
+            int fixedIconX = cardStartX + (int)(49 * DpiScale);
 
-            // 1. Draw FIXED slot numbers on the left
-            for (int i = 0; i < Items.Count; i++)
+            // 1. Stationary left rank rail (fades in smoothly as cards peel right during drag, exact center match with resting digit)
+            if (p > 0.05f)
             {
-                float slotY = i * totalH;
-                if (slotY + itemH < scrollY || slotY > scrollY + Height) continue;
-                DrawFixedSlotRank(g, i + 1, padX, (int)slotY, rankColW, itemH);
+                float railFade = Math.Min(1.0f, Math.Max(0.0f, (p - 0.15f) / 0.85f));
+                Color dragAccent = (draggedIndex >= 0 && draggedIndex < Items.Count)
+                    ? Items[draggedIndex].AccentColor
+                    : Color.FromArgb(0, 230, 118);
+
+                for (int i = 0; i < Items.Count; i++)
+                {
+                    int slotY = i * totalH - scrollY;
+                    if (slotY + itemH < 0 || slotY > Height) continue;
+
+                    bool isTargetSlot = isDragging && (currentDropIndex == i);
+                    int slotRankX = cardStartX + (int)(7 * DpiScale);
+                    int slotRankW = (int)(22 * DpiScale);
+                    Rectangle slotRankRect = new Rectangle(slotRankX, slotY, slotRankW, itemH);
+
+                    if (isTargetSlot)
+                    {
+                        Color targetTextCol = BlendColor(BackColor, dragAccent, railFade);
+                        using (var railFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 12.5F, FontStyle.Bold, DpiScale))
+                        {
+                            TextRenderer.DrawText(g, (i + 1).ToString(), railFont, slotRankRect, targetTextCol,
+                                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                        }
+                    }
+                    else
+                    {
+                        Color idleTextCol = BlendColor(BackColor, Color.FromArgb(148, 160, 184), railFade);
+                        using (var railFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 11.5F, FontStyle.Bold, DpiScale))
+                        {
+                            TextRenderer.DrawText(g, (i + 1).ToString(), railFont, slotRankRect, idleTextCol,
+                                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                        }
+                    }
+                }
+            }
+
+            // 1.5 Recessed dashed drop-target slot placeholder matching split card bounds
+            if (isDragging && currentDropIndex >= 0 && currentDropIndex < Items.Count)
+            {
+                int slotY = currentDropIndex * totalH - scrollY;
+                if (slotY + itemH >= 0 && slotY <= Height)
+                {
+                    int slotR = Math.Max(3, (int)(8 * DpiScale));
+                    Rectangle slotRect = new Rectangle(drawCardX, slotY, drawCardW, itemH);
+                    Color accentRef = (draggedIndex >= 0 && draggedIndex < Items.Count)
+                        ? Items[draggedIndex].AccentColor
+                        : Color.FromArgb(0, 230, 118);
+                    Color slotPenCol = Color.FromArgb(95, accentRef);
+                    using (var slotPath = RoundedCard.GetRoundedRectangle(slotRect, slotR))
+                    {
+                        using (var slotBrush = new SolidBrush(Color.FromArgb(18, 22, 30)))
+                        {
+                            g.FillPath(slotBrush, slotPath);
+                        }
+                        using (var slotPen = new Pen(slotPenCol, 1.2f))
+                        {
+                            slotPen.DashStyle = DashStyle.Dash;
+                            g.DrawPath(slotPen, slotPath);
+                        }
+                    }
+                }
             }
 
             // 2. Draw non-dragged and non-settling cards
@@ -373,25 +495,28 @@ namespace RazerBatteryTray
             {
                 if (isDragging && i == draggedIndex) continue;
                 if (Items[i] == settlingItem) continue;
-                float cardY = Items[i].CurrentY;
-                if (cardY + itemH < scrollY || cardY > scrollY + Height) continue;
-                DrawCard(g, Items[i], cardStartX, (int)cardY, cardW, itemH, false, (hoveredDeleteIndex == i), (hoveredSwatchIndex == i));
+                int drawY = (int)Items[i].CurrentY - scrollY;
+                if (drawY + itemH < 0 || drawY > Height) continue;
+                int displayRank = GetLiveDisplayRank(i);
+                DrawCard(g, Items[i], displayRank, drawCardX, drawY, drawCardW, itemH, fixedIconX, false, false, (hoveredDeleteIndex == i), (hoveredSwatchIndex == i));
             }
 
             // 3. Draw settling card on top layer with smooth easing into slot
             if (settlingItem != null)
             {
-                DrawCard(g, settlingItem, cardStartX, (int)settlingItem.CurrentY, cardW, itemH, true, false, false);
+                int settleIdx = Items.IndexOf(settlingItem);
+                int settleRank = settleIdx >= 0 ? (settleIdx + 1) : settlingItem.PriorityIndex;
+                int settleY = (int)settlingItem.CurrentY - scrollY;
+                DrawCard(g, settlingItem, settleRank, drawCardX, settleY, drawCardW, itemH, fixedIconX, true, false, false, false);
             }
 
-            // 4. Draw dragged floating card on very top
+            // 4. Draw dragged floating card on very top (hides internal rank digit cleanly while moving)
             if (isDragging && draggedIndex >= 0 && draggedIndex < Items.Count)
             {
-                int floatY = dragCurrentY - dragOffsetY;
-                DrawCard(g, Items[draggedIndex], cardStartX, floatY, cardW, itemH, true, false, false);
+                int dragRank = GetLiveDisplayRank(draggedIndex);
+                int floatScreenY = (dragCurrentY - dragOffsetY) - scrollY;
+                DrawCard(g, Items[draggedIndex], dragRank, drawCardX, floatScreenY, drawCardW, itemH, fixedIconX, true, true, false, false);
             }
-
-            g.Restore(state);
 
             // Draw slim modern scrollbar if content exceeds height
             if (maxScroll > 0)
@@ -410,53 +535,7 @@ namespace RazerBatteryTray
             }
         }
 
-        private void DrawFixedSlotRank(Graphics g, int rank, int x, int y, int w, int h)
-        {
-            int rankSize = Math.Max(14, (int)(22 * DpiScale));
-            int rx = x + (w - rankSize) / 2;
-            int ry = y + (h - rankSize) / 2;
-            Rectangle rankRect = new Rectangle(rx, ry, rankSize, rankSize);
-
-            bool isTop = (rank == 1);
-            Color rBg = isTop ? Color.FromArgb(32, 0, 230, 118) : Color.FromArgb(28, 32, 42);
-            Color rBorder = isTop ? Color.FromArgb(0, 230, 118) : Color.FromArgb(55, 62, 78);
-            Color rFg = isTop ? Color.FromArgb(0, 230, 118) : Color.FromArgb(160, 170, 190);
-
-            using (var rPath = RoundedCard.GetRoundedRectangle(rankRect, Math.Max(4, rankSize / 2)))
-            {
-                using (var rb = new SolidBrush(rBg)) g.FillPath(rb, rPath);
-                using (var rp = new Pen(rBorder, isTop ? 1.5f : 1.0f)) g.DrawPath(rp, rPath);
-            }
-
-            using (var rf = DpiScaleHelper.CreateScaledFont("Segoe UI", 9.0F, FontStyle.Bold, DpiScale))
-            {
-                string rStr = rank.ToString();
-                float emSize = rf.SizeInPoints * 96.0f / 72.0f;
-                float cx = rx + rankSize / 2.0f;
-                float cy = ry + rankSize / 2.0f;
-
-                using (GraphicsPath numPath = new GraphicsPath())
-                {
-                    numPath.AddString(rStr, rf.FontFamily, (int)rf.Style, emSize, new PointF(0, 0), StringFormat.GenericTypographic);
-                    RectangleF b = numPath.GetBounds();
-                    float dx = cx - (b.Left + b.Width / 2.0f);
-                    float dy = cy - (b.Top + b.Height / 2.0f);
-
-                    using (Matrix mat = new Matrix())
-                    {
-                        mat.Translate(dx, dy);
-                        numPath.Transform(mat);
-                    }
-
-                    using (SolidBrush numBrush = new SolidBrush(rFg))
-                    {
-                        g.FillPath(numBrush, numPath);
-                    }
-                }
-            }
-        }
-
-        private void DrawCard(Graphics g, PriorityItem item, int x, int y, int w, int h, bool isElevated, bool isDelHovered, bool isSwHovered)
+        private void DrawCard(Graphics g, PriorityItem item, int displayRank, int x, int y, int w, int h, int fixedIconX, bool isElevated, bool isActivelyDragged, bool isDelHovered, bool isSwHovered)
         {
             int r = Math.Max(3, (int)(8 * DpiScale));
             Rectangle rect = new Rectangle(x, y, w, h);
@@ -479,9 +558,38 @@ namespace RazerBatteryTray
                 using (var pen = new Pen(borderCol, isElevated ? 1.8f : 1.0f)) g.DrawPath(pen, path);
             }
 
-            // 1. Icon (left aligned inside card) - Vector centered!
+            // 0. Embedded pure-white single digit & hairline divider (aligned identically to rail digit; fades out during split)
+            float p = dragSplitProgress;
+            if (!isActivelyDragged && p < 0.65f)
+            {
+                float embedVis = Math.Max(0.0f, 1.0f - (p / 0.55f));
+                int rankX = x + (int)(7 * DpiScale);
+                int rankW = (int)(22 * DpiScale);
+                Color rankCol = BlendColor(cardBg, Color.FromArgb(240, 245, 255), embedVis);
+                using (var rankFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 11.5F, FontStyle.Bold, DpiScale))
+                {
+                    Rectangle rankRect = new Rectangle(rankX, y, rankW, h);
+                    TextRenderer.DrawText(g, displayRank.ToString(), rankFont, rankRect, rankCol,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                }
+
+                int sepX = rankX + rankW + (int)(8 * DpiScale);
+                int sepMarginY = (int)(14 * DpiScale);
+                int sepAlpha = isElevated
+                    ? Math.Max(0, Math.Min(255, (int)(70 * embedVis)))
+                    : Math.Max(0, Math.Min(255, (int)(255 * embedVis)));
+                Color sepCol = isElevated
+                    ? Color.FromArgb(sepAlpha, 255, 255, 255)
+                    : Color.FromArgb(sepAlpha, 44, 50, 66);
+                using (var sepPen = new Pen(sepCol, 1.0f))
+                {
+                    g.DrawLine(sepPen, sepX, y + sepMarginY, sepX, y + h - sepMarginY);
+                }
+            }
+
+            // 1. Icon (constant screen X passed from OnPaint — zero horizontal jitter across split animation!)
             int iconBoxSize = (int)(22 * DpiScale);
-            int iconX = x + (int)(12 * DpiScale);
+            int iconX = fixedIconX;
             int iconY = y + (h - iconBoxSize) / 2;
             Rectangle iconRect = new Rectangle(iconX, iconY, iconBoxSize, iconBoxSize);
             ModernThemeHelper.DrawModernDeviceIcon(g, iconRect, item.Category, item.AccentColor);

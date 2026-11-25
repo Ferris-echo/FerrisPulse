@@ -795,6 +795,12 @@ namespace RazerBatteryTray
         internal static string ConfigRegistryKey = @"Software\FerrisPulse";
         internal static bool DisableConfigSaveForTesting = false;
 
+        internal static bool IsConfigSaveDisabledForTesting()
+        {
+            return DisableConfigSaveForTesting ||
+                string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase);
+        }
+
 
 
         private bool lowBatteryAlertEnabled = true;
@@ -1799,19 +1805,17 @@ namespace RazerBatteryTray
 
 
             if (lastInfo != null)
-
             {
-
-                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected);
-
+                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+            }
+            else
+            {
+                UpdateTrayIcon(-1, false, false);
             }
 
-            else
-
+            if (multiTrayEnabled)
             {
-
-                UpdateTrayIcon(-1, false, false);
-
+                RefreshMultiTrayHost();
             }
 
         }
@@ -2485,7 +2489,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
         {
 
-            if (DisableConfigSaveForTesting) return;
+            if (IsConfigSaveDisabledForTesting()) return;
 
             try
 
@@ -2695,7 +2699,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
             lowBatteryUiColorEnabled = uiColorEnabled;
             lowBatteryTrayColorEnabled = trayColorEnabled;
 
-            if (!DisableConfigSaveForTesting)
+            if (!IsConfigSaveDisabledForTesting())
             {
                 ConfigManager.SetLowBatteryNotifyEnabled(notifyEnabled);
                 ConfigManager.SetLowBatteryUiColorEnabled(uiColorEnabled);
@@ -2759,7 +2763,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
             {
                 lowBatteryNotifyEnabled = true;
                 lowBatteryUiColorEnabled = true;
-                if (!DisableConfigSaveForTesting)
+                if (!IsConfigSaveDisabledForTesting())
                 {
                     ConfigManager.SetLowBatteryNotifyEnabled(true);
                     ConfigManager.SetLowBatteryUiColorEnabled(true);

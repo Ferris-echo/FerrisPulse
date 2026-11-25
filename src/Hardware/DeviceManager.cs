@@ -126,6 +126,15 @@ namespace RazerBatteryTray
             return string.Join("  |  ", parts.ToArray());
         }
 
+        private static bool IsWiredDeviceTransport(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.IsDonglePresent || string.IsNullOrEmpty(dev.Transport)) return false;
+            return (dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                   dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0 &&
+                   dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
         private static bool IsWiredKeyboardTransport(MouseBatteryInfo dev)
         {
             if (dev == null || dev.Category != DeviceCategory.Keyboard || string.IsNullOrEmpty(dev.Transport)) return false;
@@ -157,6 +166,7 @@ namespace RazerBatteryTray
             if (dev == null) return null;
 
             if (IsWiredKeyboardTransport(dev)) return "供电中";
+            if (dev.BatteryPercent < 0 && !dev.IsSleeping && !dev.IsCharging && IsWiredDeviceTransport(dev)) return "供电中";
             if (dev.IsSleeping) return "休眠";
             if (dev.IsCharging)
             {
@@ -1438,6 +1448,68 @@ namespace RazerBatteryTray
             }
         }
 
+        private static void CleanupMatchedLegacyCustomDevices(List<MouseBatteryInfo> nativeList)
+        {
+            if (nativeList == null || nativeList.Count == 0) return;
+            try
+            {
+                HashSet<string> activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < nativeList.Count; i++)
+                {
+                    var d = nativeList[i];
+                    if (d == null) continue;
+                    if (!string.IsNullOrEmpty(d.DeviceId))
+                    {
+                        activeKeys.Add(d.DeviceId);
+                        HardwareDiagnosticService.AddVidPidKeysToSet(activeKeys, d.DeviceId);
+                        var vars = GetDeviceIdVariants(d.DeviceId);
+                        for (int vi = 0; vi < vars.Count; vi++) activeKeys.Add(vars[vi]);
+                    }
+                    if (!string.IsNullOrEmpty(d.HardwareFingerprint))
+                    {
+                        activeKeys.Add(d.HardwareFingerprint);
+                        HardwareDiagnosticService.AddVidPidKeysToSet(activeKeys, d.HardwareFingerprint);
+                    }
+                }
+
+                var customConfigs = LoadCustomDevices();
+                foreach (var c in customConfigs)
+                {
+                    if (c == null || string.IsNullOrEmpty(c.DeviceId)) continue;
+                    if (!c.DeviceId.StartsWith("HID:", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    bool matchedActive = activeKeys.Contains(c.DeviceId);
+                    if (!matchedActive && !string.IsNullOrEmpty(c.HardwareFingerprint))
+                    {
+                        matchedActive = activeKeys.Contains(c.HardwareFingerprint);
+                    }
+                    if (!matchedActive)
+                    {
+                        HashSet<string> cfgVp = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        HardwareDiagnosticService.AddVidPidKeysToSet(cfgVp, c.DeviceId);
+                        if (!string.IsNullOrEmpty(c.HardwareFingerprint)) HardwareDiagnosticService.AddVidPidKeysToSet(cfgVp, c.HardwareFingerprint);
+                        foreach (string vp in cfgVp)
+                        {
+                            if (activeKeys.Contains(vp)) { matchedActive = true; break; }
+                        }
+                    }
+
+                    if (matchedActive &&
+                        (c.DeviceId.StartsWith("HID:046D:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:24AE:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:374A:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:347A:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:3837:", StringComparison.OrdinalIgnoreCase) ||
+                         c.DeviceId.StartsWith("HID:1038:", StringComparison.OrdinalIgnoreCase) ||
+                         (!HyperXCloud3SHelper.IsCloud3SIdentifier(c.DeviceId) && c.DeviceId.StartsWith("HID:03F0:", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        DeleteCustomDevice(c.DeviceId);
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
             // A complete scan owns its script claim snapshot through built-in enumeration.
@@ -1450,15 +1522,7 @@ namespace RazerBatteryTray
             CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
             List<MouseBatteryInfo> scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
             CleanupDuplicateNuphyDevices();
-
-            CleanupDuplicateLogitechDevices();
             CleanupDuplicateRazerDevices();
-            CleanupDuplicateValkyrieDevices();
-            CleanupDuplicateRapooDevices();
-            CleanupDuplicateHyperXDevices();
-            CleanupDuplicateMchoseDevices();
-
-            CleanupDuplicateSteelSeriesDevices();
             CleanupDuplicateCorsairDevices();
             CleanupPhantomAppleDevices();
             CleanupDuplicateBluetoothAudioDevices();
@@ -2664,6 +2728,8 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            CleanupMatchedLegacyCustomDevices(list);
+
             // 3. Query Custom Devices (Bluetooth / Generic HID)
             try
             {
@@ -2755,6 +2821,19 @@ namespace RazerBatteryTray
                     if (existDev != null)
                     {
                         existDev.IsCustom = true;
+                        if (string.Equals(existDev.DriverId, BleDeviceHelper.DriverIdValue, StringComparison.OrdinalIgnoreCase) &&
+                            existDev.BatteryPercent < 0 &&
+                            !string.IsNullOrEmpty(cfg.HardwareFingerprint) &&
+                            !cfg.HardwareFingerprint.StartsWith("HID:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            int btBatt;
+                            string btName;
+                            if (BluetoothDeviceHelper.QueryByMac(cfg.HardwareFingerprint, cfg.OriginalName ?? cfg.CustomName, out btBatt, out btName) && btBatt >= 0)
+                            {
+                                existDev.BatteryPercent = btBatt;
+                                existDev.ExactBatteryPercent = btBatt;
+                            }
+                        }
                         if (VgnN75ProHelper.IsNativeDevice(existDev) && cfg.Category == DeviceCategory.Dongle)
                         {
                             cfg.Category = DeviceCategory.Keyboard;

@@ -2,7 +2,7 @@
 // 模块名称: RazerDeviceHardwareState.cs
 // 所属区域: Models (数据契约层)
 // 核心职责:
-//   雷蛇硬件内部私有状态缓存（包含 ReportLength、DPI 档位矩阵、XY 独立轴灵敏度、轮询率、链路离线计数等）
+//   雷蛇硬件内部私有状态缓存（包含 ReportLength、无电池标记、DPI 档位矩阵、XY 独立轴灵敏度、轮询率、链路离线计数等）
 // 依赖关系: 无
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -35,6 +35,7 @@ namespace RazerBatteryTray
         public double XyRatio;
         public int PollingRate;
         public byte ActiveTransactionId;
+        public bool BatteryNotSupported;
         public DateTime LastUpdated;
         public int ConsecutiveFailures;
         public int ConsecutiveLinkDown;
@@ -45,6 +46,7 @@ namespace RazerBatteryTray
             ReportLength = 90;
             IsPrepended = false;
             ActiveTransactionId = 0x1F;
+            BatteryNotSupported = false;
             LastUpdated = DateTime.MinValue;
             ConsecutiveFailures = 0;
             ConsecutiveLinkDown = 0;

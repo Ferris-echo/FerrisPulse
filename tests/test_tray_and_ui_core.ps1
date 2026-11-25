@@ -206,7 +206,7 @@ Invoke-TestCase "5. 无极缩放助手、Secondary Dialogs 0.75x、AboutForm 与
     Assert-True ([Math]::Abs([float]$mFontSz.Invoke($null, @([float]8.5, [float]0.65, [float]1.5)) - 3.68) -lt 0.08) "GetScaledFontSize unclamped"
 
     $tAbout = $asm.GetType("RazerBatteryTray.AboutForm", $true)
-    $about = [Activator]::CreateInstance($tAbout, $BF, $null, [object[]]@([float]1.0), $null)
+        $about = [Activator]::CreateInstance($tAbout, $BF, $null, [object[]]@([float]1.0), $null)
     try {
         Assert-True ($about.ClientSize.Width -eq 600 -and $about.ClientSize.Height -eq 668) "AboutForm(1.0f) 600x668"
         $texts = New-Object System.Collections.Generic.List[string]
@@ -218,6 +218,47 @@ Invoke-TestCase "5. 无极缩放助手、Secondary Dialogs 0.75x、AboutForm 与
         }
         $joined = $texts -join " | "
         Assert-True ($joined -match "Ferris-echo" -and $joined -match "FerrisPulse" -and $joined -match "检查更新" -and ($joined -notmatch "旗舰版")) "AboutForm presentation"
+
+        $lblDesc = $tAbout.GetField("lblDonateDesc", $BF).GetValue($about)
+        $descSz = [System.Windows.Forms.TextRenderer]::MeasureText($lblDesc.Text, $lblDesc.Font)
+        Assert-True ($descSz.Width -le ($tAbout.GetField("cardDonate", $BF).GetValue($about).Width - 40)) "AboutForm donate desc fits single line without orphan wrap"
+
+        $lnkQQ = $tAbout.GetField("lnkQQ", $BF).GetValue($about)
+        $lnkGit = $tAbout.GetField("lnkGithub", $BF).GetValue($about)
+        $lnkReset = $tAbout.GetField("lnkResetApp", $BF).GetValue($about)
+        $cardDonate = $tAbout.GetField("cardDonate", $BF).GetValue($about)
+        Assert-True (-not $cardDonate.Controls.Contains($lnkQQ) -and -not $cardDonate.Controls.Contains($lnkGit)) "AboutForm footer links cleanly separated outside cardDonate"
+        Assert-Equal $lnkQQ.Top $lnkGit.Top "AboutForm QQ and GitHub aligned horizontally on footer row 1"
+        Assert-True ($lnkReset.Top -gt $lnkGit.Top) "AboutForm Reset link sits cleanly below row 1"
+
+        # High-DPI overlap & Card 1 equal row gap verification
+        $lblLogo = $tAbout.GetField("lblLogo", $BF).GetValue($about)
+        $lblAuth = $tAbout.GetField("lblAuthorPrefix", $BF).GetValue($about)
+        $logoH = [System.Windows.Forms.TextRenderer]::MeasureText($lblLogo.Text, $lblLogo.Font).Height
+        Assert-True ($lblAuth.Top -ge ($lblLogo.Top + $logoH)) "AboutForm author line never overlapped by main logo heading"
+
+        $lblUpdTitle = $tAbout.GetField("lblCardUpdateTitle", $BF).GetValue($about)
+        $chkUpd = $tAbout.GetField("chkAutoUpdate", $BF).GetValue($about)
+        $lblUpdSt = $tAbout.GetField("lblUpdateStatus", $BF).GetValue($about)
+        $h1 = [System.Windows.Forms.TextRenderer]::MeasureText($lblUpdTitle.Text, $lblUpdTitle.Font).Height
+        $gap12 = $chkUpd.Top - ($lblUpdTitle.Top + $h1)
+        $gap23 = $lblUpdSt.Top - ($chkUpd.Top + $chkUpd.Height)
+        Assert-True ([Math]::Abs($gap12 - $gap23) -le 2) ("AboutForm Card 1 gaps equal: gap12=$gap12 gap23=$gap23")
+
+        $aboutSrc = Get-Content (Join-Path $root "src\UI\Forms\AboutForm.cs") -Raw -Encoding UTF8
+        Assert-True ($aboutSrc.Contains("new ResetConfirmDialog(ResolveChildDialogScale())")) "AboutForm passes ResolveChildDialogScale() to ResetConfirmDialog for 4K sizing"
+
+        # 彩蛋背卡渲染与标题栏沉浸隐藏校验
+        $getStateAbout = [System.Windows.Forms.Control].GetMethod("GetState", [System.Reflection.BindingFlags]"Instance,NonPublic")
+        $chrBar = $asm.GetType("RazerBatteryTray.DpiAwareForm", $true).GetField("modernChromeTitleBar", $BF).GetValue($about)
+        Assert-True ($null -ne $chrBar -and [bool]$getStateAbout.Invoke($chrBar, @(2))) "AboutForm front face shows chrome title bar"
+        $tAbout.GetMethod("TriggerQuantumShatter", $BF).Invoke($about, @($true)) | Out-Null
+        Assert-True (-not [bool]$getStateAbout.Invoke($chrBar, @(2))) "AboutForm Easter Egg transition hides chrome title bar"
+        $cq = $tAbout.GetField("cardQuote", $BF).GetValue($about)
+        $cqBmp = New-Object System.Drawing.Bitmap([Math]::Max(20, $cq.Width), [Math]::Max(20, $cq.Height))
+        try {
+            $cq.DrawToBitmap($cqBmp, (New-Object System.Drawing.Rectangle(0, 0, $cqBmp.Width, $cqBmp.Height)))
+        } finally { $cqBmp.Dispose() }
     } finally { $about.Dispose() }
 
     $tScroll = $asm.GetType("RazerBatteryTray.ModernDarkScrollPanel", $true)
@@ -238,6 +279,7 @@ Invoke-TestCase "5. 无极缩放助手、Secondary Dialogs 0.75x、AboutForm 与
 
     $dpiFormType = $asm.GetType("RazerBatteryTray.DpiAwareForm", $true)
     $dpiScaleField = $dpiFormType.GetField("dpiScale", $BF)
+    $chromeBarField = $dpiFormType.GetField("modernChromeTitleBar", $BF)
     $ratesArr = [int[]]@(125, 500, 1000)
     foreach ($chk in @(
         @{ Name = "ResetConfirmDialog"; Args = [object[]]@([float]0.75); BaseW = 460 },
@@ -253,8 +295,200 @@ Invoke-TestCase "5. 无极缩放助手、Secondary Dialogs 0.75x、AboutForm 与
             Assert-True ([Math]::Abs($actualScale - 0.75) -lt 0.02) "$($chk.Name)(0.75f) scale preserved"
             $expectedW = [int][Math]::Round($chk.BaseW * 0.75)
             Assert-True ([Math]::Abs($inst.ClientSize.Width - $expectedW) -le 6) "$($chk.Name)(0.75f) width scaled"
+            Assert-True ($inst.FormBorderStyle -eq [System.Windows.Forms.FormBorderStyle]::None) "$($chk.Name) uses unified borderless chrome"
+            Assert-True ($null -ne $chromeBarField.GetValue($inst)) "$($chk.Name) attaches modernChromeTitleBar"
         } finally { $inst.Dispose() }
     }
+
+    # 抽检代表性业务二级弹窗均接入统一无边框纯文字自绘标题栏，且具备原生 DWM 动画所需的 WS_CAPTION | WS_SYSMENU（零非客户区膨胀）
+    $probeType = @"
+using System;
+using System.Runtime.InteropServices;
+public static class Win32StyleProbe_DwmAnim {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+}
+"@
+    if (-not ([System.Management.Automation.PSTypeName]"Win32StyleProbe_DwmAnim").Type) {
+        Add-Type -TypeDefinition $probeType
+    }
+
+    $tUpdateDlg = $asm.GetType("RazerBatteryTray.UpdateNoticeForm", $true)
+    $tHistDlg = $asm.GetType("RazerBatteryTray.ChangelogHistoryForm", $true)
+    $tUpdInfo = $asm.GetType("RazerBatteryTray.UpdateInfo", $true)
+    $mockInfo = [Activator]::CreateInstance($tUpdInfo)
+    $mockInfo.LatestVersion = "2.4.1"
+    $mockInfo.Changelog = "Test changelog"
+
+    foreach ($dlgChk in @(
+        @{ Name = "AboutForm"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "DevicePriorityForm"; Args = [object[]]@($null, [float]1.0); ExpectChromeBar = $true },
+        @{ Name = "AddDeviceWizardForm"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "DiagnosticReportDialog"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "LowBatteryAlertSettingsDialog"; Args = [object[]]@($true, $true, $true, [float]1.0); ExpectChromeBar = $true },
+        @{ Name = "AiToolsDialog"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "MouseRateTestDialog"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "DpiManagementDialog"; Args = [object[]]@("Razer", [int[]]@(800, 1600), 1, $null, [float]1.0); ExpectChromeBar = $true },
+        @{ Name = "PollingRateManagementDialog"; Args = [object[]]@("Razer", $ratesArr, $ratesArr, [int]1000, [float]1.0); ExpectChromeBar = $true },
+        @{ Name = "VgnKeyboardForm"; Args = [object[]]@([float]1.0); ExpectChromeBar = $true },
+        @{ Name = "UpdateNoticeForm"; Args = [object[]]@($mockInfo, "2.3.2", [float]1.0); ExpectChromeBar = $false },
+        @{ Name = "ChangelogHistoryForm"; Args = [object[]]@([float]1.0); ExpectChromeBar = $false }
+    )) {
+        $dt = $asm.GetType("RazerBatteryTray." + $dlgChk.Name, $true)
+        $dInst = [Activator]::CreateInstance($dt, $BF, $null, $dlgChk.Args, $null)
+        try {
+            Assert-True ($dInst.FormBorderStyle -eq [System.Windows.Forms.FormBorderStyle]::None) "$($dlgChk.Name) unified FormBorderStyle.None"
+            if ($dlgChk.ExpectChromeBar) {
+                $bar = $chromeBarField.GetValue($dInst)
+                Assert-True ($null -ne $bar) "$($dlgChk.Name) attached pure-text modern chrome"
+                Assert-Equal $dInst.BackColor $bar.BackColor "$($dlgChk.Name) uses seamless unified titlebar BackColor"
+                $closeBtn = $dpiFormType.GetField("modernChromeCloseButton", $BF).GetValue($dInst)
+                Assert-True ($null -ne $closeBtn -and $closeBtn.IsCloseButton -and $closeBtn.Width -eq $closeBtn.Height) "$($dlgChk.Name) uses unified square vector close button"
+                Assert-True ([bool]$dpiFormType.GetField("modernChromeUseIntegratedHeroHeader", $BF).GetValue($dInst)) "$($dlgChk.Name) enables unified integrated hero header"
+                Assert-True ($bar.Height -ge 50) "$($dlgChk.Name) hero header height >= 50"
+                Assert-True ($closeBtn.NormalColor -ne [System.Drawing.Color]::Transparent) "$($dlgChk.Name) close button uses dark pill fill"
+            } elseif ($dlgChk.Name -eq "UpdateNoticeForm") {
+                $uc = $dt.GetField("btnClose", $BF).GetValue($dInst)
+                Assert-True ($null -ne $uc -and $uc.Parent.Height -ge 50 -and $uc.NormalColor -ne [System.Drawing.Color]::Transparent) "UpdateNoticeForm uses 52px hero header & dark pill close button"
+            } elseif ($dlgChk.Name -eq "ChangelogHistoryForm") {
+                $hc = $dt.GetField("btnCloseTop", $BF).GetValue($dInst)
+                Assert-True ($null -ne $hc -and $hc.Parent.Height -ge 50 -and $hc.NormalColor -ne [System.Drawing.Color]::Transparent) "ChangelogHistoryForm uses 52px hero header & dark pill close button"
+            }
+            $h = $dInst.Handle
+            $st = [Win32StyleProbe_DwmAnim]::GetWindowLong($h, -16)
+            Assert-True (($st -band 0x00C00000) -eq 0x00C00000) "$($dlgChk.Name) has WS_CAPTION for native DWM animation"
+            Assert-True (($st -band 0x00080000) -eq 0x00080000) "$($dlgChk.Name) has WS_SYSMENU for native DWM animation"
+            Assert-True (($st -band ([int]-2147483648)) -eq 0) "$($dlgChk.Name) strips WS_POPUP"
+            Assert-True (($st -band 0x00040000) -eq 0) "$($dlgChk.Name) strips WS_THICKFRAME"
+            $wr = New-Object Win32StyleProbe_DwmAnim+RECT
+            $cr = New-Object Win32StyleProbe_DwmAnim+RECT
+            [void][Win32StyleProbe_DwmAnim]::GetWindowRect($h, [ref]$wr)
+            [void][Win32StyleProbe_DwmAnim]::GetClientRect($h, [ref]$cr)
+            Assert-Equal ($cr.Right - $cr.Left) ($wr.Right - $wr.Left) "$($dlgChk.Name) zero NC width inflation"
+            Assert-Equal ($cr.Bottom - $cr.Top) ($wr.Bottom - $wr.Top) "$($dlgChk.Name) zero NC height inflation"
+        } finally { $dInst.Dispose() }
+    }
+
+    # 验证设备优先级升级版：分组圆角卡片、分段胶囊槽位、稳重底部栏及顶部三段左轨严格对齐 + 添加向导保留大标题配完整副标题
+    $pForm = [Activator]::CreateInstance($tPrioForm, $BF, $null, [object[]]@($null, [float]1.0), $null)
+    try {
+        $chkLow = $tPrioForm.GetField("chkLowBatteryFirst", $BF).GetValue($pForm)
+        $chkMulti = $tPrioForm.GetField("chkMultiTray", $BF).GetValue($pForm)
+        $pnlCnt = $tPrioForm.GetField("pnlTrayCountBar", $BF).GetValue($pForm)
+        $cardSet = $tPrioForm.GetField("cardSettings", $BF).GetValue($pForm)
+        $reord = $tPrioForm.GetField("reorderControl", $BF).GetValue($pForm)
+        $segTrack = $tPrioForm.GetField("pnlSegmentTrack", $BF).GetValue($pForm)
+        $pnlFoot = $tPrioForm.GetField("pnlFooter", $BF).GetValue($pForm)
+        Assert-True ($null -ne $cardSet -and $cardSet.Controls.Contains($chkLow) -and $cardSet.Controls.Contains($chkMulti) -and $cardSet.Controls.Contains($pnlCnt)) "DevicePriorityForm groups toggles in elevated cardSettings"
+        Assert-True ($cardSet.Top -gt $reord.Top -and $reord.Bottom -le $cardSet.Top) "DevicePriorityForm places settings card cleanly below device list"
+        $expectedSlots = if ($chkMulti.Checked) { [int]$tPrioForm.GetField("selectedTrayCount", $BF).GetValue($pForm) } else { 1 }
+        Assert-Equal $expectedSlots $reord.ActiveTraySlotCount "DevicePriorityForm syncs ActiveTraySlotCount to list indices"
+        Assert-True ($null -ne $segTrack -and $pnlCnt.Controls.Contains($segTrack)) "DevicePriorityForm uses segmented capsule track"
+        Assert-True ($null -ne $pnlFoot) "DevicePriorityForm has grounded footer bar"
+        Assert-Equal $chkLow.Left $chkMulti.Left "DevicePriorityForm checkboxes aligned left"
+        Assert-True ($pnlCnt.Left -gt $chkMulti.Left) "Inline tray count selector sits to the right of chkMultiTray"
+        Assert-True ([Math]::Abs(($pnlCnt.Top + $pnlCnt.Height / 2) - ($chkMulti.Top + $chkMulti.Height / 2)) -le 4) "Inline tray count selector vertically centered with chkMultiTray"
+        Assert-True (($cardSet.Height - $pnlCnt.Bottom) -ge 4) "cardSettings bottom border completely clear of inline selector"
+        Assert-Equal "状态栏多设备独立图标" $chkMulti.Text "DevicePriorityForm concise multi-tray label"
+        if ($segTrack.OptionCount -ge 3) {
+            $segTrack.SelectValue(2, $false)
+            $x2 = $segTrack.CurrentThumbX
+            $segTrack.SelectValue(4, $false)
+            $x4 = $segTrack.CurrentThumbX
+            Assert-True ($x4 -gt $x2) "SlidingSegmentTrack thumb advances across segments"
+        }
+        $segBmp = New-Object System.Drawing.Bitmap([Math]::Max(10, $segTrack.Width), [Math]::Max(10, $segTrack.Height))
+        try {
+            $segTrack.DrawToBitmap($segBmp, (New-Object System.Drawing.Rectangle(0, 0, $segBmp.Width, $segBmp.Height)))
+        } finally { $segBmp.Dispose() }
+    } finally { $pForm.Dispose() }
+
+    # 验证 PriorityReorderControl 全宽卡片内嵌动态实时序号 (拖拽经过槽位时实时互换 01↔02↔03) 及零异常渲染
+    $tReordCtrl = $asm.GetType("RazerBatteryTray.PriorityReorderControl", $true)
+    $tPrioItem = $asm.GetType("RazerBatteryTray.PriorityItem", $true)
+    $rc = [Activator]::CreateInstance($tReordCtrl)
+    try {
+        $rc.DpiScale = [float]1.0
+        $rc.Size = New-Object System.Drawing.Size(436, 260)
+        $rc.ActiveTraySlotCount = 3
+        $names = @("Buds4 Pro", "Xbox Controller", "DeathAdder V4 Pro", "NuPhy WH80")
+        for ($i = 0; $i -lt 4; $i++) {
+            $pi = [Activator]::CreateInstance($tPrioItem)
+            $pi.DeviceId = "DEV_$i"
+            $pi.Name = $names[$i]
+            $pi.Battery = 90 - $i * 5
+            $pi.IsConnected = $true
+            $pi.AccentColor = [System.Drawing.Color]::FromArgb(0, 230, 118)
+            $pi.PriorityIndex = $i + 1
+            $rc.Items.Add($pi)
+        }
+        $rc.ResetPositions()
+
+        # 空闲状态：01, 02, 03, 04
+        for ($i = 0; $i -lt 4; $i++) {
+            Assert-Equal ($i + 1) $rc.GetLiveDisplayRank($i) "Idle rank item $i"
+        }
+        $bmpIdle = New-Object System.Drawing.Bitmap(436, 260)
+        try {
+            $rc.DrawToBitmap($bmpIdle, (New-Object System.Drawing.Rectangle(0, 0, 436, 260)))
+        } finally { $bmpIdle.Dispose() }
+
+        # 正向拖拽（含动态分裂左侧固定数字轨道渲染）：第 0 项拖向槽位 2 -> item0=3, item1=1, item2=2, item3=4
+        $tReordCtrl.GetField("isDragging", $BF).SetValue($rc, $true)
+        $tReordCtrl.GetField("draggedIndex", $BF).SetValue($rc, 0)
+        $tReordCtrl.GetField("currentDropIndex", $BF).SetValue($rc, 2)
+        $tReordCtrl.GetField("dragSplitProgress", $BF).SetValue($rc, [single]1.0)
+        Assert-Equal 3 $rc.GetLiveDisplayRank(0) "Forward drag item 0 displays 3"
+        Assert-Equal 1 $rc.GetLiveDisplayRank(1) "Forward drag item 1 displays 1"
+        Assert-Equal 2 $rc.GetLiveDisplayRank(2) "Forward drag item 2 displays 2"
+        Assert-Equal 4 $rc.GetLiveDisplayRank(3) "Forward drag item 3 displays 4"
+
+        $bmpDrag = New-Object System.Drawing.Bitmap(436, 260)
+        try {
+            $rc.DrawToBitmap($bmpDrag, (New-Object System.Drawing.Rectangle(0, 0, 436, 260)))
+        } finally { $bmpDrag.Dispose() }
+
+        # 反向拖拽：第 3 项拖向槽位 1 -> item0=1, item1=3, item2=4, item3=2
+        $tReordCtrl.GetField("draggedIndex", $BF).SetValue($rc, 3)
+        $tReordCtrl.GetField("currentDropIndex", $BF).SetValue($rc, 1)
+        Assert-Equal 1 $rc.GetLiveDisplayRank(0) "Reverse drag item 0 displays 1"
+        Assert-Equal 3 $rc.GetLiveDisplayRank(1) "Reverse drag item 1 displays 3"
+        Assert-Equal 4 $rc.GetLiveDisplayRank(2) "Reverse drag item 2 displays 4"
+        Assert-Equal 2 $rc.GetLiveDisplayRank(3) "Reverse drag item 3 displays 2"
+    } finally { $rc.Dispose() }
+
+    $tWiz = $asm.GetType("RazerBatteryTray.AddDeviceWizardForm", $true)
+    $wiz = [Activator]::CreateInstance($tWiz, $BF, $null, [object[]]@([float]1.0), $null)
+    try {
+        $foundBigTitle = $false
+        $foundFullSub = $false
+        $wizQueue = New-Object System.Collections.Queue
+        $wizQueue.Enqueue($wiz)
+        while ($wizQueue.Count -gt 0) {
+            $c = $wizQueue.Dequeue()
+            if ($c -is [System.Windows.Forms.Label]) {
+                if ($c.Text -eq "添加与配置外设向导") { $foundBigTitle = $true }
+                if ($c.Text -like "主流外设*" -and -not $c.AutoEllipsis -and $c.Width -ge 380) {
+                    $sz = [System.Windows.Forms.TextRenderer]::MeasureText($c.Text, $c.Font)
+                    if ($sz.Width -le $c.Width) { $foundFullSub = $true }
+                }
+            }
+            foreach ($ch in $c.Controls) { $wizQueue.Enqueue($ch) }
+        }
+        Assert-True $foundBigTitle "AddDeviceWizardForm promotes big heading into integrated hero header"
+        Assert-True $foundFullSub "AddDeviceWizardForm keeps full-width unclipped subtitle"
+    } finally { $wiz.Dispose() }
+
+    # 悬浮浮层类窗体保持纯无边框（不注入 WS_CAPTION）
+    $tFlyout = $asm.GetType("RazerBatteryTray.ModernDeviceSwitcherFlyout", $true)
+    $flyInst = [Activator]::CreateInstance($tFlyout, $BF, $null, [object[]]@([float]1.0), $null)
+    try {
+        $fh = $flyInst.Handle
+        $fst = [Win32StyleProbe_DwmAnim]::GetWindowLong($fh, -16)
+        Assert-True (($fst -band 0x00C00000) -ne 0x00C00000) "ModernDeviceSwitcherFlyout stays pure WS_POPUP without WS_CAPTION"
+    } finally { $flyInst.Dispose() }
 }
 
 Invoke-TestCase "6. 耳机页零泄露鼠标齿轮、Per-Monitor V2 清晰感知与切换列表共享设备库" {
@@ -380,6 +614,39 @@ Invoke-TestCase "7. 离线鼠标库水合缓存档位/回报率、隐藏空行�
     } finally {
         $mClrSt.Invoke($null, @($testId)) | Out-Null
     }
+}
+
+Invoke-TestCase "8. 有线无电池鼠标托盘绘制、供电中摘要与右键菜单展开防闪烁守卫" {
+    # A) Tray bitmap rendering for wired battery-less connected device (percent=-1, isConnected=true) across 3 styles x 16/24px
+    $mDraw = $tMain.GetMethod("DrawTrayBitmap", [System.Reflection.BindingFlags]"NonPublic,Static")
+    foreach ($style in @(0, 1, 2)) {
+        foreach ($size in @(16, 24)) {
+            $bmp = $mDraw.Invoke($null, @([int]-1, [bool]$false, [bool]$true, [int]$style, [int]$size, [bool]$false, $null))
+            $hasColoredPx = $false
+            for ($y = 0; $y -lt $bmp.Height -and -not $hasColoredPx; $y++) {
+                for ($x = 0; $x -lt $bmp.Width; $x++) {
+                    if ($bmp.GetPixel($x, $y).A -gt 0) { $hasColoredPx = $true; break }
+                }
+            }
+            $bmp.Dispose()
+            Assert-True $hasColoredPx "Wired no-battery icon visible style=$style size=$size"
+        }
+    }
+
+    # B) BuildTrayBatterySummary reports "供电中" (never "-1%") for wired battery-less mouse
+    $listType = [System.Collections.Generic.List`1].MakeGenericType(@($tInfo))
+    $devs = [Activator]::CreateInstance($listType)
+    $wm = [Activator]::CreateInstance($tInfo)
+    $wm.DeviceId = "Razer:1532:008C"; $wm.Brand = "Razer"; $wm.DeviceName = "Razer DeathAdder V2 Mini"
+    $wm.Category = [Enum]::Parse($tCat, "Mouse"); $wm.IsConnected = $true; $wm.IsSleeping = $false
+    $wm.IsDonglePresent = $false; $wm.Transport = "USB 有线"; $wm.BatteryPercent = -1
+    $devs.Add($wm)
+    $sum = [RazerBatteryTray.DeviceManager]::BuildTrayBatterySummary($devs)
+    Assert-True ($sum -match "供电中" -and $sum -notmatch "-1%") ("Wired mouse tray summary: " + $sum)
+
+    # C) UpdateTrayDeviceMenuItems defers rebuild while contextMenu is visible (prevents flicker)
+    $traySrc = Get-Content (Join-Path $root "src\UI\Forms\MainForm.Tray.cs") -Raw -Encoding UTF8
+    Assert-True ($traySrc.Contains("pendingTrayMenuRefresh") -and $traySrc.Contains("if (contextMenu.Visible)")) "Tray menu rebuild defer guard present"
 }
 
 Write-Host "`nALL TRAY AND UI CORE TESTS PASSED." -ForegroundColor Green

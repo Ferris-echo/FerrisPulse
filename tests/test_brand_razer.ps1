@@ -452,3 +452,44 @@ Invoke-TestCase "Razer.OldModelsMultiInterfaceBusyRetryAndClassicPolling" {
     $pickedKeep = $mPickHs.Invoke($null, @($hsLive, $hsDead))
     Assert-True ($pickedKeep.IsConnected -and $pickedKeep.BatteryPercent -eq 82) "Dead headset endpoint cannot overwrite live"
 }
+
+Invoke-TestCase "Razer.WiredBatteryLessMouseNoFakeBatteryOrSleep" {
+    $mCreateFallback = $rzType.GetMethod("CreateFallbackDeviceInfo", $bfPubStatic)
+    $mIsWiredPid = $rzType.GetMethod("IsWiredOnlyRazerMousePid", $bfPubStatic)
+    Assert-True ($null -ne $mCreateFallback) "CreateFallbackDeviceInfo missing"
+    Assert-True ($null -ne $mIsWiredPid) "IsWiredOnlyRazerMousePid missing"
+    Assert-True ([bool]$mIsWiredPid.Invoke($null, @([int]0x008C))) "0x008C DeathAdder V2 Mini is wired-only PID"
+
+    $tState = $asm.GetType("RazerBatteryTray.RazerDeviceHardwareState")
+
+    # 1. Known wired-only mouse (DeathAdder V2 Mini 1532:008C) with ConsecutiveFailures=5 & BatteryNotSupported=true
+    $stV2Mini = [Activator]::CreateInstance($tState)
+    $stV2Mini.ConsecutiveFailures = 5
+    $stV2Mini.BatteryNotSupported = $true
+    $stV2Mini.Dpi = 1600
+    $stV2Mini.PollingRate = 1000
+    $v2MiniInfo = $mCreateFallback.Invoke($null, @("Razer:1532:008C", [int]0x008C, "Razer DeathAdder V2 Mini", $false, $stV2Mini))
+    Assert-Equal -1 $v2MiniInfo.BatteryPercent "V2 Mini must NOT fabricate 50% battery"
+    Assert-True $v2MiniInfo.IsConnected "V2 Mini must stay IsConnected=true"
+    Assert-True (-not $v2MiniInfo.IsSleeping) "V2 Mini must NEVER enter IsSleeping=true"
+    Assert-Equal "USB 有线" $v2MiniInfo.Transport "V2 Mini transport"
+    Assert-Equal 1600 $v2MiniInfo.Dpi "V2 Mini keeps cached DPI"
+
+    # 2. Unknown wired battery-less mouse PID where firmware returned status=0x05 NOT_SUPPORTED
+    $stUnknownWired = [Activator]::CreateInstance($tState)
+    $stUnknownWired.ConsecutiveFailures = 5
+    $stUnknownWired.BatteryNotSupported = $true
+    $unknownWiredInfo = $mCreateFallback.Invoke($null, @("Razer:1532:00FF", [int]0x00FF, "Razer Wired Mouse", $false, $stUnknownWired))
+    Assert-Equal -1 $unknownWiredInfo.BatteryPercent "BatteryNotSupported wired mouse must NOT fabricate 50% battery"
+    Assert-True (-not $unknownWiredInfo.IsSleeping) "BatteryNotSupported wired mouse must NEVER sleep"
+    Assert-True $unknownWiredInfo.IsConnected "BatteryNotSupported wired mouse remains connected"
+
+    # 3. Wireless-capable mouse connected over USB wired channel (isDongle=false) must never sleep
+    $stWiredCable = [Activator]::CreateInstance($tState)
+    $stWiredCable.ConsecutiveFailures = 5
+    $stWiredCable.BatteryPercent = 88
+    $stWiredCable.BatteryNotSupported = $false
+    $wiredCableInfo = $mCreateFallback.Invoke($null, @("Razer:1532:00BE", [int]0x00BE, "Razer DeathAdder V4 Pro", $false, $stWiredCable))
+    Assert-Equal 88 $wiredCableInfo.BatteryPercent "Wired cable keeps cached battery"
+    Assert-True (-not $wiredCableInfo.IsSleeping) "USB wired channel must NEVER enter IsSleeping=true"
+}

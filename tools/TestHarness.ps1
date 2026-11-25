@@ -47,6 +47,12 @@ function Load-FerrisPulseAssembly {
         if ($null -ne $prop) { $prop.SetValue($null, $true, $null) }
     }
 
+    $tMain = $script:FerrisPulseCachedAsm.GetType("RazerBatteryTray.MainForm")
+    if ($null -ne $tMain) {
+        $fld = $tMain.GetField("DisableConfigSaveForTesting", [System.Reflection.BindingFlags]"Public,NonPublic,Static")
+        if ($null -ne $fld) { $fld.SetValue($null, $true) }
+    }
+
     return $script:FerrisPulseCachedAsm
 }
 

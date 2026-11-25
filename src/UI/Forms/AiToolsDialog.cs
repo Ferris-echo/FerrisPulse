@@ -81,6 +81,7 @@ namespace RazerBatteryTray
             lblTitle.Location = new Point(pad, (int)(16 * dpiScale));
             lblTitle.AutoSize = true;
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
 
             // Subtitle
             Label lblSub = new Label();
@@ -119,6 +120,11 @@ namespace RazerBatteryTray
             btnClose.Size = new Size(closeW, closeH);
             btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(btnClose);
+
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            this.modernChromeTitlePadLeftBase = 18;
+            AttachModernChrome("推荐 AI Agent 工具", redundantTitle, 12, true, true);
         }
 
         private Panel CreateToolCard(ToolItem item, int x, int y, int w, int h)

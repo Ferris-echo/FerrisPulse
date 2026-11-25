@@ -170,4 +170,13 @@ Invoke-TestCase "BleAndMatrix.KzziOpenMouseAndSinoWealth" {
     for ($i = 0; $i -lt 16; $i++) { $fSw[13 + $i] = [byte](0x10 + $i * 4) }
     $swArgs = [object[]]@($fSw.PSObject.BaseObject, 29, 0, $false, 0, 0, $null)
     Assert-True ([bool]$tSw.GetMethod("ParseConfig", $bfNonPubStatic).Invoke($null, $swArgs) -and [int]$swArgs[2] -eq 125 -and [bool]$swArgs[3] -and [int]$swArgs[4] -eq 2 -and [int]$swArgs[5] -eq 3) "SinoWealth ParseConfig 125Hz XY stage 2/3"
+
+    # BluetoothDeviceHelper friendly name filter regression checks (COM port vs Combo/Compact/Bluetooth devices)
+    $tBt = $asm.GetType("RazerBatteryTray.BluetoothDeviceHelper", $true)
+    $mBtName = $tBt.GetMethod("IsValidDeviceFriendlyName", $bfPubStatic)
+    Assert-True ([bool]$mBtName.Invoke($null, @("Logitech K380 Combo"))) "Allows Combo device"
+    Assert-True ([bool]$mBtName.Invoke($null, @("MX Keys Compact"))) "Allows Compact device"
+    Assert-True ([bool]$mBtName.Invoke($null, @("Bluetooth 5.0 Mouse"))) "Allows Bluetooth-prefixed mouse"
+    Assert-True (-not [bool]$mBtName.Invoke($null, @("Standard Serial over Bluetooth link (COM4)"))) "Rejects COM4 serial port"
+    Assert-True (-not [bool]$mBtName.Invoke($null, @("Bluetooth Enumerator"))) "Rejects Bluetooth Enumerator"
 }

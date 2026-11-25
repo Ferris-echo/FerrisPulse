@@ -452,12 +452,14 @@ namespace RazerBatteryTray
                     notes.Add("DPI 为固件原始单位值（精确比例待 HID 抓包确认）");
                 }
 
-                // 电量：优先厂商私有命令 (Func 0x83)，失败再退回标准 HID 电池页；
-                // 两条都拿不到真实读数则不虚标（BatteryPercent=-1 ⇒ SupportsBattery=false）。
+                // 电量：优先厂商私有命令 (Func 0x83)，失败退回标准 HID 电池页，最后退回通用 HID Feature 0x04/Input 兼容通道；
+                // 三条都拿不到真实读数则不虚标（BatteryPercent=-1 ⇒ SupportsBattery=false）。
                 int batt = -1;
                 bool chg = false;
                 bool gotVendor = QueryVendorBattery(cmdCh, cfgCh, out batt, out chg);
-                bool gotBattery = gotVendor || QueryStandardHidBattery(out batt, out chg);
+                bool gotStandard = !gotVendor && QueryStandardHidBattery(out batt, out chg);
+                bool gotGeneric = (!gotVendor && !gotStandard) && GenericHidHelper.QueryHidBattery("HID:258A:010C", out batt, out chg);
+                bool gotBattery = gotVendor || gotStandard || gotGeneric;
                 if (gotBattery && batt >= 0)
                 {
                     info.BatteryPercent = batt;
@@ -466,6 +468,7 @@ namespace RazerBatteryTray
                     cachedBattery = batt;
                     cachedCharging = chg;
                     if (gotVendor) notes.Add("电量来源：厂商私有命令 0x83");
+                    else if (gotGeneric) notes.Add("电量来源：通用 HID 兼容报告");
                 }
                 else if (cachedBattery >= 0)
                 {

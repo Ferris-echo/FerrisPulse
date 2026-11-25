@@ -56,7 +56,29 @@ namespace RazerBatteryTray
 
         private static UpdateInfo _pendingUpdate = null;
         private static readonly object _pendingLock = new object();
+        private static bool _hasCompletedCheck = false;
+        private static bool _lastCheckSucceeded = false;
         public static event Action OnPendingUpdateChanged;
+
+        public static bool HasCompletedCheck
+        {
+            get { lock (_pendingLock) { return _hasCompletedCheck; } }
+            private set { lock (_pendingLock) { _hasCompletedCheck = value; } }
+        }
+
+        public static bool LastCheckSucceeded
+        {
+            get { lock (_pendingLock) { return _lastCheckSucceeded; } }
+            private set { lock (_pendingLock) { _lastCheckSucceeded = value; } }
+        }
+
+        public static void NotifyUpdateStateChanged()
+        {
+            if (OnPendingUpdateChanged != null)
+            {
+                try { OnPendingUpdateChanged(); } catch { }
+            }
+        }
 
         public static UpdateInfo PendingUpdate
         {
@@ -241,9 +263,18 @@ namespace RazerBatteryTray
                                             UpdateInfo info = ParseVersionJson(json);
                                             if (info != null && !string.IsNullOrEmpty(info.LatestVersion))
                                             {
-                                                // 若发现有比当前版本更新的候选，立即采纳并回调
+                                                // 若发现有比当前版本更新的候选，立即采纳并挂载历史发布记录以支持跨版本汇总日志
                                                 if (IsNewerVersion(info.LatestVersion, CurrentVersion))
                                                 {
+                                                    try
+                                                    {
+                                                        List<ReleaseNoteEntry> remoteHist = ReleaseNotesService.FetchRemoteReleaseNotesSync(3500);
+                                                        info.ReleaseHistory = ReleaseNotesService.MergeReleaseNotes(remoteHist, ReleaseNotesService.LoadEmbeddedReleaseNotes());
+                                                    }
+                                                    catch { }
+
+                                                    HasCompletedCheck = true;
+                                                    LastCheckSucceeded = true;
                                                     PendingUpdate = info;
                                                     if (callback != null)
                                                     {
@@ -278,6 +309,8 @@ namespace RazerBatteryTray
                 // 所有端点探测完毕：如果获得了有效响应（虽然不比本地新），返回该最新已知信息
                 if (bestInfo != null)
                 {
+                    HasCompletedCheck = true;
+                    LastCheckSucceeded = true;
                     if (IsNewerVersion(bestInfo.LatestVersion, CurrentVersion))
                     {
                         PendingUpdate = bestInfo;
@@ -285,6 +318,7 @@ namespace RazerBatteryTray
                     else
                     {
                         ClearPendingUpdate();
+                        NotifyUpdateStateChanged();
                     }
 
                     if (callback != null)
@@ -293,6 +327,10 @@ namespace RazerBatteryTray
                     }
                     return;
                 }
+
+                HasCompletedCheck = true;
+                LastCheckSucceeded = false;
+                NotifyUpdateStateChanged();
 
                 if (callback != null)
                 {
@@ -409,16 +447,13 @@ namespace RazerBatteryTray
                             fs.Close();
                             fs = null;
 
-                            // 如果提供了预期的 SHA256，进行多源自愈校验：不匹配则自动切换下一个备用镜像源
-                            if (!string.IsNullOrEmpty(expectedSha256) && expectedSha256.Length == 64 && !expectedSha256.StartsWith("dummy"))
+                            // 校验可信可执行文件头 (PE MZ)、最小有效体积以及预期 SHA256 哈希；异常时自愈切换下一个备用镜像源
+                            string validationErr;
+                            if (!ReleaseNotesService.ValidateDownloadedExecutable(targetPath, expectedSha256, out validationErr))
                             {
-                                string localSha = ComputeFileSha256(targetPath);
-                                if (!string.Equals(localSha, expectedSha256, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    lastError = "更新包哈希不匹配 (已尝试自愈切换备用镜像源)";
-                                    try { File.Delete(targetPath); } catch { }
-                                    continue;
-                                }
+                                lastError = string.IsNullOrEmpty(validationErr) ? "更新包校验失败 (已尝试自愈切换备用镜像源)" : validationErr;
+                                try { File.Delete(targetPath); } catch { }
+                                continue;
                             }
 
                             if (completedCallback != null)

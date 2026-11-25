@@ -28,7 +28,12 @@ namespace RazerBatteryTray
         {
             public string Text;
             public bool IsHeader;
+            public bool IsVersionBanner;
+            public string VersionTitle;
+            public string VersionDate;
+            public string VersionBadge;
             public Font Font;
+            public Font DateFont;
             public Color Color;
             public int Top;
             public int Height;
@@ -155,6 +160,23 @@ namespace RazerBatteryTray
             Invalidate();
         }
 
+        public void UpdateDpiScale(float dpiScale)
+        {
+            float normalized = (dpiScale > 0.1f) ? dpiScale : 1.0f;
+            if (Math.Abs(this.currentDpiScale - normalized) < 0.001f) return;
+            this.currentDpiScale = normalized;
+
+            if (isDiagnosticMode)
+            {
+                RebuildDiagnosticItems();
+            }
+            else if (rawChangelogLines != null)
+            {
+                RebuildChangelogItems();
+            }
+            Invalidate();
+        }
+
         public void HandleWheelDelta(int delta)
         {
             int max = GetMaxScroll();
@@ -171,8 +193,8 @@ namespace RazerBatteryTray
             int availW = this.ClientSize.Width - scrollBarWidth - (scrollBarMargin * 2) - 12;
             if (availW < 50) availW = 540;
 
-            Font monoBold = new Font("Consolas", 8.8F * currentDpiScale, FontStyle.Bold);
-            Font monoRegular = new Font("Consolas", 8.6F * currentDpiScale, FontStyle.Regular);
+            Font monoBold = DpiScaleHelper.GetCachedScaledFont("Consolas", 8.8F, FontStyle.Bold, currentDpiScale);
+            Font monoRegular = DpiScaleHelper.GetCachedScaledFont("Consolas", 8.6F, FontStyle.Regular, currentDpiScale);
             TextFormatFlags measureFlags = TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix;
 
             int curY = 4;
@@ -242,33 +264,49 @@ namespace RazerBatteryTray
             }
 
             List<string> displayItems = new List<string>();
+            List<string> accessibleTextParts = new List<string>();
             for (int i = 0; i < lines.Count; i++)
             {
                 string entry = lines[i];
                 if (string.IsNullOrEmpty(entry)) continue;
 
-                if (entry.Contains("【") && entry.IndexOf("【") != entry.LastIndexOf("【"))
+                if (entry.StartsWith(ReleaseNotesService.VersionBannerPrefix))
+                {
+                    displayItems.Add(entry);
+                    string[] segs = entry.Substring(ReleaseNotesService.VersionBannerPrefix.Length).Split('|');
+                    string vt = segs.Length > 0 ? segs[0] : "";
+                    string vd = segs.Length > 1 ? segs[1] : "";
+                    accessibleTextParts.Add("[" + vt + (string.IsNullOrEmpty(vd) ? "" : (" " + vd)) + "]");
+                }
+                else if (entry.Contains("【") && entry.IndexOf("【") != entry.LastIndexOf("【"))
                 {
                     string[] parts = System.Text.RegularExpressions.Regex.Split(entry, @"(?=【)");
                     foreach (string p in parts)
                     {
                         string cp = p.Trim().TrimEnd(',', '，', ';', '；');
-                        if (!string.IsNullOrEmpty(cp)) displayItems.Add(cp);
+                        if (!string.IsNullOrEmpty(cp))
+                        {
+                            displayItems.Add(cp);
+                            accessibleTextParts.Add(cp);
+                        }
                     }
                 }
                 else
                 {
                     displayItems.Add(entry);
+                    accessibleTextParts.Add(entry);
                 }
             }
 
-            this.Text = string.Join(" | ", displayItems.ToArray());
+            this.Text = string.Join(" | ", accessibleTextParts.ToArray());
 
             int availW = this.ClientSize.Width - scrollBarWidth - (scrollBarMargin * 2) - 12;
             if (availW < 50) availW = 400;
 
-            Font headerFont = new Font("Microsoft YaHei UI", 9.2F * currentDpiScale, FontStyle.Bold);
-            Font bodyFont = new Font("Microsoft YaHei UI", 9.0F * currentDpiScale, FontStyle.Regular);
+            Font bannerTitleFont = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 10.0F, FontStyle.Bold, currentDpiScale);
+            Font bannerDateFont = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 8.6F, FontStyle.Regular, currentDpiScale);
+            Font headerFont = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 10.0F, FontStyle.Bold, currentDpiScale);
+            Font bodyFont = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 9.5F, FontStyle.Regular, currentDpiScale);
 
             int curY = 4;
             List<ChangelogVisualItem> list = new List<ChangelogVisualItem>();
@@ -276,6 +314,34 @@ namespace RazerBatteryTray
             for (int i = 0; i < displayItems.Count; i++)
             {
                 string raw = displayItems[i];
+                if (raw.StartsWith(ReleaseNotesService.VersionBannerPrefix))
+                {
+                    if (i > 0) curY += (int)(12 * currentDpiScale);
+                    string payload = raw.Substring(ReleaseNotesService.VersionBannerPrefix.Length);
+                    string[] segs = payload.Split('|');
+                    string verTitle = segs.Length > 0 ? segs[0].Trim() : "";
+                    string verDate = segs.Length > 1 ? segs[1].Trim() : "";
+                    string verBadge = segs.Length > 2 ? segs[2].Trim() : "";
+
+                    int bannerH = Math.Max(34, (int)(36 * currentDpiScale));
+                    ChangelogVisualItem bannerItem = new ChangelogVisualItem();
+                    bannerItem.IsVersionBanner = true;
+                    bannerItem.IsHeader = true;
+                    bannerItem.VersionTitle = verTitle;
+                    bannerItem.VersionDate = verDate;
+                    bannerItem.VersionBadge = verBadge;
+                    bannerItem.Text = verTitle;
+                    bannerItem.Font = bannerTitleFont;
+                    bannerItem.DateFont = bannerDateFont;
+                    bannerItem.Color = Color.FromArgb(0, 230, 118);
+                    bannerItem.Top = curY;
+                    bannerItem.Height = bannerH;
+                    list.Add(bannerItem);
+
+                    curY += bannerH + (int)(10 * currentDpiScale);
+                    continue;
+                }
+
                 bool isHeader = raw.StartsWith("一、") || raw.StartsWith("二、") || raw.StartsWith("三、") ||
                                 raw.StartsWith("四、") || raw.StartsWith("五、") || raw.StartsWith("六、") ||
                                 raw.StartsWith("特别说明") || raw.StartsWith("特别鸣谢") ||
@@ -285,11 +351,14 @@ namespace RazerBatteryTray
                 Font font = isHeader ? headerFont : bodyFont;
                 Color color = isHeader ? Color.FromArgb(240, 245, 255) : Color.FromArgb(195, 203, 220);
 
-                if (isHeader && i > 0) curY += (int)(6 * currentDpiScale);
+                if (isHeader && i > 0 && !(displayItems[i - 1].StartsWith(ReleaseNotesService.VersionBannerPrefix)))
+                {
+                    curY += (int)(12 * currentDpiScale);
+                }
 
                 Size measured = TextRenderer.MeasureText(drawText, font, new Size(availW, 0),
                     TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
-                int itemH = Math.Max((int)(24 * currentDpiScale), measured.Height + 4);
+                int itemH = Math.Max((int)(24 * currentDpiScale), measured.Height + (int)(4 * currentDpiScale));
 
                 ChangelogVisualItem item = new ChangelogVisualItem();
                 item.Text = drawText;
@@ -300,7 +369,7 @@ namespace RazerBatteryTray
                 item.Height = itemH;
                 list.Add(item);
 
-                curY += itemH + (int)(6 * currentDpiScale);
+                curY += itemH + (int)(7 * currentDpiScale);
             }
 
             this.changelogItems = list;
@@ -417,8 +486,15 @@ namespace RazerBatteryTray
                     // 视口剔除：仅绘制位于当前可视窗口内的条目
                     if (drawY + item.Height >= 0 && drawY <= clientH)
                     {
-                        Rectangle rect = new Rectangle(4, drawY, availW, item.Height);
-                        TextRenderer.DrawText(g, item.Text, item.Font, rect, item.Color, drawFlags);
+                        if (item.IsVersionBanner)
+                        {
+                            DrawVersionBannerItem(g, item, drawY, availW);
+                        }
+                        else
+                        {
+                            Rectangle rect = new Rectangle(4, drawY, availW, item.Height);
+                            TextRenderer.DrawText(g, item.Text, item.Font, rect, item.Color, drawFlags);
+                        }
                     }
                 }
             }
@@ -450,6 +526,61 @@ namespace RazerBatteryTray
                 {
                     g.FillPath(thumbBrush, thumbPath);
                 }
+            }
+        }
+
+        private void DrawVersionBannerItem(Graphics g, ChangelogVisualItem item, int drawY, int availW)
+        {
+            Rectangle bannerRect = new Rectangle(4, drawY, Math.Max(40, availW - 4), item.Height);
+            int radius = Math.Max(4, (int)(6 * currentDpiScale));
+
+            using (GraphicsPath bgPath = ModernThemeHelper.GetRoundedRectangle(bannerRect, radius))
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(26, 36, 36)))
+            using (Pen borderPen = new Pen(Color.FromArgb(42, 78, 66), 1))
+            {
+                g.FillPath(bgBrush, bgPath);
+                g.DrawPath(borderPen, bgPath);
+            }
+
+            int barW = Math.Max(3, (int)(3 * currentDpiScale));
+            int barPad = Math.Max(5, (int)(6 * currentDpiScale));
+            using (SolidBrush accentBrush = new SolidBrush(Color.FromArgb(0, 226, 120)))
+            {
+                g.FillRectangle(accentBrush, bannerRect.X + 1, bannerRect.Y + barPad, barW, Math.Max(6, bannerRect.Height - barPad * 2));
+            }
+
+            int textLeft = bannerRect.X + barW + Math.Max(10, (int)(10 * currentDpiScale));
+            Size verSize = TextRenderer.MeasureText(item.VersionTitle ?? "", item.Font);
+            Rectangle verRect = new Rectangle(textLeft, bannerRect.Y, verSize.Width + 6, bannerRect.Height);
+            TextRenderer.DrawText(g, item.VersionTitle ?? "", item.Font, verRect, Color.FromArgb(240, 248, 255),
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+
+            if (!string.IsNullOrEmpty(item.VersionBadge))
+            {
+                Font badgeFont = item.DateFont ?? item.Font;
+                Size badgeTextSize = TextRenderer.MeasureText(item.VersionBadge, badgeFont);
+                int padH = Math.Max(6, (int)(7 * currentDpiScale));
+                int pillW = badgeTextSize.Width + padH * 2;
+                int pillH = Math.Max(16, (int)(18 * currentDpiScale));
+                int pillX = verRect.Right + Math.Max(4, (int)(6 * currentDpiScale));
+                int pillY = bannerRect.Y + (bannerRect.Height - pillH) / 2;
+                Rectangle pillRect = new Rectangle(pillX, pillY, pillW, pillH);
+
+                using (GraphicsPath pillPath = ModernThemeHelper.GetRoundedRectangle(pillRect, pillH / 2))
+                using (SolidBrush pillBrush = new SolidBrush(Color.FromArgb(0, 185, 86)))
+                {
+                    g.FillPath(pillBrush, pillPath);
+                }
+                TextRenderer.DrawText(g, item.VersionBadge, badgeFont, pillRect, Color.FromArgb(12, 24, 16),
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            }
+
+            if (!string.IsNullOrEmpty(item.VersionDate))
+            {
+                Font dateFont = item.DateFont ?? item.Font;
+                Rectangle dateRect = new Rectangle(bannerRect.X, bannerRect.Y, bannerRect.Width - Math.Max(10, (int)(12 * currentDpiScale)), bannerRect.Height);
+                TextRenderer.DrawText(g, item.VersionDate, dateFont, dateRect, Color.FromArgb(148, 164, 178),
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.Right | TextFormatFlags.NoPrefix);
             }
         }
 

@@ -3,7 +3,7 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   雷蛇 (Razer) 私有 HID 协议通信实现：
-//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)，按设备全接口聚合择优（真应答压过坏端点占位）
+//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)，按设备全接口聚合择优（真应答压过坏端点占位，纯有线无电池鼠标零休眠/零伪电量）
 //   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态（带 BUSY 0x01 渐进退避重试）
 //   3. 实时查询与固化写入板载 DPI 档位与 125~8000Hz 回报率（兼容经典 1K 协议 0x85/0x05 与现代 8K 协议 0xC0/0x40）
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHardwareState.cs, HardwareDiagnosticService.cs
@@ -167,12 +167,42 @@ namespace RazerBatteryTray
             return GetRazerDeviceCategory(pid, productName) == DeviceCategory.Keyboard;
         }
 
+        public static bool IsWiredOnlyRazerMousePid(int pid)
+        {
+            switch (pid)
+            {
+                case 0x008C: // Razer DeathAdder V2 Mini (Wired)
+                case 0x0084: // Razer DeathAdder V2 (Wired)
+                case 0x008A: // Razer Viper Mini (Wired)
+                case 0x0078: // Razer Viper (Wired)
+                case 0x0071: // Razer DeathAdder Essential (Wired)
+                case 0x006E: // Razer DeathAdder Essential (2021, Wired)
+                case 0x0098: // Razer DeathAdder Essential White/2021 (Wired)
+                case 0x0099: // Razer Basilisk V3 (Wired)
+                case 0x00B8: // Razer Cobra (Wired)
+                case 0x00B0: // Razer DeathAdder V3 (Wired 8KHz)
+                case 0x0095: // Razer Viper 8KHz (Wired)
+                case 0x0085: // Razer Basilisk V2 (Wired)
+                case 0x0067: // Razer Basilisk Essential (Wired)
+                case 0x005C: // Razer DeathAdder Elite (Wired)
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private const int LinkDownOfflineThreshold = 2;
 
         public static MouseBatteryInfo CreateFallbackDeviceInfo(string normId, int curPid, string resolvedModelName, bool isDongle, RazerDeviceHardwareState stState)
         {
             DeviceCategory devCategory = GetRazerDeviceCategory(curPid, resolvedModelName);
-            bool isNonBatteryDevice = (devCategory == DeviceCategory.Keyboard || devCategory == DeviceCategory.Headset);
+            bool isWiredNoBattMouse = !isDongle &&
+                                      devCategory == DeviceCategory.Mouse &&
+                                      (IsWiredOnlyRazerMousePid(curPid) ||
+                                       (stState != null && stState.BatteryNotSupported && stState.BatteryPercent <= 0));
+            bool isNonBatteryDevice = (devCategory == DeviceCategory.Keyboard ||
+                                       devCategory == DeviceCategory.Headset ||
+                                       isWiredNoBattMouse);
             int linkDownStreak = (stState != null) ? stState.ConsecutiveLinkDown : 0;
             // 只对 2.4G 接收器通道判定链路丢失：有线通道不存在关机，0x04 多为命令不支持
             bool linkLost = isDongle && linkDownStreak >= LinkDownOfflineThreshold;
@@ -184,10 +214,10 @@ namespace RazerBatteryTray
 
             if (isNonBatteryDevice)
             {
-                // 键盘、音箱等无电池设备：严格隔离电量，绝不继承鼠标的全局静态电量，显示免驱/供电中
+                // 无电池外设（有线鼠标/键盘/耳机）：严格隔离电量，绝不继承静态 50% 电量，始终保持有线在线不休眠
                 cachedPct = -1;
                 cachedExact = 0.0;
-                isSleeping = false; // 有线供电外设保持在线状态
+                isSleeping = false;
                 transport = "USB 有线";
             }
             else
@@ -209,7 +239,8 @@ namespace RazerBatteryTray
                     isActuallySleeping = true;
                 }
 
-                isSleeping = linkLost ? false : isActuallySleeping;
+                // USB 有线直连绝不进入“休眠待机”状态，避免移动鼠标时引发误唤醒与托盘菜单高频重建闪烁
+                isSleeping = (!isDongle || linkLost) ? false : isActuallySleeping;
                 transport = isDongle ? "2.4G 无线" : "USB 有线";
                 if (linkLost && cachedPct <= 0)
                 {
@@ -227,9 +258,9 @@ namespace RazerBatteryTray
                 DeviceId = normId,
                 Brand = "Razer",
                 Category = devCategory,
-                IsConnected = !linkLost,
+                IsConnected = isWiredNoBattMouse ? true : !linkLost,
                 IsSleeping = isSleeping,
-                IsDonglePresent = isDongle,
+                IsDonglePresent = isWiredNoBattMouse ? false : isDongle,
                 Transport = transport,
                 HardwareId = "HID:1532:" + curPid.ToString("X4"),
                 DeviceName = dName,
@@ -1219,6 +1250,7 @@ namespace RazerBatteryTray
             public string NormId;
             public bool AnyLiveSuccess;
             public bool AnyLinkDown;
+            public bool AnyBatteryNotSupported;
             public MouseBatteryInfo BestLiveInfo;
             public string BestLivePath;
             public int BestLiveReportLen;
@@ -1360,6 +1392,100 @@ namespace RazerBatteryTray
             return DecodeModernPollingRateByte(pollResp[offset + 9]);
         }
 
+        private static void QueryRazerDpiAndPolling(
+            IntPtr handle,
+            byte tid,
+            int curPid,
+            int reportLength,
+            int offset,
+            bool prepended,
+            out int liveDpi,
+            out int liveDpiY,
+            out int activeStage,
+            out int stageCount,
+            out int[] stageList,
+            out int[] stageListY,
+            out int pollingRate)
+        {
+            liveDpi = 0;
+            liveDpiY = 0;
+            activeStage = 0;
+            stageCount = 0;
+            stageList = null;
+            stageListY = null;
+
+            byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, reportLength, prepended, new byte[] { 0x01 });
+            if (HidD_SetFeature(handle, stagesReq, stagesReq.Length))
+            {
+                byte[] stResp = new byte[reportLength];
+                if (prepended) stResp[0] = 0x00;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    Thread.Sleep(15);
+                    if (HidD_GetFeature(handle, stResp, stResp.Length))
+                    {
+                        byte stStatus = stResp[offset + 0];
+                        byte stClass = stResp[offset + 6];
+                        byte stId = stResp[offset + 7];
+                        if (stStatus == 0x01) continue;
+                        if (stStatus == 0x02 && stClass == 0x04 && stId == 0x86)
+                        {
+                            RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
+                            if (parsedStages != null)
+                            {
+                                activeStage = parsedStages.DpiStage;
+                                stageCount = parsedStages.DpiStageCount;
+                                stageList = parsedStages.DpiStages;
+                                stageListY = parsedStages.DpiStagesY;
+                                liveDpi = parsedStages.Dpi;
+                                liveDpiY = parsedStages.DpiY;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (liveDpi <= 0)
+            {
+                byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, reportLength, prepended, new byte[] { 0x00 });
+                if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
+                {
+                    byte[] dpiResp = new byte[reportLength];
+                    if (prepended) dpiResp[0] = 0x00;
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        Thread.Sleep(15);
+                        if (HidD_GetFeature(handle, dpiResp, dpiResp.Length))
+                        {
+                            byte dStatus = dpiResp[offset + 0];
+                            byte dClass = dpiResp[offset + 6];
+                            byte dId = dpiResp[offset + 7];
+                            if (dStatus == 0x01) continue;
+                            if (dStatus == 0x02 && dClass == 0x04 && dId == 0x85)
+                            {
+                                int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
+                                if (readLiveDpi >= 100 && readLiveDpi <= 50000)
+                                {
+                                    liveDpi = readLiveDpi;
+                                    int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
+                                    liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 50000 ? readLiveDpiY : readLiveDpi;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            bool preferClassicPoll = IsClassicPollingProtocolPid(curPid);
+            pollingRate = QuerySinglePollingRate(handle, tid, reportLength, offset, prepended, preferClassicPoll);
+            if (pollingRate == 0)
+            {
+                pollingRate = QuerySinglePollingRate(handle, tid, reportLength, offset, prepended, !preferClassicPoll);
+            }
+        }
+
         public static List<MouseBatteryInfo> QueryAllRazerDevices()
         {
             lock (hidLock)
@@ -1462,6 +1588,7 @@ namespace RazerBatteryTray
                                                     int offset = prepended ? 1 : 0;
                                                     bool querySuccess = false;
                                                     bool linkDownReply = false;
+                                                    bool batteryNotSupported = (!isDongle && IsWiredOnlyRazerMousePid(curPid));
                                                     byte lastObservedStatus = 0;
                                                     byte lastTriedTid = 0x1F;
 
@@ -1480,12 +1607,47 @@ namespace RazerBatteryTray
                                                     foreach (byte tid in transIds)
                                                     {
                                                         lastTriedTid = tid;
+                                                        if (batteryNotSupported)
+                                                        {
+                                                            QueryRazerDpiAndPolling(
+                                                                handle, tid, curPid, caps.FeatureReportByteLength, offset, prepended,
+                                                                out liveDpi, out liveDpiY, out activeStage, out stageCount, out stageList, out stageListY, out pollingRate);
+                                                            if (liveDpi > 0 || pollingRate > 0)
+                                                            {
+                                                                querySuccess = true;
+                                                                successfulTid = tid;
+                                                                pct = -1;
+                                                                exactPct = 0.0;
+                                                                isCharging = false;
+                                                                break;
+                                                            }
+                                                            continue;
+                                                        }
+
                                                         // 1. Query Battery (with progressive BUSY 0x01 retry for legacy receivers)
                                                         byte[] req = CreateRazerReport(tid, 0x07, 0x80, 0x02, caps.FeatureReportByteLength, prepended);
                                                         byte battStatus;
                                                         byte[] resp = SendAndReadRazerFeature(handle, req, caps.FeatureReportByteLength, prepended, 0x07, 0x80, 4, out battStatus);
                                                         if (battStatus != 0) lastObservedStatus = battStatus;
                                                         if (battStatus == 0x04) linkDownReply = true;
+                                                        if (battStatus == 0x05 && !isDongle)
+                                                        {
+                                                            // 有线设备明确返回 0x05 NOT_SUPPORTED：属于纯有线无电池鼠标，仍尝试探测 DPI/回报率
+                                                            batteryNotSupported = true;
+                                                            QueryRazerDpiAndPolling(
+                                                                handle, tid, curPid, caps.FeatureReportByteLength, offset, prepended,
+                                                                out liveDpi, out liveDpiY, out activeStage, out stageCount, out stageList, out stageListY, out pollingRate);
+                                                            if (liveDpi > 0 || pollingRate > 0)
+                                                            {
+                                                                querySuccess = true;
+                                                                successfulTid = tid;
+                                                                pct = -1;
+                                                                exactPct = 0.0;
+                                                                isCharging = false;
+                                                                break;
+                                                            }
+                                                            continue;
+                                                        }
 
                                                         if (resp != null && resp[offset + 9] > 0)
                                                         {
@@ -1506,78 +1668,10 @@ namespace RazerBatteryTray
                                                                 isCharging = (chgResp[offset + 9] == 1);
                                                             }
 
-                                                            // 3. Query DPI Stages & Active DPI (带 3 次退避与 BUSY 0x01 过滤)
-                                                            byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, caps.FeatureReportByteLength, prepended, new byte[] { 0x01 });
-                                                            if (HidD_SetFeature(handle, stagesReq, stagesReq.Length))
-                                                            {
-                                                                byte[] stResp = new byte[caps.FeatureReportByteLength];
-                                                                if (prepended) stResp[0] = 0x00;
-                                                                for (int attempt = 0; attempt < 3; attempt++)
-                                                                {
-                                                                    Thread.Sleep(15);
-                                                                    if (HidD_GetFeature(handle, stResp, stResp.Length))
-                                                                    {
-                                                                        byte stStatus = stResp[offset + 0];
-                                                                        byte stClass = stResp[offset + 6];
-                                                                        byte stId = stResp[offset + 7];
-                                                                        if (stStatus == 0x01) continue; // BUSY
-                                                                        if (stStatus == 0x02 && stClass == 0x04 && stId == 0x86)
-                                                                        {
-                                                                            RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
-                                                                            if (parsedStages != null)
-                                                                            {
-                                                                                activeStage = parsedStages.DpiStage;
-                                                                                stageCount = parsedStages.DpiStageCount;
-                                                                                stageList = parsedStages.DpiStages;
-                                                                                stageListY = parsedStages.DpiStagesY;
-                                                                                liveDpi = parsedStages.Dpi;
-                                                                                liveDpiY = parsedStages.DpiY;
-                                                                                break;
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            if (liveDpi <= 0)
-                                                            {
-                                                                byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, caps.FeatureReportByteLength, prepended, new byte[] { 0x00 });
-                                                                if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
-                                                                {
-                                                                    byte[] dpiResp = new byte[caps.FeatureReportByteLength];
-                                                                    if (prepended) dpiResp[0] = 0x00;
-                                                                    for (int attempt = 0; attempt < 3; attempt++)
-                                                                    {
-                                                                        Thread.Sleep(15);
-                                                                        if (HidD_GetFeature(handle, dpiResp, dpiResp.Length))
-                                                                        {
-                                                                            byte dStatus = dpiResp[offset + 0];
-                                                                            byte dClass = dpiResp[offset + 6];
-                                                                            byte dId = dpiResp[offset + 7];
-                                                                            if (dStatus == 0x01) continue;
-                                                                            if (dStatus == 0x02 && dClass == 0x04 && dId == 0x85)
-                                                                            {
-                                                                                int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
-                                                                                if (readLiveDpi >= 100 && readLiveDpi <= 50000)
-                                                                                {
-                                                                                    liveDpi = readLiveDpi;
-                                                                                    int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
-                                                                                    liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 50000 ? readLiveDpiY : readLiveDpi;
-                                                                                    break;
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            // 4. Query Polling Rate (adaptive Classic 0x85 <-> Modern 0xC0)
-                                                            bool preferClassicPoll = IsClassicPollingProtocolPid(curPid);
-                                                            pollingRate = QuerySinglePollingRate(handle, tid, caps.FeatureReportByteLength, offset, prepended, preferClassicPoll);
-                                                            if (pollingRate == 0)
-                                                            {
-                                                                pollingRate = QuerySinglePollingRate(handle, tid, caps.FeatureReportByteLength, offset, prepended, !preferClassicPoll);
-                                                            }
+                                                            // 3 & 4. Query DPI Stages/Active DPI & Polling Rate
+                                                            QueryRazerDpiAndPolling(
+                                                                handle, tid, curPid, caps.FeatureReportByteLength, offset, prepended,
+                                                                out liveDpi, out liveDpiY, out activeStage, out stageCount, out stageList, out stageListY, out pollingRate);
 
                                                             break; // Succeeded with this tid
                                                         }
@@ -1590,11 +1684,13 @@ namespace RazerBatteryTray
                                                         scanByNormId[normId] = acc;
                                                         scanOrder.Add(normId);
                                                     }
+                                                    if (batteryNotSupported) acc.AnyBatteryNotSupported = true;
 
                                                     if (querySuccess)
                                                     {
-                                                        isDongle = DetermineIsDongle(curPid, prodName, pct, isCharging);
-                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("OK TID=0x{0:X2} batt={1}% chg={2} dpi={3} poll={4}Hz dongle={5} len={6}", successfulTid, pct, isCharging ? 1 : 0, liveDpi, pollingRate, isDongle ? 1 : 0, caps.FeatureReportByteLength));
+                                                        isDongle = (pct >= 0) && DetermineIsDongle(curPid, prodName, pct, isCharging);
+                                                        string battTraceStr = (pct >= 0) ? (pct + "%") : "NO_BATT";
+                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("OK TID=0x{0:X2} batt={1} chg={2} dpi={3} poll={4}Hz dongle={5} len={6}", successfulTid, battTraceStr, isCharging ? 1 : 0, liveDpi, pollingRate, isDongle ? 1 : 0, caps.FeatureReportByteLength));
 
                                                         var activeDev = new MouseBatteryInfo
                                                         {
@@ -1716,8 +1812,18 @@ namespace RazerBatteryTray
                         stState.DevicePath = acc.BestLivePath;
                         stState.ReportLength = acc.BestLiveReportLen;
                         stState.IsPrepended = acc.BestLivePrepended;
-                        stState.BatteryPercent = acc.BestLivePct;
-                        stState.ExactBatteryPercent = acc.BestLiveExactPct;
+                        if (acc.AnyBatteryNotSupported && acc.BestLivePct < 0)
+                        {
+                            stState.BatteryNotSupported = true;
+                            stState.BatteryPercent = -1;
+                            stState.ExactBatteryPercent = 0.0;
+                        }
+                        else
+                        {
+                            if (acc.BestLivePct > 0) stState.BatteryNotSupported = false;
+                            stState.BatteryPercent = acc.BestLivePct;
+                            stState.ExactBatteryPercent = acc.BestLiveExactPct;
+                        }
                         stState.DeviceName = acc.BestLiveModelName;
                         stState.Dpi = finalDpi;
                         stState.DpiY = finalDpiY;
@@ -1749,6 +1855,10 @@ namespace RazerBatteryTray
                     {
                         stState.ConsecutiveFailures++;
                         if (acc.AnyLinkDown) stState.ConsecutiveLinkDown++; else stState.ConsecutiveLinkDown = 0;
+                        if (acc.AnyBatteryNotSupported || (!acc.FallbackIsDongle && IsWiredOnlyRazerMousePid(acc.FallbackPid)))
+                        {
+                            stState.BatteryNotSupported = true;
+                        }
 
                         if (string.IsNullOrEmpty(stState.DevicePath) || !acc.FallbackIsDongle)
                         {

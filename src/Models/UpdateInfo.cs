@@ -24,6 +24,7 @@ namespace RazerBatteryTray
         public string Sha256 { get; set; }
         public long FileSize { get; set; }
         public List<string> Changelog { get; set; }
+        public List<ReleaseNoteEntry> ReleaseHistory { get; set; }
 
         public UpdateInfo()
         {
@@ -34,6 +35,7 @@ namespace RazerBatteryTray
             Sha256 = string.Empty;
             FileSize = 0;
             Changelog = new List<string>();
+            ReleaseHistory = new List<ReleaseNoteEntry>();
         }
     }
 }

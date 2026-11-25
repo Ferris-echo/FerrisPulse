@@ -123,21 +123,39 @@ namespace RazerBatteryTray
 
             int pad = (int)(16 * dpiScale);
 
-            // Header Radar Badge
-            radarBadge = new WizardRadarBadge();
-            radarBadge.DpiScale = dpiScale;
-            radarBadge.Size = new Size((int)(24 * dpiScale), (int)(24 * dpiScale));
-            radarBadge.Location = new Point(pad, (int)(13 * dpiScale));
-            this.Controls.Add(radarBadge);
-
-            // Row 1: Title on left, Scan button on right
+            // Row 1 (promoted to Integrated Hero Header by AttachModernChrome):
             var lblTitle = new Label();
             lblTitle.Text = "添加与配置外设向导";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
+            lblTitle.Font = new Font("Microsoft YaHei UI", 11.2F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(240, 245, 255);
-            lblTitle.Location = new Point(pad + (int)(28 * dpiScale), (int)(15 * dpiScale));
+            lblTitle.Location = new Point(pad, (int)(12 * dpiScale));
             lblTitle.AutoSize = true;
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
+
+            // Row 2 (becomes y = 54 after +42 shift): Full-width clear subtitle (zero truncation)
+            var lblSub = new Label();
+            lblSub.Text = "主流外设即插即用（无需手动添加），用于冷门适配或修改别名：";
+            lblSub.Font = new Font("Microsoft YaHei UI", 8.5F);
+            lblSub.ForeColor = Color.FromArgb(145, 155, 175);
+            lblSub.Location = new Point(pad, (int)(12 * dpiScale));
+            lblSub.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(20 * dpiScale));
+            this.Controls.Add(lblSub);
+
+            // Row 3 (becomes y = 76..104 after +42 shift): Radar Badge + Section Title on left, Scan button on right
+            radarBadge = new WizardRadarBadge();
+            radarBadge.DpiScale = dpiScale;
+            radarBadge.Size = new Size((int)(22 * dpiScale), (int)(22 * dpiScale));
+            radarBadge.Location = new Point(pad, (int)(37 * dpiScale));
+            this.Controls.Add(radarBadge);
+
+            var lblScanSection = new Label();
+            lblScanSection.Text = "周边外设扫描列表";
+            lblScanSection.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblScanSection.ForeColor = Color.FromArgb(156, 168, 192);
+            lblScanSection.Location = new Point(pad + (int)(26 * dpiScale), (int)(40 * dpiScale));
+            lblScanSection.AutoSize = true;
+            this.Controls.Add(lblScanSection);
 
             btnScan = new ModernButton();
             btnScan.Text = "🔄 重新扫描";
@@ -148,19 +166,10 @@ namespace RazerBatteryTray
             btnScan.BorderColor = Color.FromArgb(60, 68, 88);
             btnScan.TextColor = Color.FromArgb(220, 230, 250);
             int scanW = (int)(100 * dpiScale);
-            btnScan.Location = new Point(this.ClientSize.Width - pad - scanW, (int)(12 * dpiScale));
+            btnScan.Location = new Point(this.ClientSize.Width - pad - scanW, (int)(34 * dpiScale));
             btnScan.Size = new Size(scanW, (int)(28 * dpiScale));
             btnScan.Click += (s, e) => PerformScanAsync();
             this.Controls.Add(btnScan);
-
-            // Row 2: Subtitle
-            var lblSub = new Label();
-            lblSub.Text = "主流外设插上即插即用（无需手动添加）。此向导用于冷门外设适配或修改别名：";
-            lblSub.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblSub.ForeColor = Color.FromArgb(145, 155, 175);
-            lblSub.Location = new Point(pad, (int)(46 * dpiScale));
-            lblSub.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(20 * dpiScale));
-            this.Controls.Add(lblSub);
 
             // Scanning Laser Beam Animation Bar
             beamControl = new ScanningBeamControl();
@@ -177,7 +186,7 @@ namespace RazerBatteryTray
             lstDevices.Font = new Font("Microsoft YaHei UI", 9.2F);
             lstDevices.DrawMode = DrawMode.OwnerDrawFixed;
             lstDevices.ItemHeight = (int)(52 * dpiScale);
-            lstDevices.Location = new Point(pad, (int)(72 * dpiScale));
+            lstDevices.Location = new Point(pad, (int)(73 * dpiScale));
             lstDevices.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(212 * dpiScale));
             lstDevices.DrawItem += LstDevices_DrawItem;
             lstDevices.SelectedIndexChanged += (s, e) => OnDeviceSelected();
@@ -187,7 +196,7 @@ namespace RazerBatteryTray
             this.Controls.Add(lstDevices);
 
             // Row 4: Custom Nickname (整体下移，为上方列表腾出展示 4 个设备的完整空间)
-            int formY = (int)(294 * dpiScale);
+            int formY = (int)(295 * dpiScale);
             var lblName = new Label();
             lblName.Text = "自定义昵称:";
             lblName.Font = new Font("Microsoft YaHei UI", 8.8F);
@@ -240,7 +249,7 @@ namespace RazerBatteryTray
             int cardW = this.ClientSize.Width - (pad * 2);
             int cardH = (int)(122 * dpiScale);
             Panel pnlAiAdapter = new Panel();
-            pnlAiAdapter.Location = new Point(pad, (int)(412 * dpiScale));
+            pnlAiAdapter.Location = new Point(pad, (int)(413 * dpiScale));
             pnlAiAdapter.Size = new Size(cardW, cardH);
             pnlAiAdapter.BackColor = Color.FromArgb(22, 25, 34);
             pnlAiAdapter.Paint += (s, e) =>
@@ -448,6 +457,11 @@ namespace RazerBatteryTray
             btnSave.Click += (s, e) => SaveSelectedDevice();
             this.Controls.Add(btnSave);
 
+            this.ClientSize = new Size((int)(430 * dpiScale), (int)(600 * dpiScale));
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            AttachModernChrome("添加与配置外设向导", redundantTitle, 42, true, true);
+
             PerformScanAsync();
         }
 
@@ -601,6 +615,87 @@ namespace RazerBatteryTray
             }
         }
 
+        private static CustomDeviceConfig FindMatchingCustomConfig(List<CustomDeviceConfig> existingConfigs, string devId)
+        {
+            if (existingConfigs == null || string.IsNullOrEmpty(devId)) return null;
+            for (int i = 0; i < existingConfigs.Count; i++)
+            {
+                var c = existingConfigs[i];
+                if (c == null) continue;
+                if (string.Equals(c.DeviceId, devId, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && string.Equals(c.HardwareFingerprint, devId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return c;
+                }
+            }
+            List<string> vars = DeviceManager.GetDeviceIdVariants(devId);
+            for (int vi = 0; vi < vars.Count; vi++)
+            {
+                string v = vars[vi];
+                for (int i = 0; i < existingConfigs.Count; i++)
+                {
+                    var c = existingConfigs[i];
+                    if (c == null) continue;
+                    if (string.Equals(c.DeviceId, v, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(c.HardwareFingerprint) && string.Equals(c.HardwareFingerprint, v, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return c;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static void CollectIdentityKeys(HashSet<string> keys, string idOrFingerprint)
+        {
+            if (keys == null || string.IsNullOrEmpty(idOrFingerprint)) return;
+            keys.Add(idOrFingerprint);
+            List<string> vars = DeviceManager.GetDeviceIdVariants(idOrFingerprint);
+            for (int i = 0; i < vars.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(vars[i])) keys.Add(vars[i]);
+            }
+        }
+
+        public static bool IsSameScannedDevice(CustomDeviceConfig a, CustomDeviceConfig b)
+        {
+            if (a == null || b == null) return false;
+            HashSet<string> keysA = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectIdentityKeys(keysA, a.DeviceId);
+            CollectIdentityKeys(keysA, a.HardwareFingerprint);
+            if (keysA.Count == 0) return false;
+
+            HashSet<string> keysB = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectIdentityKeys(keysB, b.DeviceId);
+            CollectIdentityKeys(keysB, b.HardwareFingerprint);
+            foreach (string k in keysB)
+            {
+                if (keysA.Contains(k)) return true;
+            }
+            return false;
+        }
+
+        public static void MergeScannedConfig(List<CustomDeviceConfig> list, CustomDeviceConfig candidate, bool preferCandidate)
+        {
+            if (list == null || candidate == null) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (IsSameScannedDevice(list[i], candidate))
+                {
+                    if (preferCandidate)
+                    {
+                        if (string.IsNullOrEmpty(candidate.CustomName) && !string.IsNullOrEmpty(list[i].CustomName))
+                        {
+                            candidate.CustomName = list[i].CustomName;
+                        }
+                        list[i] = candidate;
+                    }
+                    return;
+                }
+            }
+            list.Add(candidate);
+        }
+
         private void PerformScanAsync()
         {
             if (isScanning) return;
@@ -621,12 +716,9 @@ namespace RazerBatteryTray
                 var existingConfigs = DeviceManager.LoadCustomDevices();
 
                 Func<string, string, string, string> resolveCustomName = delegate(string devId, string fallbackDisp, string origName) {
-                    if (existingConfigs != null)
-                    {
-                        var match = existingConfigs.Find(c => c.DeviceId == devId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == devId));
-                        if (match != null && !string.IsNullOrEmpty(match.CustomName))
-                            return match.CustomName;
-                    }
+                    var match = FindMatchingCustomConfig(existingConfigs, devId);
+                    if (match != null && !string.IsNullOrEmpty(match.CustomName))
+                        return match.CustomName;
                     return !string.IsNullOrEmpty(fallbackDisp) ? fallbackDisp : origName;
                 };
 
@@ -641,19 +733,16 @@ namespace RazerBatteryTray
                     {
                         return truthCat;
                     }
-                    if (existingConfigs != null)
+                    var match = FindMatchingCustomConfig(existingConfigs, devId);
+                    if (match != null)
                     {
-                        var match = existingConfigs.Find(c => c.DeviceId == devId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == devId));
-                        if (match != null)
+                        DeviceCategory matchTruthCat;
+                        if (MchoseDeviceHelper.TryGetAuthoritativeCategory(match.DeviceId, match.HardwareFingerprint, out matchTruthCat) &&
+                            matchTruthCat != DeviceCategory.Generic)
                         {
-                            DeviceCategory matchTruthCat;
-                            if (MchoseDeviceHelper.TryGetAuthoritativeCategory(match.DeviceId, match.HardwareFingerprint, out matchTruthCat) &&
-                                matchTruthCat != DeviceCategory.Generic)
-                            {
-                                return matchTruthCat;
-                            }
-                            return match.Category;
+                            return matchTruthCat;
                         }
+                        return match.Category;
                     }
                     return defCat;
                 };
@@ -669,20 +758,17 @@ namespace RazerBatteryTray
                             if (rz != null && (rz.IsConnected || rz.IsDonglePresent))
                             {
                                 string normId = RazerDeviceHelper.NormalizeRazerDeviceId(rz.DeviceId);
-                                if (!tempConfigs.Exists(c => c.DeviceId == normId))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = normId,
-                                        OriginalName = rz.DeviceName,
-                                        CustomName = resolveCustomName(normId, rz.DisplayName, rz.DeviceName),
-                                        Category = resolveCategory(normId, rz.Category),
-                                        Transport = "2.4G 无线",
-                                        CachedBattery = rz.BatteryPercent,
-                                        HardwareFingerprint = rz.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = normId,
+                                    OriginalName = rz.DeviceName,
+                                    CustomName = resolveCustomName(normId, rz.DisplayName, rz.DeviceName),
+                                    Category = resolveCategory(normId, rz.Category),
+                                    Transport = "2.4G 无线",
+                                    CachedBattery = rz.BatteryPercent,
+                                    HardwareFingerprint = rz.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -705,7 +791,7 @@ namespace RazerBatteryTray
                             CachedBattery = rp.BatteryPercent,
                             HardwareFingerprint = rp.DeviceId
                         };
-                        tempConfigs.Add(cfg);
+                        MergeScannedConfig(tempConfigs, cfg, false);
                     }
                 }
                 catch { }
@@ -716,21 +802,17 @@ namespace RazerBatteryTray
                     var rpOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
                     if (rpOffice != null && (rpOffice.IsConnected || rpOffice.IsDonglePresent))
                     {
-                        if (!tempConfigs.Exists(c => c.DeviceId == rpOffice.DeviceId ||
-                            (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == rpOffice.HardwareFingerprint)))
+                        var cfg = new CustomDeviceConfig
                         {
-                            var cfg = new CustomDeviceConfig
-                            {
-                                DeviceId = rpOffice.DeviceId,
-                                OriginalName = rpOffice.DeviceName,
-                                CustomName = resolveCustomName(rpOffice.DeviceId, rpOffice.DisplayName, rpOffice.DeviceName),
-                                Category = resolveCategory(rpOffice.DeviceId, DeviceCategory.Mouse),
-                                Transport = "2.4G 无线",
-                                CachedBattery = rpOffice.BatteryPercent,
-                                HardwareFingerprint = rpOffice.HardwareFingerprint
-                            };
-                            tempConfigs.Add(cfg);
-                        }
+                            DeviceId = rpOffice.DeviceId,
+                            OriginalName = rpOffice.DeviceName,
+                            CustomName = resolveCustomName(rpOffice.DeviceId, rpOffice.DisplayName, rpOffice.DeviceName),
+                            Category = resolveCategory(rpOffice.DeviceId, DeviceCategory.Mouse),
+                            Transport = "2.4G 无线",
+                            CachedBattery = rpOffice.BatteryPercent,
+                            HardwareFingerprint = rpOffice.HardwareFingerprint
+                        };
+                        MergeScannedConfig(tempConfigs, cfg, false);
                     }
                 }
                 catch { }
@@ -751,7 +833,7 @@ namespace RazerBatteryTray
                             CachedBattery = vgn.BatteryPercent,
                             HardwareFingerprint = vgn.DeviceId
                         };
-                        tempConfigs.Add(cfg);
+                        MergeScannedConfig(tempConfigs, cfg, false);
                     }
                 }
                 catch { }
@@ -766,21 +848,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId ||
-                                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, DeviceCategory.Keyboard),
-                                        Transport = dev.Transport ?? "2.4G 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, DeviceCategory.Keyboard),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -797,21 +875,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId ||
-                                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, DeviceCategory.Mouse),
-                                        Transport = dev.Transport ?? "2.4G 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, DeviceCategory.Mouse),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -829,20 +903,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "Lightspeed 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "Lightspeed 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -853,27 +924,22 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "Lightspeed 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "Lightspeed 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
                 }
                 catch { }
-
-
 
                 // 2.56 Scan Valkyrie Devices (2.4G / USB)
                 try
@@ -885,20 +951,17 @@ namespace RazerBatteryTray
                         {
                             if (vk != null && (vk.IsConnected || vk.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == vk.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == vk.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = vk.DeviceId,
-                                        OriginalName = vk.DeviceName,
-                                        CustomName = resolveCustomName(vk.DeviceId, vk.DisplayName, vk.DeviceName),
-                                        Category = resolveCategory(vk.DeviceId, vk.Category),
-                                        Transport = vk.Transport ?? "2.4G 无线",
-                                        CachedBattery = vk.BatteryPercent,
-                                        HardwareFingerprint = vk.HardwareFingerprint ?? vk.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = vk.DeviceId,
+                                    OriginalName = vk.DeviceName,
+                                    CustomName = resolveCustomName(vk.DeviceId, vk.DisplayName, vk.DeviceName),
+                                    Category = resolveCategory(vk.DeviceId, vk.Category),
+                                    Transport = vk.Transport ?? "2.4G 无线",
+                                    CachedBattery = vk.BatteryPercent,
+                                    HardwareFingerprint = vk.HardwareFingerprint ?? vk.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -915,20 +978,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "2.4G 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -945,27 +1005,24 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "蓝牙",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "蓝牙",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
                 }
                 catch { }
 
-                // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins)
+                // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins, priority override)
                 try
                 {
                     var fdasList = FdasRuntimeHelper.QueryAllFdasDevices();
@@ -975,20 +1032,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "2.4G/USB",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "2.4G/USB",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, true);
                             }
                         }
                     }
@@ -1006,25 +1060,23 @@ namespace RazerBatteryTray
                                     ? mr0097List
                                     : drv.QueryDevices());
                             if (dList == null) continue;
+                            bool preferDrv = drv.IsExternalPackage && drv.Priority >= 200;
                             for (int k = 0; k < dList.Count; k++)
                             {
                                 var dev = dList[k];
                                 if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                                 {
-                                    if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                    var cfg = new CustomDeviceConfig
                                     {
-                                        var cfg = new CustomDeviceConfig
-                                        {
-                                            DeviceId = dev.DeviceId,
-                                            OriginalName = dev.DeviceName,
-                                            CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                            Category = resolveCategory(dev.DeviceId, dev.Category),
-                                            Transport = dev.Transport ?? "2.4G/USB",
-                                            CachedBattery = dev.BatteryPercent,
-                                            HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                        };
-                                        tempConfigs.Add(cfg);
-                                    }
+                                        DeviceId = dev.DeviceId,
+                                        OriginalName = dev.DeviceName,
+                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                        Category = resolveCategory(dev.DeviceId, dev.Category),
+                                        Transport = dev.Transport ?? "2.4G/USB",
+                                        CachedBattery = dev.BatteryPercent,
+                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                    };
+                                    MergeScannedConfig(tempConfigs, cfg, preferDrv);
                                 }
                             }
                         }
@@ -1032,25 +1084,9 @@ namespace RazerBatteryTray
                 }
                 catch { }
 
-                // 2.6 Scan Generic HID Mice & Peripherals (2.4G / USB)
+                // 2.6 构建本轮已被专属驱动接管的精确标识集，避免通用 HID 扫描与专属设备重复，同时放行同厂未适配型号
                 try
                 {
-                    var genMice = GenericHidHelper.ScanGenericHidMice(existingIds);
-                    foreach (var gm in genMice)
-                    {
-                        if (gm != null)
-                        {
-                            string gmKey = gm.DeviceId != null && gm.DeviceId.StartsWith("HID:") ? gm.DeviceId.Substring(4) : gm.DeviceId;
-                            bool dup = tempConfigs.Exists(c => (c.DeviceId != null && c.DeviceId.IndexOf(gmKey, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                                                               (c.HardwareFingerprint != null && c.HardwareFingerprint.IndexOf(gmKey, StringComparison.OrdinalIgnoreCase) >= 0));
-                            if (!dup)
-                            {
-                                tempConfigs.Add(gm);
-                            }
-                        }
-                    }
-
-                    // 2.6b 暴露未命中任何专属驱动的大厂 HID 外设（如老款 1532:0528 黑鲨等），方便定位或导出诊断
                     HashSet<string> alreadyDetectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (string exId in existingIds)
                     {
@@ -1080,17 +1116,25 @@ namespace RazerBatteryTray
                         }
                     }
 
+                    var genMice = GenericHidHelper.ScanGenericHidMice(alreadyDetectedKeys);
+                    foreach (var gm in genMice)
+                    {
+                        if (gm != null)
+                        {
+                            MergeScannedConfig(tempConfigs, gm, false);
+                            alreadyDetectedKeys.Add(gm.DeviceId);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, gm.DeviceId);
+                        }
+                    }
+
+                    // 2.6b 暴露未命中任何专属驱动的大厂 HID 外设（如老款 1532:0528 黑鲨等），方便定位或导出诊断
                     var unmatchedMajor = GenericHidHelper.ScanUnmatchedMajorBrandHidDevices(alreadyDetectedKeys);
                     for (int ui = 0; ui < unmatchedMajor.Count; ui++)
                     {
                         CustomDeviceConfig um = unmatchedMajor[ui];
-                        if (um == null) continue;
-                        string umKey = (um.DeviceId != null && um.DeviceId.StartsWith("HID:")) ? um.DeviceId.Substring(4) : um.DeviceId;
-                        bool dup = tempConfigs.Exists(c => (c.DeviceId != null && c.DeviceId.IndexOf(umKey, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                                                           (c.HardwareFingerprint != null && c.HardwareFingerprint.IndexOf(umKey, StringComparison.OrdinalIgnoreCase) >= 0));
-                        if (!dup)
+                        if (um != null)
                         {
-                            tempConfigs.Add(um);
+                            MergeScannedConfig(tempConfigs, um, false);
                         }
                     }
                 }
@@ -1105,7 +1149,7 @@ namespace RazerBatteryTray
                         b.Transport = "蓝牙";
                         b.CustomName = resolveCustomName(b.DeviceId, b.CustomName, b.OriginalName);
                         b.Category = resolveCategory(b.DeviceId, b.Category);
-                        tempConfigs.Add(b);
+                        MergeScannedConfig(tempConfigs, b, false);
                     }
                 }
                 catch { }

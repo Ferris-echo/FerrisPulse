@@ -173,6 +173,17 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndReadOnlyContract" {
     $cArgs = [object[]]@($rxChg.PSObject.BaseObject, 64, $false)
     Assert-True ([bool]$tVxe.GetMethod("ParseChargingResponse", $bfPubStatic).Invoke($null, $cArgs) -and [bool]$cArgs[2]) "NearLink charging"
 
+    # VgnDeviceHelper TryExtractVgnBatteryFromReply (supports 9B legacy and 10B+ voltage frames)
+    $tVgn = $asm.GetType("RazerBatteryTray.VgnDeviceHelper", $true)
+    $mVgnBat = $tVgn.GetMethod("TryExtractVgnBatteryFromReply", $bfPubStatic)
+    Assert-True ($null -ne $mVgnBat) "TryExtractVgnBatteryFromReply exists"
+    [byte[]]$rxLegacyVgn = @(0x08, 0x00, 0, 0, 0, 0, 82, 1, 0)
+    $vArgs9 = [object[]]@($rxLegacyVgn.PSObject.BaseObject, 0, $false, 0)
+    Assert-True ([bool]$mVgnBat.Invoke($null, $vArgs9) -and [int]$vArgs9[1] -eq 82 -and [bool]$vArgs9[2] -and [int]$vArgs9[3] -eq 0) "9B legacy CompX battery reply accepted"
+    [byte[]]$rxFullVgn = @(0x08, 0x04, 0, 0, 0, 0, 64, 0, 0x10, 0x61, 0)
+    $vArgs11 = [object[]]@($rxFullVgn.PSObject.BaseObject, 0, $false, 0)
+    Assert-True ([bool]$mVgnBat.Invoke($null, $vArgs11) -and [int]$vArgs11[1] -eq 64 -and -not [bool]$vArgs11[2] -and [int]$vArgs11[3] -eq 4193) "10B+ CompX battery + voltage parsed"
+
     $drv = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.VxeNearLinkDriver", $true))
     $dev = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.MouseBatteryInfo"))
     $dev.DeviceId = "VXE:373B:1216"

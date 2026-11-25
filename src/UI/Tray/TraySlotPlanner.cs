@@ -5,6 +5,7 @@
 //   纯静态无副作用的多设备独立托盘槽位规划器。
 //   结合用户优先级列表、低电量预警仲裁与在场状态，确定每个托盘槽位的展示内容；
 //   已连接休眠且有电量缓存的设备原位保留槽位并绘制琥珀色记忆电量，离线/无缓存设备显示断联图标，零设备时兜底返回 1 个断联槽位。
+//   槽位载体包含样式索引与低电量变色开关，供 MultiTrayIconHost 在切换托盘样式或告警策略时精准触发图标重绘。
 // 依赖关系: Models.MouseBatteryInfo, Hardware.DeviceManager
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -31,6 +32,8 @@ namespace RazerBatteryTray
         public bool IsSleeping { get; set; }
         public Color AccentColor { get; set; }
         public string TooltipText { get; set; }
+        public int TrayStyle { get; set; }
+        public bool AllowLowBatteryTrayColor { get; set; }
     }
 
     public static class TraySlotPlanner

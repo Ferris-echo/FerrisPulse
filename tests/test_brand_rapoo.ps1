@@ -163,6 +163,16 @@ Invoke-TestCase "Rapoo.Vt3ProtocolControlsStateAndEndpoints" {
     # ResolveRapooProductId & ApplyConfirmedRapooDpiStage isolation
     $mResPid = $tRapoo.GetMethod("ResolveRapooProductId")
     Assert-Equal 0x1412 ($mResPid.Invoke($null, @(0x14FF, 0x1412))) "Generic receiver resolved effective PID"
+
+    # Legacy 19-byte Report 0x07 fallback parser (v2.0.1 parity)
+    $mLegacy19 = $tRapoo.GetMethod("TryParseLegacy19ByteReport", $bfAnyStatic)
+    Assert-True ($null -ne $mLegacy19) "TryParseLegacy19ByteReport exists"
+    $legacyBuf = New-Object byte[] 19
+    $legacyBuf[0] = 0x07; $legacyBuf[3] = 0x20; $legacyBuf[4] = 0x03; $legacyBuf[7] = 2; $legacyBuf[8] = 68; $legacyBuf[9] = 1
+    $legacyBuf[13] = 0x19; $legacyBuf[14] = 0x14; $legacyBuf[17] = 5
+    $lArgs = [object[]]@($legacyBuf.PSObject.BaseObject, 19, 0, $false, 0, 0, 0, 0)
+    $lOk = [bool]$mLegacy19.Invoke($null, $lArgs)
+    Assert-True ($lOk -and $lArgs[2] -eq 68 -and $lArgs[3] -eq $true -and $lArgs[4] -eq 800 -and $lArgs[5] -eq 2 -and $lArgs[6] -eq 0x1419 -and $lArgs[7] -eq 5) "Legacy 19B 0x07 report parsed accurately"
     Assert-Equal 0x1412 ($mResPid.Invoke($null, @(0x1412, 0x1417))) "Dedicated PID kept"
 }
 

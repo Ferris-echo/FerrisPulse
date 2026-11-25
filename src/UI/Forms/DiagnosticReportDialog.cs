@@ -77,19 +77,11 @@ namespace RazerBatteryTray
             int pad = (int)(18 * dpiScale);
             int innerW = clientW - (pad * 2);
 
-            Label lblTitle = new Label();
-            lblTitle.Text = "外设硬件诊断快照";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold, GraphicsUnit.Point);
-            lblTitle.ForeColor = Color.FromArgb(240, 245, 255);
-            lblTitle.Location = new Point(pad, (int)(14 * dpiScale));
-            lblTitle.AutoSize = true;
-            this.Controls.Add(lblTitle);
-
             Label lblSub = new Label();
-            lblSub.Text = "纯只读采集物理 HID 端点与驱动探测日志（已自动剔除序列号等隐私字段），复制发给作者即可排查老型号未识别原因。";
+            lblSub.Text = "仅读取 HID 硬件信息（已隐藏序列号），复制后可发给开发者排查兼容问题。";
             lblSub.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             lblSub.ForeColor = Color.FromArgb(145, 155, 175);
-            lblSub.Location = new Point(pad, (int)(40 * dpiScale));
+            lblSub.Location = new Point(pad, (int)(56 * dpiScale));
             lblSub.Size = new Size(innerW, (int)(32 * dpiScale));
             this.Controls.Add(lblSub);
 
@@ -98,7 +90,7 @@ namespace RazerBatteryTray
             int btnY = clientH - (int)(16 * dpiScale) - btnH;
             int statusH = (int)(20 * dpiScale);
             int statusY = btnY - (int)(8 * dpiScale) - statusH;
-            int cardY = (int)(78 * dpiScale);
+            int cardY = (int)(94 * dpiScale);
             int cardH = Math.Max((int)(120 * dpiScale), statusY - (int)(8 * dpiScale) - cardY);
 
             cardReport = new RoundedCard();
@@ -174,7 +166,7 @@ namespace RazerBatteryTray
             this.Controls.Add(btnClose);
 
             btnCopy = new ModernButton();
-            btnCopy.Text = "📋 一键复制报告";
+            btnCopy.Text = "复制报告";
             btnCopy.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold, GraphicsUnit.Point);
             btnCopy.NormalColor = Color.FromArgb(0, 195, 82);
             btnCopy.HoverColor = Color.FromArgb(0, 228, 114);
@@ -199,6 +191,9 @@ namespace RazerBatteryTray
             {
                 StartCaptureAsync(initialDevices);
             };
+
+            this.modernChromeTitlePadLeftBase = 18;
+            AttachModernChrome("外设硬件诊断快照 (只读零写入)", null, 0, false, false);
         }
 
         private void StartCaptureAsync(List<MouseBatteryInfo> preloadedDevices)
@@ -233,7 +228,7 @@ namespace RazerBatteryTray
                             rawReportText = reportText ?? "";
                             scrollReport.SetDiagnosticText(rawReportText, dpiScale);
                             lblStatus.ForeColor = Color.FromArgb(0, 225, 115);
-                            lblStatus.Text = "采集完成！点击「一键复制报告」发给开发者即可定位未识别设备。";
+                            lblStatus.Text = "采集完成！点击「复制报告」发给开发者即可排查。";
                         });
                     }
                 }
@@ -257,7 +252,7 @@ namespace RazerBatteryTray
                     copyFeedbackTimer.Tick += delegate(object s2, EventArgs e2)
                     {
                         copyFeedbackTimer.Stop();
-                        if (!btnCopy.IsDisposed) btnCopy.Text = "📋 一键复制报告";
+                        if (!btnCopy.IsDisposed) btnCopy.Text = "复制报告";
                     };
                 }
                 copyFeedbackTimer.Stop();

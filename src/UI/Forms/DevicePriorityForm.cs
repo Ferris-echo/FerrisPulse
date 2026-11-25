@@ -2,8 +2,8 @@
 // 模块名称: DevicePriorityForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   多外设托盘图标展示优先级调整窗口，承载 PriorityReorderControl，提供保存排序、重置、以及持久化至 ConfigManager 的完整交互。
-// 依赖关系: Controls.PriorityReorderControl, Controls.ModernButton, Core.ConfigManager
+//   多外设托盘图标展示优先级调整窗口，承载 PriorityReorderControl，支持多托盘开关平滑折叠/展开、平滑滑动分段胶囊选数动画、保存排序以及外观双色持久化。
+// 依赖关系: Controls.PriorityReorderControl, Controls.SlidingSegmentTrack, Controls.ModernButton, Core.ConfigManager
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -21,15 +21,26 @@ namespace RazerBatteryTray
     public class DevicePriorityForm : DpiAwareForm
     {
         private PriorityReorderControl reorderControl;
+        private RoundedCard cardSettings;
         private ModernCheckBox chkLowBatteryFirst;
         private ModernCheckBox chkMultiTray;
         private Panel pnlTrayCountBar;
+        private SlidingSegmentTrack pnlSegmentTrack;
         private readonly List<ModernButton> presetCountButtons = new List<ModernButton>();
-        private NumericUpDown numCustomCount;
-        private Label lblCustomCountHint;
+        private Label lblListSection;
+        private Label lblListHint;
+        private Panel pnlFooter;
+        private Label lblDeviceCount;
         private ModernButton btnSave;
         private ModernButton btnCancel;
         private int selectedTrayCount = 3;
+        private int trayBarExpandedW;
+        private int trayBarHeight;
+        private System.Windows.Forms.Timer trayBarAnimTimer;
+        private int trayBarAnimStartW;
+        private int trayBarAnimTargetW;
+        private DateTime trayBarAnimStartTime;
+        private const int TrayBarAnimDurationMs = 160;
         private readonly HashSet<string> editedAppearanceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public bool ResultMultiTrayEnabled { get; private set; }
@@ -55,109 +66,176 @@ namespace RazerBatteryTray
             this.ResultMultiTrayMaxCount = this.selectedTrayCount;
 
             this.Text = "设备优先级管理 (拖拽排序)";
-            int initClientW = (int)(456 * dpiScale);
-            int initClientH = (int)(558 * dpiScale);
+            int initClientW = (int)(480 * dpiScale);
+            int initClientH = (int)(560 * dpiScale);
             this.ClientSize = new Size(initClientW, initClientH);
-            this.BackColor = Color.FromArgb(18, 19, 23);
+            this.BackColor = Color.FromArgb(16, 18, 23);
             this.ForeColor = Color.White;
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.Sizable;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
 
-            int pad = (int)(16 * dpiScale);
-
-            var lblTitle = new Label();
-            lblTitle.Text = "设备优先级与多托盘管理";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 11.5F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(240, 245, 255);
-            lblTitle.Location = new Point(pad, (int)(12 * dpiScale));
-            lblTitle.AutoSize = true;
-            this.Controls.Add(lblTitle);
+            int pad = (int)(22 * dpiScale);
+            int contentW = initClientW - (pad * 2);
 
             var lblTip = new Label();
-            lblTip.Text = "拖动右侧把手调整顺位；\n点击卡片右侧色点可单独定制设备名称、界面色与托盘图标色。";
-            lblTip.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblTip.ForeColor = Color.FromArgb(145, 155, 175);
-            lblTip.Location = new Point(pad, (int)(38 * dpiScale));
-            lblTip.Size = new Size(initClientW - (pad * 2), (int)(34 * dpiScale));
+            lblTip.Text = "调整状态栏展示顺位，或为每台外设定制专属名称与配色";
+            lblTip.Font = new Font("Microsoft YaHei UI", 8.6F);
+            lblTip.ForeColor = Color.FromArgb(136, 148, 170);
+            lblTip.Location = new Point(pad, (int)(54 * dpiScale));
+            lblTip.Size = new Size(contentW, (int)(20 * dpiScale));
             lblTip.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             this.Controls.Add(lblTip);
 
-            int chkX = pad + (int)(6 * dpiScale);
-            chkLowBatteryFirst = new ModernCheckBox();
-            chkLowBatteryFirst.Text = "低电量设备优先显示（电量≤30%）";
-            chkLowBatteryFirst.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
-            chkLowBatteryFirst.ForeColor = Color.FromArgb(220, 230, 245);
-            chkLowBatteryFirst.Checked = lowBatteryFirst;
-            chkLowBatteryFirst.Location = new Point(chkX, (int)(74 * dpiScale));
-            chkLowBatteryFirst.Size = new Size(initClientW - pad - chkX, (int)(24 * dpiScale));
-            chkLowBatteryFirst.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            this.Controls.Add(chkLowBatteryFirst);
+            // 1. 列表分区标题行与优先拖拽列表（第一视觉焦点置顶）
+            int sectionY = (int)(84 * dpiScale);
+            lblListSection = new Label();
+            lblListSection.Text = "设备展示顺序";
+            lblListSection.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblListSection.ForeColor = Color.FromArgb(152, 164, 188);
+            lblListSection.AutoSize = true;
+            lblListSection.Location = new Point(pad, sectionY);
+            this.Controls.Add(lblListSection);
 
-            chkMultiTray = new ModernCheckBox();
-            chkMultiTray.Text = "启用状态栏多设备独立图标（每台设备单独占位，重连/休眠不跳位）";
-            chkMultiTray.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
-            chkMultiTray.ForeColor = Color.FromArgb(220, 230, 245);
-            chkMultiTray.Checked = multiTrayEnabled;
-            chkMultiTray.Location = new Point(chkX, (int)(100 * dpiScale));
-            chkMultiTray.Size = new Size(initClientW - pad - chkX, (int)(24 * dpiScale));
-            chkMultiTray.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            chkMultiTray.CheckedChanged += (s, e) => UpdateTrayCountBarState();
-            this.Controls.Add(chkMultiTray);
+            lblListHint = new Label();
+            lblListHint.Text = "拖拽排序 · 点击色点定制";
+            lblListHint.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lblListHint.ForeColor = Color.FromArgb(110, 122, 146);
+            lblListHint.AutoSize = true;
+            lblListHint.Location = new Point(initClientW - pad - lblListHint.PreferredWidth, sectionY + (int)(1 * dpiScale));
+            lblListHint.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            this.Controls.Add(lblListHint);
 
-            // 自适应图标数量选择条：已知设备数 <= 5 仅显示预设档位（无输入框）；> 5 时出现自定义输入
-            pnlTrayCountBar = new Panel();
-            pnlTrayCountBar.Location = new Point(pad, (int)(128 * dpiScale));
-            pnlTrayCountBar.Size = new Size(initClientW - (pad * 2), (int)(30 * dpiScale));
-            pnlTrayCountBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            BuildTrayCountSelector(itemCount);
-            this.Controls.Add(pnlTrayCountBar);
+            // 2. 稳重底部操作栏 (Footer Bar)
+            int footerH = (int)(62 * dpiScale);
+            pnlFooter = new Panel();
+            pnlFooter.Location = new Point(1, initClientH - footerH - 1);
+            pnlFooter.Size = new Size(initClientW - 2, footerH);
+            pnlFooter.BackColor = Color.FromArgb(20, 22, 29);
+            pnlFooter.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            pnlFooter.Paint += (s, e) => {
+                using (Pen topLine = new Pen(Color.FromArgb(35, 40, 54), 1))
+                {
+                    e.Graphics.DrawLine(topLine, 0, 0, pnlFooter.Width, 0);
+                }
+            };
+            this.Controls.Add(pnlFooter);
 
-            int btnW = (int)(110 * dpiScale);
+            lblDeviceCount = new Label();
+            lblDeviceCount.Text = string.Format("共 {0} 台外设", itemCount);
+            lblDeviceCount.Font = new Font("Microsoft YaHei UI", 8.5F);
+            lblDeviceCount.ForeColor = Color.FromArgb(122, 134, 158);
+            lblDeviceCount.AutoSize = true;
+            lblDeviceCount.Location = new Point(pad - 1, (footerH - (int)(18 * dpiScale)) / 2);
+            pnlFooter.Controls.Add(lblDeviceCount);
+
+            int btnCancelW = (int)(92 * dpiScale);
+            int btnSaveW = (int)(118 * dpiScale);
             int btnH = (int)(34 * dpiScale);
-            int bottomPad = (int)(16 * dpiScale);
-            int btnY = initClientH - bottomPad - btnH;
+            int btnY = (footerH - btnH) / 2;
+            int rightMargin = pad - 1;
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
-            btnCancel.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
-            btnCancel.NormalColor = Color.FromArgb(36, 39, 49);
-            btnCancel.HoverColor = Color.FromArgb(48, 52, 65);
-            btnCancel.PressedColor = Color.FromArgb(28, 30, 38);
-            btnCancel.BorderColor = Color.FromArgb(58, 63, 78);
-            btnCancel.ForeColor = Color.FromArgb(230, 235, 245);
-            btnCancel.CornerRadius = (int)(8 * dpiScale);
-            btnCancel.Location = new Point(initClientW - pad - (btnW * 2) - (int)(10 * dpiScale), btnY);
-            btnCancel.Size = new Size(btnW, btnH);
-            btnCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnCancel.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold, GraphicsUnit.Point);
+            btnCancel.NormalColor = Color.FromArgb(29, 33, 43);
+            btnCancel.HoverColor = Color.FromArgb(41, 47, 62);
+            btnCancel.PressedColor = Color.FromArgb(22, 25, 34);
+            btnCancel.BorderColor = Color.FromArgb(46, 53, 72);
+            btnCancel.ForeColor = Color.FromArgb(203, 212, 230);
+            btnCancel.CornerRadius = (int)(7 * dpiScale);
+            btnCancel.Location = new Point(pnlFooter.Width - rightMargin - btnSaveW - (int)(10 * dpiScale) - btnCancelW, btnY);
+            btnCancel.Size = new Size(btnCancelW, btnH);
+            btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnCancel.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
-            this.Controls.Add(btnCancel);
+            pnlFooter.Controls.Add(btnCancel);
 
             btnSave = new ModernButton();
             btnSave.Text = "确定并保存";
-            btnSave.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
+            btnSave.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold, GraphicsUnit.Point);
             btnSave.NormalColor = Color.FromArgb(0, 200, 83);
-            btnSave.HoverColor = Color.FromArgb(0, 230, 118);
-            btnSave.PressedColor = Color.FromArgb(0, 160, 65);
-            btnSave.ForeColor = Color.FromArgb(10, 24, 15);
-            btnSave.CornerRadius = (int)(8 * dpiScale);
-            btnSave.Location = new Point(initClientW - pad - btnW, btnY);
-            btnSave.Size = new Size(btnW, btnH);
-            btnSave.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnSave.HoverColor = Color.FromArgb(0, 224, 104);
+            btnSave.PressedColor = Color.FromArgb(0, 168, 70);
+            btnSave.ForeColor = Color.FromArgb(7, 26, 15);
+            btnSave.CornerRadius = (int)(7 * dpiScale);
+            btnSave.Location = new Point(pnlFooter.Width - rightMargin - btnSaveW, btnY);
+            btnSave.Size = new Size(btnSaveW, btnH);
+            btnSave.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnSave.Click += (s, e) => {
                 SaveChanges();
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             };
-            this.Controls.Add(btnSave);
+            pnlFooter.Controls.Add(btnSave);
 
-            int listTop = (int)(164 * dpiScale);
-            int listH = btnY - listTop - (int)(14 * dpiScale);
+            // 3. 抬升式深空圆角设置分组卡片（恒定双行紧凑高度，多托盘数量胶囊同行右侧平滑水平显隐）
+            int innerPad = (int)(16 * dpiScale);
+            int innerW = contentW - (innerPad * 2);
+            int rowH = (int)(44 * dpiScale);
+            int initSettingsH = rowH * 2;
+
+            cardSettings = new RoundedCard();
+            cardSettings.Location = new Point(pad, pnlFooter.Top - initSettingsH - (int)(16 * dpiScale));
+            cardSettings.Size = new Size(contentW, initSettingsH);
+            cardSettings.CornerRadius = (int)(10 * dpiScale);
+            cardSettings.CardColor = Color.FromArgb(24, 27, 35);
+            cardSettings.BorderColor = Color.FromArgb(40, 46, 60);
+            cardSettings.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            cardSettings.Paint += (s, e) => {
+                int divY = (int)(44 * dpiScale);
+                int padIn = (int)(16 * dpiScale);
+                if (cardSettings.Width > padIn * 2 + 4)
+                {
+                    using (Pen divPen = new Pen(Color.FromArgb(35, 40, 54), 1))
+                    {
+                        e.Graphics.DrawLine(divPen, padIn, divY, cardSettings.Width - padIn, divY);
+                    }
+                }
+            };
+            this.Controls.Add(cardSettings);
+
+            chkLowBatteryFirst = new ModernCheckBox();
+            chkLowBatteryFirst.Text = "低电量设备优先显示（电量 ≤ 30%）";
+            chkLowBatteryFirst.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
+            chkLowBatteryFirst.ForeColor = Color.FromArgb(224, 232, 246);
+            chkLowBatteryFirst.BackColor = cardSettings.CardColor;
+            chkLowBatteryFirst.Checked = lowBatteryFirst;
+            chkLowBatteryFirst.Location = new Point(innerPad, (int)(10 * dpiScale));
+            chkLowBatteryFirst.Size = new Size(innerW, (int)(24 * dpiScale));
+            chkLowBatteryFirst.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            cardSettings.Controls.Add(chkLowBatteryFirst);
+
+            chkMultiTray = new ModernCheckBox();
+            chkMultiTray.Text = "状态栏多设备独立图标";
+            chkMultiTray.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular, GraphicsUnit.Point);
+            chkMultiTray.ForeColor = Color.FromArgb(224, 232, 246);
+            chkMultiTray.BackColor = cardSettings.CardColor;
+            chkMultiTray.Checked = multiTrayEnabled;
+            chkMultiTray.Location = new Point(innerPad, rowH + (rowH - (int)(24 * dpiScale)) / 2);
+            chkMultiTray.Size = new Size((int)(180 * dpiScale), (int)(24 * dpiScale));
+            chkMultiTray.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            chkMultiTray.CheckedChanged += (s, e) => UpdateTrayCountBarState();
+            cardSettings.Controls.Add(chkMultiTray);
+
+            // 同行右侧自适应滑动数量选择条：已知设备数 <= 5 仅显示分段胶囊；> 5 时附带自定义输入
+            trayBarHeight = (int)(30 * dpiScale);
+            pnlTrayCountBar = new Panel();
+            pnlTrayCountBar.BackColor = cardSettings.CardColor;
+            pnlTrayCountBar.Size = new Size(0, trayBarHeight);
+            pnlTrayCountBar.Location = new Point(cardSettings.Width - innerPad, rowH + (rowH - trayBarHeight) / 2);
+            pnlTrayCountBar.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            BuildTrayCountSelector(itemCount);
+            cardSettings.Controls.Add(pnlTrayCountBar);
+
+            int listTop = (int)(108 * dpiScale);
+            int listH = Math.Max((int)(120 * dpiScale), cardSettings.Top - listTop - (int)(14 * dpiScale));
             reorderControl = new PriorityReorderControl();
+            reorderControl.BackColor = this.BackColor;
             reorderControl.DpiScale = dpiScale;
+            reorderControl.ActiveTraySlotCount = multiTrayEnabled ? this.selectedTrayCount : 1;
             reorderControl.Location = new Point(pad, listTop);
-            reorderControl.Size = new Size(initClientW - (pad * 2), listH);
+            reorderControl.Size = new Size(contentW, listH);
             reorderControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             reorderControl.SwatchClicked += OnCardSwatchClicked;
 
@@ -170,8 +248,11 @@ namespace RazerBatteryTray
                 reorderControl.ResetPositions();
             }
             this.Controls.Add(reorderControl);
-            this.MinimumSize = new Size((int)(400 * dpiScale), (int)(440 * dpiScale));
-            UpdateTrayCountBarState();
+            this.modernChromeTitlePadLeftBase = 22;
+            this.modernChromeUseIntegratedHeroHeader = true;
+            AttachModernChrome("设备优先级与多托盘管理", null, 0, false, true);
+            this.MinimumSize = new Size((int)(420 * dpiScale), (int)(480 * dpiScale));
+            UpdateTrayCountBarState(false);
         }
 
         private static List<PriorityItem> BuildItemsFromDevices(List<MouseBatteryInfo> devices)
@@ -211,106 +292,152 @@ namespace RazerBatteryTray
             pnlTrayCountBar.Controls.Clear();
             presetCountButtons.Clear();
 
-            var lblCount = new Label();
-            lblCount.Text = "同时显示数量:";
-            lblCount.Font = new Font("Microsoft YaHei UI", 8.8F);
-            lblCount.ForeColor = Color.FromArgb(180, 190, 210);
-            lblCount.Location = new Point((int)(6 * dpiScale), (int)(5 * dpiScale));
-            lblCount.AutoSize = true;
-            pnlTrayCountBar.Controls.Add(lblCount);
-
             int maxPreset = Math.Min(Math.Max(deviceCount, 2), 5);
             if (this.selectedTrayCount > maxPreset && deviceCount <= 5)
             {
                 this.selectedTrayCount = maxPreset;
             }
 
-            int x = (int)(100 * dpiScale);
-            int btnW = (int)(36 * dpiScale);
-            int btnH = (int)(24 * dpiScale);
-            int gap = (int)(6 * dpiScale);
+            bool showManualInput = (deviceCount > 5);
+            int presetCount = maxPreset - 1;
+            int trackPad = (int)(3 * dpiScale);
+            int pillH = (int)(24 * dpiScale);
+            int trackH = pillH + trackPad * 2;
+            int trackW = showManualInput
+                ? (trackPad * 2 + presetCount * (int)(36 * dpiScale) + (int)(50 * dpiScale) + presetCount * (int)(2 * dpiScale))
+                : (trackPad * 2 + presetCount * (int)(42 * dpiScale) + Math.Max(0, presetCount - 1) * (int)(3 * dpiScale));
+            trayBarHeight = trackH;
+            trayBarExpandedW = trackW;
 
-            for (int count = 2; count <= maxPreset; count++)
+            var values = new int[presetCount];
+            var labels = new string[presetCount];
+            for (int i = 0; i < presetCount; i++)
             {
-                int capCount = count;
-                var btn = new ModernButton();
-                btn.Text = count.ToString() + " 个";
-                btn.Tag = count;
-                btn.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Bold);
-                btn.CornerRadius = (int)(6 * dpiScale);
-                btn.Location = new Point(x, (int)(2 * dpiScale));
-                btn.Size = new Size(btnW + (int)(6 * dpiScale), btnH);
-                btn.Click += (s, e) => {
-                    this.selectedTrayCount = capCount;
-                    if (numCustomCount != null && numCustomCount.Visible)
-                    {
-                        numCustomCount.Value = Math.Max(numCustomCount.Minimum, Math.Min(numCustomCount.Maximum, capCount));
-                    }
-                    RefreshPresetButtonHighlights();
-                };
-                presetCountButtons.Add(btn);
-                pnlTrayCountBar.Controls.Add(btn);
-                x += btn.Width + gap;
+                int count = 2 + i;
+                values[i] = count;
+                labels[i] = count.ToString() + " 个";
+
+                var shadowBtn = new ModernButton();
+                shadowBtn.Text = labels[i];
+                shadowBtn.Tag = count;
+                presetCountButtons.Add(shadowBtn);
             }
 
-            // 仅当设备总数 > 5 时才显示手动数字输入（<=5 设备绝不多添输入步骤）
-            bool showManualInput = (deviceCount > 5);
-            lblCustomCountHint = new Label();
-            lblCustomCountHint.Text = "自定义:";
-            lblCustomCountHint.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblCustomCountHint.ForeColor = Color.FromArgb(170, 180, 200);
-            lblCustomCountHint.Location = new Point(x + (int)(4 * dpiScale), (int)(5 * dpiScale));
-            lblCustomCountHint.AutoSize = true;
-            lblCustomCountHint.Visible = showManualInput;
-            pnlTrayCountBar.Controls.Add(lblCustomCountHint);
-
-            numCustomCount = new NumericUpDown();
-            numCustomCount.Minimum = 2;
-            numCustomCount.Maximum = 16;
-            numCustomCount.Value = Math.Max(2, Math.Min(16, this.selectedTrayCount));
-            numCustomCount.BackColor = Color.FromArgb(30, 33, 42);
-            numCustomCount.ForeColor = Color.White;
-            numCustomCount.BorderStyle = BorderStyle.FixedSingle;
-            numCustomCount.Font = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold);
-            numCustomCount.Location = new Point(x + (int)(54 * dpiScale), (int)(2 * dpiScale));
-            numCustomCount.Size = new Size((int)(52 * dpiScale), btnH);
-            numCustomCount.Visible = showManualInput;
-            numCustomCount.ValueChanged += (s, e) => {
-                if (numCustomCount.Visible)
-                {
-                    this.selectedTrayCount = (int)numCustomCount.Value;
-                    RefreshPresetButtonHighlights();
-                }
+            pnlSegmentTrack = new SlidingSegmentTrack();
+            pnlSegmentTrack.DpiScale = dpiScale;
+            pnlSegmentTrack.BackColor = cardSettings.CardColor;
+            pnlSegmentTrack.Location = new Point(0, 0);
+            pnlSegmentTrack.Size = new Size(trackW, trackH);
+            pnlSegmentTrack.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            pnlSegmentTrack.SetOptions(values, labels, this.selectedTrayCount, showManualInput, 2, 16);
+            pnlSegmentTrack.SelectedValueChanged += (val) => {
+                this.selectedTrayCount = val;
+                SyncActiveTraySlotsToList();
             };
-            pnlTrayCountBar.Controls.Add(numCustomCount);
+            pnlTrayCountBar.Controls.Add(pnlSegmentTrack);
 
             RefreshPresetButtonHighlights();
         }
 
+        private void SyncActiveTraySlotsToList()
+        {
+            if (reorderControl == null) return;
+            reorderControl.ActiveTraySlotCount = (chkMultiTray != null && chkMultiTray.Checked) ? this.selectedTrayCount : 1;
+            reorderControl.Invalidate();
+        }
+
         private void RefreshPresetButtonHighlights()
         {
-            for (int i = 0; i < presetCountButtons.Count; i++)
+            if (pnlSegmentTrack != null)
             {
-                var btn = presetCountButtons[i];
-                int val = (btn.Tag is int) ? (int)btn.Tag : 0;
-                bool active = (val == this.selectedTrayCount);
-                btn.NormalColor = active ? Color.FromArgb(0, 200, 83) : Color.FromArgb(34, 37, 47);
-                btn.HoverColor = active ? Color.FromArgb(0, 230, 118) : Color.FromArgb(46, 50, 62);
-                btn.PressedColor = active ? Color.FromArgb(0, 160, 65) : Color.FromArgb(26, 28, 36);
-                btn.ForeColor = active ? Color.FromArgb(10, 24, 15) : Color.FromArgb(215, 225, 240);
-                btn.BorderColor = active ? Color.FromArgb(0, 230, 118) : Color.FromArgb(56, 62, 76);
-                btn.Invalidate();
+                pnlSegmentTrack.SelectValue(this.selectedTrayCount, true);
             }
+            SyncActiveTraySlotsToList();
+        }
+
+        private void ApplyTrayCountBarWidth(int curBarW)
+        {
+            if (pnlTrayCountBar == null || cardSettings == null) return;
+            int innerPad = (int)(16 * dpiScale);
+            int rowH = (int)(44 * dpiScale);
+            int minLeft = innerPad + (int)(178 * dpiScale);
+            int clampedW = Math.Max(0, Math.Min(trayBarExpandedW, curBarW));
+            pnlTrayCountBar.SetBounds(
+                Math.Max(minLeft, cardSettings.Width - innerPad - clampedW),
+                rowH + Math.Max(2, (rowH - trayBarHeight) / 2),
+                clampedW,
+                trayBarHeight);
         }
 
         private void UpdateTrayCountBarState()
         {
+            UpdateTrayCountBarState(true);
+        }
+
+        private void UpdateTrayCountBarState(bool animate)
+        {
             bool enabled = (chkMultiTray != null && chkMultiTray.Checked);
             this.ResultMultiTrayEnabled = enabled;
-            if (pnlTrayCountBar != null)
+            SyncActiveTraySlotsToList();
+            if (pnlTrayCountBar == null) return;
+
+            int targetW = enabled ? trayBarExpandedW : 0;
+            if (!animate || !this.Visible || !this.IsHandleCreated)
             {
-                pnlTrayCountBar.Enabled = enabled;
+                if (trayBarAnimTimer != null && trayBarAnimTimer.Enabled) trayBarAnimTimer.Stop();
+                pnlTrayCountBar.Visible = enabled;
+                ApplyTrayCountBarWidth(targetW);
+                return;
             }
+
+            if (pnlTrayCountBar.Width == targetW && pnlTrayCountBar.Visible == enabled)
+            {
+                if (trayBarAnimTimer != null && trayBarAnimTimer.Enabled) trayBarAnimTimer.Stop();
+                return;
+            }
+
+            if (enabled)
+            {
+                pnlTrayCountBar.Visible = true;
+            }
+
+            trayBarAnimStartW = pnlTrayCountBar.Width;
+            trayBarAnimTargetW = targetW;
+            trayBarAnimStartTime = DateTime.UtcNow;
+
+            if (trayBarAnimTimer == null)
+            {
+                trayBarAnimTimer = new System.Windows.Forms.Timer();
+                trayBarAnimTimer.Interval = 15;
+                trayBarAnimTimer.Tick += (s, e) => {
+                    if (pnlTrayCountBar == null || this.IsDisposed)
+                    {
+                        trayBarAnimTimer.Stop();
+                        return;
+                    }
+
+                    double elapsed = (DateTime.UtcNow - trayBarAnimStartTime).TotalMilliseconds;
+                    float progress = (float)(elapsed / TrayBarAnimDurationMs);
+                    if (progress >= 1.0f)
+                    {
+                        trayBarAnimTimer.Stop();
+                        ApplyTrayCountBarWidth(trayBarAnimTargetW);
+                        if (trayBarAnimTargetW == 0)
+                        {
+                            pnlTrayCountBar.Visible = false;
+                        }
+                        if (cardSettings != null) cardSettings.Invalidate();
+                        return;
+                    }
+
+                    float rem = 1.0f - progress;
+                    float ease = 1.0f - (rem * rem * rem);
+                    int curW = trayBarAnimStartW + (int)Math.Round((trayBarAnimTargetW - trayBarAnimStartW) * ease);
+                    ApplyTrayCountBarWidth(curW);
+                };
+            }
+
+            if (!trayBarAnimTimer.Enabled) trayBarAnimTimer.Start();
         }
 
         private void OnCardSwatchClicked(int itemIndex)
@@ -370,6 +497,10 @@ namespace RazerBatteryTray
 
         private void SaveChanges()
         {
+            if (pnlSegmentTrack != null)
+            {
+                pnlSegmentTrack.CommitPendingCustomInput();
+            }
             var ids = new List<string>();
             foreach (var it in reorderControl.Items)
             {
@@ -394,11 +525,50 @@ namespace RazerBatteryTray
         protected override void OnApplyDpiScale(float scale)
         {
             base.OnApplyDpiScale(scale);
+            trayBarHeight = (int)(30 * scale);
+            int pad = (int)(22 * scale);
+            int footerTop = (pnlFooter != null) ? pnlFooter.Top : (this.ClientSize.Height - (int)(62 * scale));
+            int settingsH = (int)(88 * scale);
+            if (cardSettings != null)
+            {
+                cardSettings.Top = footerTop - settingsH - (int)(16 * scale);
+                cardSettings.Height = settingsH;
+            }
+            if (reorderControl != null)
+            {
+                int listTop = (int)(108 * scale);
+                int listBottomBound = (cardSettings != null) ? cardSettings.Top : (footerTop - (int)(16 * scale));
+                reorderControl.Location = new Point(pad, listTop);
+                reorderControl.Height = Math.Max((int)(120 * scale), listBottomBound - listTop - (int)(14 * scale));
+            }
+            if (pnlSegmentTrack != null)
+            {
+                pnlSegmentTrack.DpiScale = scale;
+                trayBarExpandedW = pnlSegmentTrack.Width;
+                pnlSegmentTrack.SnapThumbToSelected();
+            }
+            bool enabled = (chkMultiTray != null && chkMultiTray.Checked);
+            ApplyTrayCountBarWidth(enabled ? trayBarExpandedW : 0);
             if (reorderControl != null)
             {
                 reorderControl.DpiScale = scale;
                 reorderControl.ResetPositions();
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && trayBarAnimTimer != null)
+            {
+                try
+                {
+                    trayBarAnimTimer.Stop();
+                    trayBarAnimTimer.Dispose();
+                }
+                catch { }
+                trayBarAnimTimer = null;
+            }
+            base.Dispose(disposing);
         }
     }
 }

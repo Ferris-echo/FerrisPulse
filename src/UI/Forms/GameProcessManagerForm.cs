@@ -120,7 +120,7 @@ namespace RazerBatteryTray
 
             // ================= 1. Top Header =================
             Label lblTitle = new Label();
-            lblTitle.Text = "🎮 电竞游戏进程管理与自动捕获";
+            lblTitle.Text = "电竞游戏进程管理与自动捕获";
             lblTitle.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 230, 118);
             lblTitle.Location = new Point(pad, S(12));
@@ -136,6 +136,9 @@ namespace RazerBatteryTray
             lblSub.Size = new Size(clientW - pad * 2, S(16));
             lblSub.BackColor = Color.Transparent;
             this.Controls.Add(lblSub);
+
+            // 暂存供结尾 AttachModernChrome 统一去重移位
+            this.Tag = lblTitle;
 
             // ================= 2. Column Geometry =================
             int colGap = S(16);
@@ -351,12 +354,12 @@ namespace RazerBatteryTray
                 int textX = S(14);
                 int textW = pnlModeCard.Width - textX - S(8);
 
-                string title = (currentMode == 1) ? "💡 进程存活常驻模式 (官方推荐)" : "💡 仅前台窗口激活模式 (传统)";
+                string title = (currentMode == 1) ? "进程存活常驻（推荐）" : "仅前台窗口激活";
                 Color titleCol = (currentMode == 1) ? Color.FromArgb(0, 230, 118) : Color.FromArgb(56, 189, 248);
 
                 string desc = (currentMode == 1)
-                    ? "只要游戏在后台存活，切屏查攻略/看时间绝不反复切鼠标；彻底退出游戏才恢复常规。"
-                    : "仅当游戏位于最顶层活动窗口时生效；切换到其他应用时经 2 秒防抖立即恢复桌面参数。";
+                    ? "游戏后台存活期间保持当前档位，切屏不频繁切换；退出游戏后自动恢复。"
+                    : "仅当游戏窗口处于最前端时生效，切出 2 秒后恢复常规参数。";
 
                 using (Font ft = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.8F, FontStyle.Bold, dpiScale))
                 using (Font fd = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.2F, FontStyle.Regular, dpiScale))
@@ -372,7 +375,7 @@ namespace RazerBatteryTray
 
             // Fallback Checkbox (aligned right under mode micro-card)
             chkFallback = new ModernCheckBox();
-            chkFallback.Text = "开启未在列表中的全屏游戏通用自动探测 (兜底模式)";
+            chkFallback.Text = "自动探测列表外的全屏游戏";
             chkFallback.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
             chkFallback.ForeColor = Color.FromArgb(160, 175, 195);
             chkFallback.Location = new Point(rightColX, S(460));
@@ -386,7 +389,7 @@ namespace RazerBatteryTray
             int botY = S(524);
 
             Label lblHintBottom = new Label();
-            lblHintBottom.Text = "💡 提示：双击左侧应用或点击 ➕ 可快速加入守护；配置修改后点击保存立即写入生效。";
+            lblHintBottom.Text = "双击左侧应用即可加入守护列表";
             lblHintBottom.Font = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular);
             lblHintBottom.ForeColor = Color.FromArgb(95, 110, 130);
             lblHintBottom.Location = new Point(pad, botY + S(6));
@@ -413,6 +416,10 @@ namespace RazerBatteryTray
             {
                 if (e.KeyCode == Keys.Escape) { SaveAndClose(); }
             };
+
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            AttachModernChrome("电竞游戏进程管理与自动捕获", redundantTitle, 20, true, true);
 
             // Apply DPI scaled fonts across all controls
             DpiScaleHelper.ApplyScaledFontsToControlTree(this, this.dpiScale);

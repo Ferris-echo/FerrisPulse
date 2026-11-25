@@ -56,10 +56,10 @@ namespace RazerBatteryTray
             int pad = Scale(16);
 
             Label lblTitle = new Label();
-            lblTitle.Text = "⚡ 鼠标硬件物理回报率实测 (在方框内划动鼠标即可测量)";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(0, 230, 118);
-            lblTitle.SetBounds(pad, Scale(12), ClientSize.Width - (pad * 2), Scale(24));
+            lblTitle.Text = "在下方方框内划动鼠标即可实时测量物理回报率与移动轨迹：";
+            lblTitle.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular);
+            lblTitle.ForeColor = Color.FromArgb(145, 155, 175);
+            lblTitle.SetBounds(pad, Scale(12), ClientSize.Width - (pad * 2), Scale(22));
             this.Controls.Add(lblTitle);
 
             int cardW = (ClientSize.Width - (pad * 2) - Scale(16)) / 3;
@@ -115,6 +115,8 @@ namespace RazerBatteryTray
             btnClose.SetBounds(ClientSize.Width - btnW - pad, btnY, btnW, btnH);
             btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(btnClose);
+
+            AttachModernChrome("鼠标微秒级实时回报率测速台", null, 42, true, false);
         }
 
         private Panel CreateMetricPanel(string title, string defVal, out Label valLabel, int x, int y, int w, int h, Color accent)

@@ -2339,6 +2339,15 @@ namespace RazerBatteryTray
 
             bool ganssWired = lastInfo.Brand == "GANSS" && lastInfo.Category == DeviceCategory.Keyboard &&
                               lastInfo.Transport != null && lastInfo.Transport.IndexOf("USB 有线", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isWiredNoBattDevice = lastInfo.BatteryPercent < 0 &&
+                                       !lastInfo.IsCharging &&
+                                       !lastInfo.IsSleeping &&
+                                       !lastInfo.IsDonglePresent &&
+                                       lastInfo.Transport != null &&
+                                       (lastInfo.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        lastInfo.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                       lastInfo.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                       lastInfo.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0;
             if (ganssWired)
             {
                 menuStatus = string.Format("[{0}] {1} (USB 有线 · 供电中)", brandTag, devDisplayName);
@@ -2348,6 +2357,12 @@ namespace RazerBatteryTray
             {
                 menuStatus = string.Format("[{0}] {1} (免驱在线)", brandTag, devDisplayName);
                 tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: 免驱在线\n最后同步: {2}", brandTag, devDisplayName, timeStr);
+            }
+            else if (isWiredNoBattDevice)
+            {
+                menuStatus = string.Format("[{0}] {1} (USB 供电中)", brandTag, devDisplayName);
+                tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1}\n状态: USB 有线 · 供电中{2}{3}\n最后同步: {4}",
+                    brandTag, devDisplayName, dpiPart, ratePart, timeStr);
             }
             else if (lastInfo.Brand == "NuPhy" && lastInfo.Category == DeviceCategory.Keyboard && lastInfo.BatteryPercent >= 100 && !lastInfo.IsSleeping)
             {
@@ -2365,18 +2380,31 @@ namespace RazerBatteryTray
                 else
                 {
                     menuStatus = string.Format("[{0}] {1} ({2}% · {3})", brandTag, devDisplayName, lastInfo.BatteryPercent, chgPart);
+                    tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1} · {2}%\n状态: {3}{4}{5}\n最后同步: {6}",
+                        brandTag, devDisplayName, lastInfo.BatteryPercent, chgStr, dpiPart, ratePart, timeStr);
                 }
-                tipText = string.Format("FerrisPulse · 灵脉\n[{0}] {1} · {2}%\n状态: {3}{4}{5}\n最后同步: {6}",
-                    brandTag, devDisplayName, lastInfo.BatteryPercent, chgStr, dpiPart, ratePart, timeStr);
             }
             statusMenuItem.Text = menuStatus;
 
             if (tipText.Length > 63)
             {
-                tipText = string.Format("[{0}] {1}: {2}%\n{3}{4}", brandTag, devDisplayName, lastInfo.BatteryPercent, chgPart, dpiPart);
-                if (tipText.Length > 63)
+                if (lastInfo.BatteryPercent < 0)
                 {
-                    tipText = string.Format("电量: {0}% ({1})", lastInfo.BatteryPercent, chgPart);
+                    string wiredShort = isWiredNoBattDevice ? "USB 供电中" : chgPart;
+                    tipText = string.Format("[{0}] {1}\n{2}{3}", brandTag, devDisplayName, wiredShort, dpiPart);
+                    if (tipText.Length > 63)
+                    {
+                        tipText = string.Format("{0}: {1}", devDisplayName, wiredShort);
+                        if (tipText.Length > 63) tipText = wiredShort;
+                    }
+                }
+                else
+                {
+                    tipText = string.Format("[{0}] {1}: {2}%\n{3}{4}", brandTag, devDisplayName, lastInfo.BatteryPercent, chgPart, dpiPart);
+                    if (tipText.Length > 63)
+                    {
+                        tipText = string.Format("电量: {0}% ({1})", lastInfo.BatteryPercent, chgPart);
+                    }
                 }
             }
             UpdateTrayCombinedSummary(tipText);
@@ -2783,7 +2811,7 @@ namespace RazerBatteryTray
                     tileHeadsetAudio.AccentColor = brandAccent;
                     tileHeadsetAudio.Title = (info.Category == DeviceCategory.Earbuds) ? "TWS 入耳式无线耳机" : "无线音频设备";
                     tileHeadsetAudio.StatusText = info.IsConnected ? (info.BatteryPercent >= 0 ? string.Format("已连接 · 剩余电量 {0}%", info.BatteryPercent) : "已连接就绪") : "已离线 / 未连接";
-                    tileHeadsetAudio.Footnote = string.Format("通道: {0} · Windows 原生音频端点", info.Transport ?? "蓝牙");
+                    tileHeadsetAudio.Footnote = string.Format("连接方式: {0}", info.Transport ?? "蓝牙");
                     UpdatePulseExploreTile(info);
                     tileHeadsetAudio.Invalidate();
                 }
@@ -3035,7 +3063,7 @@ namespace RazerBatteryTray
                     tileRapooDpi.ValueText = (info.Dpi > 0 ? info.Dpi.ToString() : "--");
                     tileRapooDpi.UnitText = info.Dpi > 0 ? "DPI" : "";
                     tileRapooDpi.Badge = (info.Transport != null && info.Transport.Contains("2.4G")) ? "2.4G" : "无线";
-                    tileRapooDpi.Footnote = "机身物理 DPI 键循环切档 · 屏幕 OSD 联动感知";
+                    tileRapooDpi.Footnote = "按机身 DPI 键切档同步";
                     tileRapooDpi.Invalidate();
                 }
 
@@ -3426,7 +3454,7 @@ namespace RazerBatteryTray
                             tileRapooDpi.Badge = "OFFLINE";
                             tileRapooDpi.ValueText = "离线";
                             tileRapooDpi.UnitText = "";
-                            tileRapooDpi.Footnote = "接入鼠标或接收器后将自动读取板载 DPI 与回报率档位";
+                            tileRapooDpi.Footnote = "接入后自动读取板载档位";
                             tileRapooDpi.Invalidate();
                         }
                         if (dpiMenu != null) dpiMenu.Visible = false;
@@ -3901,7 +3929,7 @@ namespace RazerBatteryTray
             if (updateTimer != null) updateTimer.Interval = userSelectedInterval;
 
             Color accentColor;
-            if (!IsEffectiveLowBatteryUiColorEnabled() || info.BatteryPercent > 20 || info.IsCharging)
+            if (!IsEffectiveLowBatteryUiColorEnabled() || info.BatteryPercent < 0 || info.BatteryPercent > 20 || info.IsCharging)
                 accentColor = brandAccent;
             else if (info.BatteryPercent > 10)
                 accentColor = Color.FromArgb(255, 214, 0);
@@ -3914,6 +3942,7 @@ namespace RazerBatteryTray
                                 !info.Transport.Contains("2.4G") && 
                                 !info.IsDonglePresent;
             bool mouseIsBle = info.Transport != null && info.Transport.Contains("蓝牙");
+            bool isWiredNoBattMouse = (mouseIsWired && info.BatteryPercent < 0 && !info.IsCharging);
 
             string mouseConnPill;
             if (info.IsCharging)
@@ -3935,36 +3964,52 @@ namespace RazerBatteryTray
 
             lblDeviceName.Text = info.DisplayName;
 
-            DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
-            string awakeBattDisplay;
-            if (info.IsCharging && info.BatteryPercent < 0)
-            {
-                awakeBattDisplay = "充电中";
-            }
-            else
-            {
-                awakeBattDisplay = (info.BatteryPercent >= 0 ? info.BatteryPercent.ToString() : "--") + "%";
-            }
-
-            lblBatteryBig.Text = awakeBattDisplay;
-            lblBatteryBig.ForeColor = accentColor;
-
-            if (info.IsChargingUnknown) mouseConnPill += " · 充电状态未知";
-            pillStatus.SetStatus(mouseConnPill, accentColor);
-            pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
-
-            if (info.IsCharging)
-            {
-                barBattery.StartChargingFill(info.BatteryPercent, accentColor, Color.FromArgb(180, 255, 200));
-            }
-            else
-            {
-                barBattery.StopFlow(info.BatteryPercent, accentColor);
-            }
-
             string normalTimeStr = info.LastUpdated.ToString("HH:mm:ss");
-            string chgDetail = info.IsCharging ? " · 正在充电" : " · 自动侦测硬件插拔";
-            lblUpdateTime.Text = "最后同步: " + normalTimeStr + chgDetail;
+            if (isWiredNoBattMouse)
+            {
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 24F, FontStyle.Bold, dpiScale, systemDpiScale);
+                lblBatteryBig.Text = "已连接 · 供电中";
+                lblBatteryBig.ForeColor = brandAccent;
+
+                if (info.IsChargingUnknown) mouseConnPill += " · 充电状态未知";
+                pillStatus.SetStatus(mouseConnPill, brandAccent);
+                pillStatus.Location = new Point(lblBatteryBig.Right + (int)(14 * dpiScale), (int)(54 * dpiScale));
+
+                barBattery.StopFlow(100, brandAccent);
+                lblUpdateTime.Text = "最后同步: " + normalTimeStr + " · USB 有线供电";
+            }
+            else
+            {
+                DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
+                string awakeBattDisplay;
+                if (info.IsCharging && info.BatteryPercent < 0)
+                {
+                    awakeBattDisplay = "充电中";
+                }
+                else
+                {
+                    awakeBattDisplay = (info.BatteryPercent >= 0 ? info.BatteryPercent.ToString() : "--") + "%";
+                }
+
+                lblBatteryBig.Text = awakeBattDisplay;
+                lblBatteryBig.ForeColor = accentColor;
+
+                if (info.IsChargingUnknown) mouseConnPill += " · 充电状态未知";
+                pillStatus.SetStatus(mouseConnPill, accentColor);
+                pillStatus.Location = new Point(lblBatteryBig.Right + (int)(16 * dpiScale), (int)(56 * dpiScale));
+
+                if (info.IsCharging)
+                {
+                    barBattery.StartChargingFill(info.BatteryPercent, accentColor, Color.FromArgb(180, 255, 200));
+                }
+                else
+                {
+                    barBattery.StopFlow(info.BatteryPercent, accentColor);
+                }
+
+                string chgDetail = info.IsCharging ? " · 正在充电" : "";
+                lblUpdateTime.Text = "最后同步: " + normalTimeStr + chgDetail;
+            }
 
             // Update Performance Card
             UpdatePerformanceSection(info, brandAccent);
@@ -3978,7 +4023,7 @@ namespace RazerBatteryTray
                 UpdateStatusDisplay();
                 UpdateTrayIcon(info.BatteryPercent, info.IsCharging, true, false, info.TrayAccentColor);
 
-                if (IsEffectiveLowBatteryNotifyEnabled() && !info.IsCharging)
+                if (IsEffectiveLowBatteryNotifyEnabled() && !info.IsCharging && info.BatteryPercent >= 0)
                 {
                     if (info.BatteryPercent <= 20)
                     {
@@ -4002,7 +4047,10 @@ namespace RazerBatteryTray
             if (showTipIfManual)
             {
                 string perfTip = (info.Dpi > 0 && info.PollingRate > 0) ? string.Format("\n性能: {0} DPI · {1} Hz", info.Dpi, info.PollingRate) : "";
-                SafeShowBalloonTip(1500, info.DisplayName, string.Format("电量: {0}% ({1}){2}\n更新时间: {3}", info.BatteryPercent, mouseConnPill, perfTip, normalTimeStr), ToolTipIcon.Info);
+                string battTip = (info.BatteryPercent >= 0)
+                    ? string.Format("电量: {0}% ({1})", info.BatteryPercent, mouseConnPill)
+                    : string.Format("状态: 供电中 ({0})", mouseConnPill);
+                SafeShowBalloonTip(1500, info.DisplayName, string.Format("{0}{1}\n更新时间: {2}", battTip, perfTip, normalTimeStr), ToolTipIcon.Info);
             }
         }
 

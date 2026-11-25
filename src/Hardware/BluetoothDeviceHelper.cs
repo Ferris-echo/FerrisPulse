@@ -36,6 +36,8 @@ using System.Runtime.InteropServices;
 
 using System.Text;
 
+using System.Text.RegularExpressions;
+
 using System.Threading;
 
 using Microsoft.Win32;
@@ -502,6 +504,8 @@ namespace RazerBatteryTray
 
 
 
+        private static readonly Regex SerialComPortRegex = new Regex(@"(^|[\s\(\[\-_])com\d+($|[\s\)\]\-_])", RegexOptions.IgnoreCase);
+
         public static bool IsValidDeviceFriendlyName(string name)
 
         {
@@ -534,9 +538,25 @@ namespace RazerBatteryTray
 
                 lower.Contains("串行") || 
 
-                lower.Contains("com") || 
+                SerialComPortRegex.IsMatch(s) ||
 
-                lower.StartsWith("bluetooth") ||
+                lower == "bluetooth" ||
+
+                lower == "bluetooth device" ||
+
+                lower.Contains("bluetooth adapter") ||
+
+                lower.Contains("bluetooth protocol") ||
+
+                lower.Contains("bluetooth radio") ||
+
+                lower.Contains("bluetooth enumerator") ||
+
+                lower.Contains("bluetooth le generic") ||
+
+                lower.Contains("bluetooth transport") ||
+
+                lower.Contains("bluetooth peripheral") ||
 
                 lower.Contains("audio/video remote") ||
 
@@ -1237,7 +1257,7 @@ namespace RazerBatteryTray
 
                     Transport = "蓝牙 (BLE)",
 
-                    CachedBattery = batt >= 0 ? batt : 0,
+                    CachedBattery = batt >= 0 ? batt : -1,
 
                     LastSeen = DateTime.Now
 

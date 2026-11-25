@@ -80,5 +80,31 @@ Invoke-TestCase "4. MainForm 在沙盒模式下不触发后台轮询与监听线
     }
 }
 
+Invoke-TestCase "5. MainForm.SaveConfig 在测试沙盒模式下严格禁止写入生产注册表" {
+    $regPath = "HKCU:\Software\FerrisPulse"
+    $before = $null
+    if (Test-Path $regPath) {
+        $pObj = Get-ItemProperty -Path $regPath -Name "MonitoredGameProcesses" -ErrorAction SilentlyContinue
+        if ($null -ne $pObj) { $before = $pObj.MonitoredGameProcesses }
+    }
+    $form = New-SandboxMainForm $false
+    try {
+        $bf = [System.Reflection.BindingFlags]"Instance,NonPublic"
+        $mon = $tMain.GetField("monitoredGameProcesses", $bf).GetValue($form)
+        $mon.Clear()
+        $mon.Add("sandbox_leak_probe.exe")
+        $tMain.GetMethod("SaveConfig", $bf).Invoke($form, $null) | Out-Null
+    }
+    finally {
+        $form.Dispose()
+    }
+    $after = $null
+    if (Test-Path $regPath) {
+        $pObj2 = Get-ItemProperty -Path $regPath -Name "MonitoredGameProcesses" -ErrorAction SilentlyContinue
+        if ($null -ne $pObj2) { $after = $pObj2.MonitoredGameProcesses }
+    }
+    Assert-Equal $before $after "MonitoredGameProcesses must remain untouched during sandbox SaveConfig"
+}
+
 Write-Host "`nALL SANDBOX GUARD CHECKS PASSED." -ForegroundColor Green
 exit 0

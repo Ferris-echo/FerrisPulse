@@ -236,27 +236,46 @@ Invoke-TestCase "Task4.PersonalizeDialogAndPriorityFormAdaptiveUI" {
     }
 
     $ctor5 = $tPrioForm.GetConstructors() | Where-Object { $_.GetParameters().Count -eq 5 } | Select-Object -First 1
-    $getStateMethod = [System.Windows.Forms.Control].GetMethod("GetState", [System.Reflection.BindingFlags]"Instance,NonPublic")
     $list4 = New-PrioItems 4
     $pfSmall = $ctor5.Invoke(@($list4.PSObject.BaseObject, $false, $true, 3, [single]1.0))
     try {
-        $customNumSmall = $tPrioForm.GetField("numCustomCount", $BF).GetValue($pfSmall)
+        $segSmall = $tPrioForm.GetField("pnlSegmentTrack", $BF).GetValue($pfSmall)
+        $barSmall = $tPrioForm.GetField("pnlTrayCountBar", $BF).GetValue($pfSmall)
         $chkMultiSmall = $tPrioForm.GetField("chkMultiTray", $BF).GetValue($pfSmall)
-        $presetBtnsSmall = $tPrioForm.GetField("presetCountButtons", $BF).GetValue($pfSmall)
-        $visSmall = $getStateMethod.Invoke($customNumSmall, @(2))
         Assert-True ($chkMultiSmall.Checked) "Multi-tray checkbox initialized true"
-        Assert-True ($presetBtnsSmall.Count -eq 3) "Presets for 4 devices should be 2,3,4 (count=3)"
-        Assert-True (-not $visSmall) "Manual count input stays hidden when devices <= 5"
+        Assert-Equal 3 $segSmall.OptionCount "Presets for 4 devices should be 2,3,4 (count=3)"
+        Assert-True (-not $segSmall.HasCustomSlot) "Custom inline slot stays hidden when devices <= 5"
+        Assert-Equal 3 $segSmall.SelectedValue "Preset initial value matches 3"
+        Assert-Equal 1 $barSmall.Controls.Count "Unified segmented bar contains only SlidingSegmentTrack"
     } finally { $pfSmall.Dispose() }
 
     $list7 = New-PrioItems 7
     $pfLarge = $ctor5.Invoke(@($list7.PSObject.BaseObject, $false, $true, 6, [single]1.0))
     try {
-        $customNumLarge = $tPrioForm.GetField("numCustomCount", $BF).GetValue($pfLarge)
-        $presetBtnsLarge = $tPrioForm.GetField("presetCountButtons", $BF).GetValue($pfLarge)
-        $visLarge = $getStateMethod.Invoke($customNumLarge, @(2))
-        Assert-True ($presetBtnsLarge.Count -eq 4) "Presets for 7 devices capped at 2..5 (count=4)"
-        Assert-True ($visLarge -and $customNumLarge.Value -eq 6) "Manual count input shown when devices > 5"
+        $segLarge = $tPrioForm.GetField("pnlSegmentTrack", $BF).GetValue($pfLarge)
+        $barLarge = $tPrioForm.GetField("pnlTrayCountBar", $BF).GetValue($pfLarge)
+        Assert-Equal 4 $segLarge.OptionCount "Presets for 7 devices capped at 2..5 (count=4)"
+        Assert-True ($segLarge.HasCustomSlot) "Custom inline slot embedded inside SlidingSegmentTrack when devices > 5"
+        Assert-Equal 6 $segLarge.SelectedValue "Custom initial value 6 preserved in unified track"
+        Assert-Equal 1 $barLarge.Controls.Count "Unified segmented bar embeds custom count without extra NumericUpDown"
+        $segLarge.SelectValue(8, $false)
+        Assert-Equal 8 $segLarge.SelectedValue "Custom inline slot accepts arbitrary clamped value"
+
+        # Owner-drawn inline editing must never dispose Control.DefaultFont or break AddDeviceWizardForm TextBoxes
+        $tSeg = $segLarge.GetType()
+        $tSeg.GetMethod("BeginInlineEdit", $BF).Invoke($segLarge, $null) | Out-Null
+        Assert-True ($segLarge.IsCustomEditing) "Owner-drawn inline edit activates cleanly"
+        $tSeg.GetField("editBuffer", $BF).SetValue($segLarge, "9")
+        $segLarge.CommitPendingCustomInput()
+        Assert-True (-not $segLarge.IsCustomEditing) "CommitPendingCustomInput closes owner-drawn edit"
+        Assert-Equal 9 $segLarge.SelectedValue "Owner-drawn edit commits numeric value 9"
+        Assert-True ([System.Windows.Forms.Control]::DefaultFont.Height -gt 0) "Control.DefaultFont remains intact after inline edit"
+
+        $tAddWiz = $asm.GetType("RazerBatteryTray.AddDeviceWizardForm", $true)
+        $wiz = [Activator]::CreateInstance($tAddWiz)
+        try {
+            Assert-True ($null -ne $wiz) "AddDeviceWizardForm opens cleanly after inline custom edit"
+        } finally { $wiz.Dispose() }
     } finally { $pfLarge.Dispose() }
 }
 
@@ -443,4 +462,71 @@ Invoke-TestCase "Task6.LowBatteryGranularAlertControlsAndSleepAmberTray" {
         $tMain.GetMethod("UpdateUI", $BF).Invoke($mf, @($mouse, $false)) | Out-Null
         Assert-Equal ([System.Drawing.Color]::FromArgb(255, 214, 0).ToArgb()) $lblBig.ForeColor.ToArgb() "UI color ON turns yellow at 15%"
     } finally { $mf.Dispose() }
+}
+
+Invoke-TestCase "Task7.MultiTrayStyleSyncAndPriorityBarAnimation" {
+    # 1. BuildVisualSignature detects TrayStyle, AllowLowBatteryTrayColor, and IsSleeping changes
+    $tHost = $asm.GetType("RazerBatteryTray.MultiTrayIconHost", $true)
+    $tPlanItem = $asm.GetType("RazerBatteryTray.TraySlotPlanItem", $true)
+    $mSig = $tHost.GetMethod("BuildVisualSignature", $BF)
+    $p = [Activator]::CreateInstance($tPlanItem)
+    $p.SlotIndex = 0; $p.DeviceId = "Dev1"; $p.Percent = 85; $p.VisualConnected = $true
+    $p.AccentColor = [System.Drawing.Color]::LimeGreen; $p.TrayStyle = 0; $p.AllowLowBatteryTrayColor = $false
+    $sig0 = [string]$mSig.Invoke($null, @($p))
+    $p.TrayStyle = 2
+    $sigStyle2 = [string]$mSig.Invoke($null, @($p))
+    Assert-True ($sig0 -ne $sigStyle2) "TrayStyle change invalidates MultiTray visual signature"
+    $p.AllowLowBatteryTrayColor = $true
+    $sigLow = [string]$mSig.Invoke($null, @($p))
+    Assert-True ($sigStyle2 -ne $sigLow) "AllowLowBatteryTrayColor change invalidates MultiTray visual signature"
+    $p.IsSleeping = $true
+    $sigSleep = [string]$mSig.Invoke($null, @($p))
+    Assert-True ($sigLow -ne $sigSleep) "IsSleeping change invalidates MultiTray visual signature"
+
+    # 2. MainForm.SetTrayStyle refreshes active MultiTray slots immediately
+    $tMain = $asm.GetType("RazerBatteryTray.MainForm", $true)
+    $tInfo = $asm.GetType("RazerBatteryTray.MouseBatteryInfo", $true)
+    $tCat = $asm.GetType("RazerBatteryTray.DeviceCategory", $true)
+    $tListInfo = [System.Type]::GetType("System.Collections.Generic.List``1").MakeGenericType(@($tInfo))
+    $mf = New-SandboxMainForm $false
+    try {
+        $d1 = [Activator]::CreateInstance($tInfo)
+        $d1.DeviceId = "Test:MultiStyle"; $d1.DeviceName = "Mouse"; $d1.Brand = "Razer"
+        $d1.Category = [Enum]::Parse($tCat, "Mouse"); $d1.BatteryPercent = 72; $d1.IsConnected = $true
+        $devs = [Activator]::CreateInstance($tListInfo); $devs.Add($d1)
+        $tMain.GetField("activeDevices", $BF).SetValue($mf, $devs)
+        $tMain.GetField("lastInfo", $BF).SetValue($mf, $d1)
+        $tMain.GetField("selectedDevice", $BF).SetValue($mf, $d1)
+
+        $tMain.GetMethod("SetMultiTrayEnabled", $BF).Invoke($mf, @($true, $false)) | Out-Null
+        $tMain.GetMethod("SetTrayStyle", $BF).Invoke($mf, @([int]2, $false)) | Out-Null
+        $hostObj = $tMain.GetField("multiTrayHost", $BF).GetValue($mf)
+        $slotsDict = $tHost.GetField("slots", $BF).GetValue($hostObj)
+        $slot0 = $slotsDict[0]
+        Assert-Equal 2 $slot0.LastPlan.TrayStyle "SetTrayStyle propagates style=2 to MultiTray slot"
+    } finally { try { $mf.Dispose() } catch {} }
+
+    # 3. DevicePriorityForm hides pnlTrayCountBar cleanly when multiTray=false without disabling (no black text)
+    $tPrioForm = $asm.GetType("RazerBatteryTray.DevicePriorityForm", $true)
+    $tItem = $asm.GetType("RazerBatteryTray.PriorityItem", $true)
+    $tListGeneric = [System.Type]::GetType("System.Collections.Generic.List``1").MakeGenericType(@($tItem))
+    $lst = [Activator]::CreateInstance($tListGeneric)
+    $it = [Activator]::CreateInstance($tItem); $it.DeviceId = "Dev:1"; $it.Name = "Dev1"; $lst.Add($it)
+    $ctor5 = $tPrioForm.GetConstructors() | Where-Object { $_.GetParameters().Count -eq 5 } | Select-Object -First 1
+    $getStateMethod = [System.Windows.Forms.Control].GetMethod("GetState", [System.Reflection.BindingFlags]"Instance,NonPublic")
+
+    $pfOff = $ctor5.Invoke(@($lst.PSObject.BaseObject, $false, $false, 3, [single]1.0))
+    try {
+        $bar = $tPrioForm.GetField("pnlTrayCountBar", $BF).GetValue($pfOff)
+        $reord = $tPrioForm.GetField("reorderControl", $BF).GetValue($pfOff)
+        $cardSet = $tPrioForm.GetField("cardSettings", $BF).GetValue($pfOff)
+        $chkM = $tPrioForm.GetField("chkMultiTray", $BF).GetValue($pfOff)
+        Assert-True ($bar.Enabled) "pnlTrayCountBar stays Enabled=true so label text never turns black"
+        Assert-Equal 0 $bar.Width "pnlTrayCountBar collapsed horizontally to Width=0 when disabled"
+        Assert-True (-not [bool]$getStateMethod.Invoke($bar, @(2))) "pnlTrayCountBar hidden when disabled"
+        $stableReordH = $reord.Height
+        $stableCardH = $cardSet.Height
+        $chkM.Checked = $true
+        Assert-True ($bar.Width -gt 0 -and $bar.Left -gt $chkM.Left -and $cardSet.Height -eq $stableCardH -and $reord.Height -eq $stableReordH -and $reord.Bottom -le $cardSet.Top) "Toggling multi-tray unfolds inline selector on Row 2 without vertical layout shift"
+    } finally { $pfOff.Dispose() }
 }

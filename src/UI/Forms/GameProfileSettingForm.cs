@@ -294,6 +294,8 @@ namespace RazerBatteryTray
             int clientH = bottomY + actionBtnH + pad;
             this.ClientSize = new Size(clientW, clientH);
 
+            this.modernChromeTitlePadLeftBase = 18;
+            AttachModernChrome("专属游戏性能策略设置", null, 40, true, true);
             UpdateModeDisplay();
         }
 

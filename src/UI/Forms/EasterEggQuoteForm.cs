@@ -64,42 +64,50 @@ namespace RazerBatteryTray
                 }
             };
 
-            // 1. 顶部标题栏
+            // 1. 顶部一体化大标题栏
+            int padX = Scale(24);
+            int heroBarH = Scale(52);
+            int topInset = Scale(12);
+            int rowH = Math.Max(Scale(24), heroBarH - topInset - Scale(2));
             Panel titleBar = new Panel();
             titleBar.Dock = DockStyle.Top;
-            titleBar.Height = Scale(36);
-            titleBar.BackColor = Color.FromArgb(22, 25, 33);
+            titleBar.Height = heroBarH;
+            titleBar.BackColor = this.BackColor;
             titleBar.MouseDown += OnDragMouseDown;
 
             Label lblTitle = new Label();
             lblTitle.Text = "灵脉心语 · Ferris-echo";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            lblTitle.ForeColor = Color.FromArgb(160, 172, 195);
-            lblTitle.Location = new Point(Scale(20), Scale(9));
-            lblTitle.AutoSize = true;
+            lblTitle.Font = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 13.0F, FontStyle.Bold, DpiScale);
+            lblTitle.ForeColor = Color.FromArgb(242, 246, 255);
+            lblTitle.AutoSize = false;
+            lblTitle.TextAlign = ContentAlignment.MiddleLeft;
             lblTitle.MouseDown += OnDragMouseDown;
             titleBar.Controls.Add(lblTitle);
 
+            int closeSize = Math.Max(22, Scale(28));
             btnClose = new ModernButton();
-            btnClose.Text = "✕";
-            btnClose.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-            btnClose.Size = new Size(Scale(32), Scale(26));
-            btnClose.Location = new Point(formW - Scale(20) - Scale(24), Scale(5));
-            btnClose.NormalColor = Color.Transparent;
-            btnClose.HoverColor = Color.FromArgb(232, 17, 35);
-            btnClose.PressedColor = Color.FromArgb(180, 10, 25);
-            btnClose.ForeColor = Color.FromArgb(180, 180, 180);
-            btnClose.CornerRadius = Scale(4);
+            btnClose.IsCloseButton = true;
+            btnClose.Text = "";
+            btnClose.Size = new Size(closeSize, closeSize);
+            btnClose.Location = new Point(formW - padX - closeSize, topInset + Math.Max(0, (rowH - closeSize) / 2));
+            btnClose.NormalColor = Color.FromArgb(28, 32, 42);
+            btnClose.BorderColor = Color.FromArgb(44, 50, 64);
+            btnClose.HoverColor = Color.FromArgb(215, 45, 58);
+            btnClose.PressedColor = Color.FromArgb(175, 28, 42);
+            btnClose.ForeColor = Color.FromArgb(182, 192, 212);
+            btnClose.CornerRadius = Math.Max(5, Scale(7));
             btnClose.Click += delegate(object s, EventArgs e) { this.Close(); };
             titleBar.Controls.Add(btnClose);
+
+            lblTitle.Bounds = new Rectangle(padX, topInset, Math.Max(40, btnClose.Left - padX - Scale(10)), rowH);
 
             this.Controls.Add(titleBar);
 
             // 2. 寄语卡片内容容器 (RoundedCard)
             int cardPad = Scale(24);
-            int cardTop = Scale(50);
+            int cardTop = Scale(58);
             int cardW = formW - cardPad * 2;
-            int cardH = formH - cardTop - Scale(74);
+            int cardH = formH - cardTop - Scale(70);
             RoundedCard cardQuote = new RoundedCard();
             cardQuote.Location = new Point(cardPad, cardTop);
             cardQuote.Size = new Size(cardW, cardH);

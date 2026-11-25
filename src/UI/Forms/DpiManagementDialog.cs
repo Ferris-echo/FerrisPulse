@@ -41,6 +41,7 @@ namespace RazerBatteryTray
         private double currentRatio = 1.0;
         private int currentActiveStage = 1;
 
+        private Label lblTitle;
         private Panel pnlXyBar;
         private DpiActionButton btnToggleXy;
         private DpiActionButton btnRatio4_3;
@@ -149,7 +150,6 @@ namespace RazerBatteryTray
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(13, 16, 23);
             this.ForeColor = Color.White;
-            try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch { }
 
             int clientW = S(420);
             int clientH = S(496);
@@ -158,9 +158,9 @@ namespace RazerBatteryTray
             int pad = S(16);
             int contentW = clientW - pad * 2;
 
-            // 1. Title Header
-            Label lblTitle = new Label();
-            lblTitle.Text = deviceName + " · DPI 档位配置";
+            // 1. Title Header (由 AttachModernChrome 自动清理提升为自绘标题栏)
+            lblTitle = new Label();
+            lblTitle.Text = "DPI 档位配置";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(245, 248, 252);
             lblTitle.Location = new Point(pad, S(12));
@@ -168,11 +168,12 @@ namespace RazerBatteryTray
             lblTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblTitle);
 
-            // 2. Subtitle / Range Note
+            // 2. Subtitle / Range Note (设备名称置于副标题避免大标题截断)
             Label lblSub = new Label();
-            lblSub.Text = string.Format("支持 1~{0} 档 · 范围 {1} ~ {2} DPI · 支持 X/Y 轴独立调节", maxStageCount, minDpi, maxDpi.ToString("N0"));
+            lblSub.Text = string.Format("{0} · 1~{1} 档 ({2}~{3} DPI)", deviceName, maxStageCount, minDpi, maxDpi.ToString("N0"));
             lblSub.Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
             lblSub.ForeColor = Color.FromArgb(120, 135, 155);
+            lblSub.AutoEllipsis = true;
             lblSub.Location = new Point(pad, S(36));
             lblSub.Size = new Size(contentW, S(16));
             lblSub.BackColor = Color.Transparent;
@@ -373,6 +374,7 @@ namespace RazerBatteryTray
 
             UpdateXyUiState();
             RebuildStageRows();
+            AttachModernChrome("DPI 档位配置", lblTitle, 18, true, true);
         }
 
         private DpiActionButton CreateRatioButton(string text, int x, int width, double ratio)
@@ -410,6 +412,7 @@ namespace RazerBatteryTray
             }
             UpdateXyUiState();
             RebuildStageRows();
+            LayoutModernChrome();
         }
 
         private void ApplyRatio(double ratio)
@@ -430,6 +433,7 @@ namespace RazerBatteryTray
             }
             UpdateXyUiState();
             RebuildStageRows();
+            LayoutModernChrome();
         }
 
         private void UpdateXyUiState()

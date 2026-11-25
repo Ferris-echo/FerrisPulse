@@ -197,7 +197,7 @@ namespace RazerBatteryTray
             cardBattery.Controls.Add(barBattery);
 
             lblUpdateTime = new Label();
-            lblUpdateTime.Text = "最后同步: --:--:-- · 自动侦测硬件插拔";
+            lblUpdateTime.Text = "最后同步: --:--:--";
             lblUpdateTime.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
             lblUpdateTime.ForeColor = Color.FromArgb(135, 142, 156);
             lblUpdateTime.BackColor = Color.Transparent;
@@ -246,8 +246,8 @@ namespace RazerBatteryTray
             lblLiveRateBadge.ForeColor = Color.FromArgb(0, 230, 118);
             lblLiveRateBadge.BackColor = Color.Transparent;
             lblLiveRateBadge.TextAlign = ContentAlignment.MiddleRight;
-            lblLiveRateBadge.Location = new Point(cardW - cPad - (int)(270 * dpiScale), (int)(14 * dpiScale));
-            lblLiveRateBadge.Size = new Size((int)(270 * dpiScale), (int)(20 * dpiScale));
+            lblLiveRateBadge.Location = new Point(cardW - cPad - (int)(270 * dpiScale), (int)(12 * dpiScale));
+            lblLiveRateBadge.Size = new Size((int)(270 * dpiScale), (int)(22 * dpiScale));
             lblLiveRateBadge.Visible = false;
             cardPerformance.Controls.Add(lblLiveRateBadge);
 
@@ -261,8 +261,9 @@ namespace RazerBatteryTray
             lblDpiTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblDpiTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblDpiTitle.BackColor = Color.Transparent;
-            lblDpiTitle.Location = new Point(cPad, (int)(41 * dpiScale));
-            lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            lblDpiTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblDpiTitle.Location = new Point(cPad, r1Y);
+            lblDpiTitle.Size = new Size(lblW, segH);
             cardPerformance.Controls.Add(lblDpiTitle);
 
             btnDpiStages = new ModernSegmentButton[8];
@@ -302,8 +303,9 @@ namespace RazerBatteryTray
             lblRateTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblRateTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblRateTitle.BackColor = Color.Transparent;
-            lblRateTitle.Location = new Point(cPad, (int)(78 * dpiScale));
-            lblRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            lblRateTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblRateTitle.Location = new Point(cPad, r2Y);
+            lblRateTitle.Size = new Size(lblW, segH);
             cardPerformance.Controls.Add(lblRateTitle);
 
             btnRates = new ModernSegmentButton[8];
@@ -442,13 +444,14 @@ namespace RazerBatteryTray
             lblNotifyModeTitle.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
             lblNotifyModeTitle.ForeColor = Color.FromArgb(140, 150, 170);
             lblNotifyModeTitle.BackColor = Color.Transparent;
-            lblNotifyModeTitle.Location = new Point(cPad, (int)(222 * dpiScale));
-            lblNotifyModeTitle.Size = new Size((int)(62 * dpiScale), (int)(20 * dpiScale));
+            lblNotifyModeTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblNotifyModeTitle.Location = new Point(cPad, gameNotifY);
+            lblNotifyModeTitle.Size = new Size(lblW, (int)(22 * dpiScale));
             lblNotifyModeTitle.Visible = false;
             cardPerformance.Controls.Add(lblNotifyModeTitle);
 
-            int notifStartX = cPad + (int)(64 * dpiScale);
-            int notifW = (secW - (int)(64 * dpiScale)) / 3;
+            int notifStartX = cPad + lblW;
+            int notifW = (secW - lblW) / 3;
 
             chkNotifyOsd = new ModernCheckBox();
             chkNotifyOsd.Text = "OSD菜单";
@@ -498,7 +501,7 @@ namespace RazerBatteryTray
             tileRapooDpi.Badge = "";
             tileRapooDpi.ValueText = "1600";
             tileRapooDpi.UnitText = "DPI";
-            tileRapooDpi.Footnote = "按鼠标机身 DPI 键循环切档 · 硬件级实时监听";
+            tileRapooDpi.Footnote = "按机身 DPI 键切档同步";
             tileRapooDpi.Visible = false;
             cardPerformance.Controls.Add(tileRapooDpi);
 
@@ -507,7 +510,7 @@ namespace RazerBatteryTray
             tileHeadsetAudio.Location = new Point(cPad, (int)(38 * dpiScale));
             tileHeadsetAudio.Size = new Size(secW, tileH);
             tileHeadsetAudio.Title = "蓝牙音频连接";
-            tileHeadsetAudio.Footnote = "Windows 原生蓝牙音频协议 · 自动双模监听";
+            tileHeadsetAudio.Footnote = "蓝牙音频已连接";
             tileHeadsetAudio.Visible = false;
             cardPerformance.Controls.Add(tileHeadsetAudio);
 
@@ -843,8 +846,9 @@ namespace RazerBatteryTray
             lblNuphyBrightTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblNuphyBrightTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblNuphyBrightTitle.BackColor = Color.Transparent;
-            lblNuphyBrightTitle.Location = new Point(cPad, r3Y + (int)(4 * dpiScale));
-            lblNuphyBrightTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+            lblNuphyBrightTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblNuphyBrightTitle.Location = new Point(cPad, r3Y);
+            lblNuphyBrightTitle.Size = new Size(lblW, segH);
             lblNuphyBrightTitle.Visible = false;
             cardPerformance.Controls.Add(lblNuphyBrightTitle);
 
@@ -877,14 +881,14 @@ namespace RazerBatteryTray
             lblNuphyBrightVal.ForeColor = Color.FromArgb(0, 229, 255);
             lblNuphyBrightVal.BackColor = Color.Transparent;
             lblNuphyBrightVal.TextAlign = ContentAlignment.MiddleRight;
-            lblNuphyBrightVal.Location = new Point(sliderX + sliderW + (int)(6 * dpiScale), r3Y + (int)(3 * dpiScale));
-            lblNuphyBrightVal.Size = new Size(valBadgeW, (int)(22 * dpiScale));
+            lblNuphyBrightVal.Location = new Point(sliderX + sliderW + (int)(6 * dpiScale), r3Y);
+            lblNuphyBrightVal.Size = new Size(valBadgeW, segH);
             lblNuphyBrightVal.Visible = false;
             cardPerformance.Controls.Add(lblNuphyBrightVal);
 
             // ================= CARD 3: CONFIGURATION & PREFERENCES =================
             int card3Y = card2Y + card2H + (int)(12 * dpiScale);
-            int card3H = (int)(244 * dpiScale);
+            int card3H = (int)(230 * dpiScale);
 
             cardSettings = new RoundedCard();
             cardSettings.Location = new Point(padX, card3Y);
@@ -913,8 +917,9 @@ namespace RazerBatteryTray
             lblStyleTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblStyleTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblStyleTitle.BackColor = Color.Transparent;
-            lblStyleTitle.Location = new Point(cPad, row1Y + (int)(2 * dpiScale));
-            lblStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+            lblStyleTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblStyleTitle.Location = new Point(cPad, row1Y);
+            lblStyleTitle.Size = new Size(lblTitleW, card3SegH);
             cardSettings.Controls.Add(lblStyleTitle);
 
             int seg1Gap = (int)(6 * dpiScale);
@@ -938,7 +943,7 @@ namespace RazerBatteryTray
             cardSettings.Controls.Add(btnStyleNum);
 
             btnStylePureNum = new ModernSegmentButton();
-            btnStylePureNum.Text = "极简纯数字";
+            btnStylePureNum.Text = "纯数字";
             btnStylePureNum.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             btnStylePureNum.Location = new Point(seg1X + (seg1W + seg1Gap) * 2, row1Y);
             btnStylePureNum.Size = new Size(seg1W, card3SegH);
@@ -953,8 +958,9 @@ namespace RazerBatteryTray
             lblIntervalTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblIntervalTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblIntervalTitle.BackColor = Color.Transparent;
-            lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(2 * dpiScale));
-            lblIntervalTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+            lblIntervalTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblIntervalTitle.Location = new Point(cPad, row2Y);
+            lblIntervalTitle.Size = new Size(lblTitleW, card3SegH);
             cardSettings.Controls.Add(lblIntervalTitle);
 
             int seg2Gap = (int)(6 * dpiScale);
@@ -992,8 +998,9 @@ namespace RazerBatteryTray
             lblOsdStyleTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblOsdStyleTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblOsdStyleTitle.BackColor = Color.Transparent;
-            lblOsdStyleTitle.Location = new Point(cPad, row3Y + (int)(2 * dpiScale));
-            lblOsdStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+            lblOsdStyleTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblOsdStyleTitle.Location = new Point(cPad, row3Y);
+            lblOsdStyleTitle.Size = new Size(lblTitleW, card3SegH);
             cardSettings.Controls.Add(lblOsdStyleTitle);
 
             btnOsdStyleCapsule = new ModernSegmentButton();
@@ -1027,8 +1034,9 @@ namespace RazerBatteryTray
             lblZoomTitle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
             lblZoomTitle.ForeColor = Color.FromArgb(160, 168, 185);
             lblZoomTitle.BackColor = Color.Transparent;
-            lblZoomTitle.Location = new Point(cPad, row4Y + (int)(2 * dpiScale));
-            lblZoomTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+            lblZoomTitle.TextAlign = ContentAlignment.MiddleLeft;
+            lblZoomTitle.Location = new Point(cPad, row4Y);
+            lblZoomTitle.Size = new Size(lblTitleW, card3SegH);
             cardSettings.Controls.Add(lblZoomTitle);
 
             int seg4Gap = (int)(6 * dpiScale);
@@ -1128,14 +1136,15 @@ namespace RazerBatteryTray
             };
             cardSettings.Controls.Add(chkDpiOsd);
 
-            // Note inside Card 3
+            // Note inside Card 3 (hidden to keep surface clean without AI footnote clutter)
             lblSettingsTip = new Label();
-            lblSettingsTip.Text = "注：切换线缆/接收器或按键调 DPI 时将自动即时同步，无需等待计时周期";
+            lblSettingsTip.Text = "";
             lblSettingsTip.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point);
             lblSettingsTip.ForeColor = Color.FromArgb(120, 128, 142);
             lblSettingsTip.BackColor = cardSettings.CardColor;
             lblSettingsTip.Location = new Point(cPad, (int)(222 * dpiScale));
             lblSettingsTip.AutoSize = true;
+            lblSettingsTip.Visible = false;
             cardSettings.Controls.Add(lblSettingsTip);
 
             // ================= BOTTOM ROW: ACTIONS =================
@@ -1395,22 +1404,24 @@ namespace RazerBatteryTray
 
             if (lblLiveRateBadge != null)
             {
-                lblLiveRateBadge.Location = new Point(cardPerformance.ClientSize.Width - cPad - (int)(270 * dpiScale), (int)(14 * dpiScale));
-                lblLiveRateBadge.Size = new Size((int)(270 * dpiScale), (int)(20 * dpiScale));
+                lblLiveRateBadge.Location = new Point(cardPerformance.ClientSize.Width - cPad - (int)(270 * dpiScale), (int)(12 * dpiScale));
+                lblLiveRateBadge.Size = new Size((int)(270 * dpiScale), (int)(22 * dpiScale));
             }
 
             int r1Y = (int)(38 * dpiScale);
             if (lblDpiTitle != null)
             {
-                lblDpiTitle.Location = new Point(cPad, (int)(41 * dpiScale));
-                lblDpiTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+                lblDpiTitle.TextAlign = ContentAlignment.MiddleLeft;
+                lblDpiTitle.Location = new Point(cPad, r1Y);
+                lblDpiTitle.Size = new Size(lblW, segH);
             }
             RelayoutDpiButtons();
 
             if (lblRateTitle != null)
             {
-                lblRateTitle.Location = new Point(cPad, (int)(78 * dpiScale));
-                lblRateTitle.Size = new Size(lblW, (int)(22 * dpiScale));
+                lblRateTitle.TextAlign = ContentAlignment.MiddleLeft;
+                lblRateTitle.Location = new Point(cPad, (int)(75 * dpiScale));
+                lblRateTitle.Size = new Size(lblW, segH);
             }
             RelayoutRateButtons();
 
@@ -1558,16 +1569,17 @@ namespace RazerBatteryTray
                 }
             }
 
-            // Row 6: 切换提醒方式 (恒定 Y = 221)
+            // Row 6: 切换提醒方式 (恒定 Y = 221，并与上方 400 / 1000 Hz 按钮左列及垂直中线严格对齐)
             int r6Y = (int)(221 * dpiScale);
             if (lblNotifyModeTitle != null)
             {
-                lblNotifyModeTitle.Location = new Point(cPad, r6Y + (int)(1 * dpiScale));
-                lblNotifyModeTitle.Size = new Size((int)(62 * dpiScale), (int)(20 * dpiScale));
+                lblNotifyModeTitle.TextAlign = ContentAlignment.MiddleLeft;
+                lblNotifyModeTitle.Location = new Point(cPad, r6Y);
+                lblNotifyModeTitle.Size = new Size(lblW, (int)(22 * dpiScale));
                 lblNotifyModeTitle.Visible = showExpanded;
             }
-            int notifStartX = cPad + (int)(64 * dpiScale);
-            int notifW = (secW - (int)(64 * dpiScale)) / 3;
+            int notifStartX = cPad + lblW;
+            int notifW = (secW - lblW) / 3;
             if (chkNotifyOsd != null)
             {
                 chkNotifyOsd.Location = new Point(notifStartX, r6Y);
@@ -2524,8 +2536,11 @@ namespace RazerBatteryTray
 
         private void OpenAboutForm()
         {
-            float rec = GetRecommendedDefaultScale(); float userZoomRatio = (rec > 0.01f) ? (this.dpiScale / rec) : 1.0f; using (AboutForm form = new AboutForm(userZoomRatio))
+            float rec = GetRecommendedDefaultScale();
+            float userZoomRatio = (rec > 0.01f) ? (this.dpiScale / rec) : 1.0f;
+            using (AboutForm form = new AboutForm(userZoomRatio))
             {
+                form.ChildDialogScale = this.dpiScale;
                 form.ShowDialog(this);
             }
         }
@@ -2549,7 +2564,7 @@ namespace RazerBatteryTray
                     string curVer = UpdateManager.CurrentVersion;
                     if (info != null && UpdateManager.IsNewerVersion(info.LatestVersion, curVer))
                     {
-                        UpdateNoticeForm.ShowUpdateDialog(this, info, curVer);
+                        UpdateNoticeForm.ShowUpdateDialog(this, info, curVer, this.dpiScale);
                     }
                     else
                     {
@@ -2584,7 +2599,7 @@ namespace RazerBatteryTray
                     {
                         this.BeginInvoke((MethodInvoker)delegate
                         {
-                            UpdateNoticeForm.ShowUpdateDialog(this, info, curVer);
+                            UpdateNoticeForm.ShowUpdateDialog(this, info, curVer, this.dpiScale);
                         });
                     }
                 });
@@ -2864,8 +2879,9 @@ namespace RazerBatteryTray
                 }
                 if (lblNuphyBrightTitle != null)
                 {
-                    lblNuphyBrightTitle.Location = new Point(perfPad, nuphyR3Y + (int)(4 * dpiScale));
-                    lblNuphyBrightTitle.Size = new Size(perfLblW, (int)(22 * dpiScale));
+                    lblNuphyBrightTitle.TextAlign = ContentAlignment.MiddleLeft;
+                    lblNuphyBrightTitle.Location = new Point(perfPad, nuphyR3Y);
+                    lblNuphyBrightTitle.Size = new Size(perfLblW, perfSegH);
                 }
                 int sliderX = perfPad + perfLblW;
                 int valBadgeW = (int)(50 * dpiScale);
@@ -2877,14 +2893,14 @@ namespace RazerBatteryTray
                 }
                 if (lblNuphyBrightVal != null)
                 {
-                    lblNuphyBrightVal.Location = new Point(sliderX + sliderW + (int)(6 * dpiScale), nuphyR3Y + (int)(3 * dpiScale));
-                    lblNuphyBrightVal.Size = new Size(valBadgeW, (int)(22 * dpiScale));
+                    lblNuphyBrightVal.Location = new Point(sliderX + sliderW + (int)(6 * dpiScale), nuphyR3Y);
+                    lblNuphyBrightVal.Size = new Size(valBadgeW, perfSegH);
                 }
 
                 // Card 3
                 int cPad = (int)(14 * dpiScale);
                 int secW = cardW - (cPad * 2);
-                int card3H = (int)(244 * dpiScale);
+                int card3H = (int)(230 * dpiScale);
                 if (cardSettings != null)
                 {
                     cardSettings.Width = cardW;
@@ -2901,8 +2917,9 @@ namespace RazerBatteryTray
                     if (lblSettingsTitle != null) lblSettingsTitle.Location = new Point(cPad, (int)(14 * dpiScale));
                     if (lblStyleTitle != null)
                     {
-                        lblStyleTitle.Location = new Point(cPad, row1Y + (int)(2 * dpiScale));
-                        lblStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                        lblStyleTitle.TextAlign = ContentAlignment.MiddleLeft;
+                        lblStyleTitle.Location = new Point(cPad, row1Y);
+                        lblStyleTitle.Size = new Size(lblTitleW, segH);
                     }
                     if (btnStyleCapsule != null)
                     {
@@ -2926,8 +2943,9 @@ namespace RazerBatteryTray
 
                     if (lblIntervalTitle != null)
                     {
-                        lblIntervalTitle.Location = new Point(cPad, row2Y + (int)(2 * dpiScale));
-                        lblIntervalTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                        lblIntervalTitle.TextAlign = ContentAlignment.MiddleLeft;
+                        lblIntervalTitle.Location = new Point(cPad, row2Y);
+                        lblIntervalTitle.Size = new Size(lblTitleW, segH);
                     }
                     if (btnInt30s != null)
                     {
@@ -2948,8 +2966,9 @@ namespace RazerBatteryTray
                     int row3Y = (int)(100 * dpiScale);
                     if (lblOsdStyleTitle != null)
                     {
-                        lblOsdStyleTitle.Location = new Point(cPad, row3Y + (int)(2 * dpiScale));
-                        lblOsdStyleTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                        lblOsdStyleTitle.TextAlign = ContentAlignment.MiddleLeft;
+                        lblOsdStyleTitle.Location = new Point(cPad, row3Y);
+                        lblOsdStyleTitle.Size = new Size(lblTitleW, segH);
                     }
                     if (btnOsdStyleCapsule != null)
                     {
@@ -2972,8 +2991,9 @@ namespace RazerBatteryTray
                     int seg4W = (secW - lblTitleW - (seg4Gap * 3)) / 4;
                     if (lblZoomTitle != null)
                     {
-                        lblZoomTitle.Location = new Point(cPad, row4Y + (int)(2 * dpiScale));
-                        lblZoomTitle.Size = new Size(lblTitleW, (int)(22 * dpiScale));
+                        lblZoomTitle.TextAlign = ContentAlignment.MiddleLeft;
+                        lblZoomTitle.Location = new Point(cPad, row4Y);
+                        lblZoomTitle.Size = new Size(lblTitleW, segH);
                     }
                     if (btnZoomSmall != null)
                     {
@@ -3032,7 +3052,7 @@ namespace RazerBatteryTray
 
                     if (lblSettingsTip != null)
                     {
-                        lblSettingsTip.Location = new Point(cPad, (int)(222 * dpiScale));
+                        lblSettingsTip.Visible = false;
                     }
                 }
 

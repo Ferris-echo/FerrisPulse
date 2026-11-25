@@ -446,11 +446,15 @@ Invoke-TestCase "8. 只读外设诊断快照引擎、隐私脱敏、大厂白名
 
     $about = [Activator]::CreateInstance($tAbout, @([float]1.0))
     try {
-        $lnkDiag = $tAbout.GetField("lnkDiagnostic", $BF).GetValue($about)
+        Assert-True ($null -eq $tAbout.GetField("lnkDiagnostic", $BF)) "AboutForm removed lnkDiagnostic"
+        Assert-True ($null -eq $tAbout.GetField("lnkChangelogHistory", $BF)) "AboutForm removed lnkChangelogHistory"
+        $btnCheck = $tAbout.GetField("btnCheckUpdate", $BF).GetValue($about)
+        $cardUpd = $tAbout.GetField("cardUpdate", $BF).GetValue($about)
         $lnkGit = $tAbout.GetField("lnkGithub", $BF).GetValue($about)
         $lnkReset = $tAbout.GetField("lnkResetApp", $BF).GetValue($about)
-        Assert-True ($null -ne $lnkDiag -and $about.ClientSize.Width -eq 600 -and $about.ClientSize.Height -eq 668) "AboutForm diagnostic link + invariant size"
-        Assert-True ($lnkReset.Top -gt $lnkGit.Top -and $lnkDiag.Top -eq $lnkReset.Top) "AboutForm footer row alignment"
+        Assert-True ($null -ne $btnCheck -and $null -ne $cardUpd -and $cardUpd.Controls.Contains($btnCheck)) "AboutForm unified btnCheckUpdate inside cardUpdate"
+        Assert-True ($about.ClientSize.Width -eq 600 -and $about.ClientSize.Height -eq 668) "AboutForm keeps invariant 600x668 size"
+        Assert-True ($lnkReset.Top -gt $lnkGit.Top) "AboutForm footer reset link below GitHub"
     } finally { $about.Dispose() }
 }
 
@@ -491,6 +495,51 @@ public static class FpPipeHelper {
         try { $cli.Dispose() } catch {}
         [FpPipeHelper]::CloseHandle($h) | Out-Null
     }
+}
+
+Invoke-TestCase "8. AddDeviceWizardForm 跨驱动前缀去重与高优先级包覆盖" {
+    $tWiz = $asm.GetType("RazerBatteryTray.AddDeviceWizardForm", $true)
+    $tCfg = $asm.GetType("RazerBatteryTray.CustomDeviceConfig", $true)
+    $tList = [System.Collections.Generic.List`1].MakeGenericType($tCfg)
+    $list = [Activator]::CreateInstance($tList)
+    $mMerge = $tWiz.GetMethod("MergeScannedConfig", $BF)
+
+    $vgn = [Activator]::CreateInstance($tCfg)
+    $vgn.DeviceId = "VGN:3554:FB3E"
+    $vgn.OriginalName = "VGN Dragonfly F2 Pro Max"
+    $vgn.CustomName = "蜻蜓 F2 Pro Max"
+    $vgn.HardwareFingerprint = "VGN:3554:FB3E"
+
+    $fdas = [Activator]::CreateInstance($tCfg)
+    $fdas.DeviceId = "FDAS:3554:FB3E"
+    $fdas.OriginalName = "VGN Dragonfly F2 Pro Max"
+    $fdas.CustomName = ""
+    $fdas.HardwareFingerprint = "HID:3554:FB3E"
+
+    $hidDup = [Activator]::CreateInstance($tCfg)
+    $hidDup.DeviceId = "HID:3554:FB3E"
+    $hidDup.OriginalName = "VGN Dragonfly F2 Pro Max"
+    $hidDup.HardwareFingerprint = "HID:3554:FB3E"
+
+    $mMerge.Invoke($null, @($list, $vgn, $false)) | Out-Null
+    $mMerge.Invoke($null, @($list, $fdas, $true)) | Out-Null
+    $mMerge.Invoke($null, @($list, $hidDup, $false)) | Out-Null
+
+    Assert-Equal 1 $list.Count "Built-in VGN + FDAS + HID same VID:PID deduplicated into 1 wizard item"
+    Assert-Equal "FDAS:3554:FB3E" $list[0].DeviceId "Higher-priority FDAS package overrides built-in entry"
+    Assert-Equal "蜻蜓 F2 Pro Max" $list[0].CustomName "Nickname preserved across priority override"
+
+    $logi1 = [Activator]::CreateInstance($tCfg)
+    $logi1.DeviceId = "Logitech:046D:C52B:1"
+    $logi1.OriginalName = "Logitech Slot 1"
+    $logi2 = [Activator]::CreateInstance($tCfg)
+    $logi2.DeviceId = "Logitech:046D:C52B:2"
+    $logi2.OriginalName = "Logitech Slot 2"
+
+    $listLogi = [Activator]::CreateInstance($tList)
+    $mMerge.Invoke($null, @($listLogi, $logi1, $false)) | Out-Null
+    $mMerge.Invoke($null, @($listLogi, $logi2, $false)) | Out-Null
+    Assert-Equal 2 $listLogi.Count "Distinct multi-slot receiver channels remain separate"
 }
 
 Write-Host "`nALL CORE DRIVER ARCHITECTURE TESTS PASSED." -ForegroundColor Green
