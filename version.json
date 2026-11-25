@@ -3,8 +3,8 @@
     "releaseDate":  "2026-11-25",
     "minSupportedVersion":  "1.0.0",
     "downloadUrl":  "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.0/FerrisPulse.exe",
-    "sha256":  "e5763119b34223aa72f5560573f0af172070ed76dbef1dc9a1f4c54fdf033b47",
-    "fileSize":  1418240,
+    "sha256":  "779b88c73bc2bea01b84cfb6cddf4bcd3220c6ff5c64da95eb4d33afa20669d7",
+    "fileSize":  1502720,
     "changelog":  [
                       "一、 多设备独立状态栏托盘与休眠保位",
                       "原生多托盘宿主 (MultiTrayIconHost)：基于 Win32 NIF_GUID 同时展示多个外设电量（默认 3 个，可配 2~16 个），支持独立点击切换、右键菜单与重启防回缩溢出区",
