@@ -1340,6 +1340,7 @@ namespace RazerBatteryTray
 
         private static bool SendReportToDevice(FdasAdapterDefinition def, int targetPid, byte[] tx)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (def == null || tx == null || tx.Length == 0) return false;
             int pidToUse = targetPid != 0 ? targetPid : def.ProductId;
             try

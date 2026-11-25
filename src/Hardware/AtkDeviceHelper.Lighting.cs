@@ -100,6 +100,8 @@ namespace RazerBatteryTray
 
         public static AtkLightingSettings ApplyLightingSettings(string deviceId, AtkLightingSettings settings)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive)
+                throw new InvalidOperationException("测试沙盒已拦截物理键盘灯光写入。");
             if (settings == null || string.IsNullOrEmpty(settings.DevicePath))
                 throw new ArgumentException("请先读取目标键盘的灯光配置。", "settings");
             lock (hidLock)

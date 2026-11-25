@@ -36,11 +36,11 @@ namespace RazerBatteryTray
         private Panel pnlDetails;
         private Label lblDetailsTitle;
         private Label lblNameLabel;
-        private TextBox txtCustomName;
+        private ModernInputBox txtCustomName;
         private Label lblCategoryLabel;
         private ModernDarkDropdown cboCategory;
         private Label lblBrandLabel;
-        private TextBox txtBrand;
+        private ModernInputBox txtBrand;
         private Label lblHardwareStatus;
         private ModernButton btnRemoveDevice;
 
@@ -286,13 +286,11 @@ namespace RazerBatteryTray
             pnlDetails.Controls.Add(lblNameLabel);
             curY += (int)(20 * dpiScale);
 
-            txtCustomName = new TextBox();
-            txtCustomName.Font = new Font("Microsoft YaHei UI", 9.5F);
-            txtCustomName.BackColor = Color.FromArgb(32, 36, 48);
-            txtCustomName.ForeColor = Color.White;
-            txtCustomName.BorderStyle = BorderStyle.FixedSingle;
+            txtCustomName = new ModernInputBox();
+            txtCustomName.DpiScale = dpiScale;
+            txtCustomName.Font = new Font("Microsoft YaHei UI", 9.2F);
             txtCustomName.Location = new Point(dPad, curY);
-            txtCustomName.Size = new Size(innerW, (int)(24 * dpiScale));
+            txtCustomName.Size = new Size(innerW, (int)(28 * dpiScale));
             txtCustomName.TextChanged += (s, e) =>
             {
                 if (isUpdatingUi || selectedItem == null) return;
@@ -300,7 +298,7 @@ namespace RazerBatteryTray
                 UpdateRowDisplay(selectedItem);
             };
             pnlDetails.Controls.Add(txtCustomName);
-            curY += (int)(32 * dpiScale);
+            curY += (int)(36 * dpiScale);
 
             // 设备品类
             lblCategoryLabel = new Label();
@@ -344,20 +342,18 @@ namespace RazerBatteryTray
             pnlDetails.Controls.Add(lblBrandLabel);
             curY += (int)(20 * dpiScale);
 
-            txtBrand = new TextBox();
-            txtBrand.Font = new Font("Microsoft YaHei UI", 9.5F);
-            txtBrand.BackColor = Color.FromArgb(32, 36, 48);
-            txtBrand.ForeColor = Color.White;
-            txtBrand.BorderStyle = BorderStyle.FixedSingle;
+            txtBrand = new ModernInputBox();
+            txtBrand.DpiScale = dpiScale;
+            txtBrand.Font = new Font("Microsoft YaHei UI", 9.2F);
             txtBrand.Location = new Point(dPad, curY);
-            txtBrand.Size = new Size(innerW, (int)(24 * dpiScale));
+            txtBrand.Size = new Size(innerW, (int)(28 * dpiScale));
             txtBrand.TextChanged += (s, e) =>
             {
                 if (isUpdatingUi || selectedItem == null) return;
                 selectedItem.Brand = txtBrand.Text.Trim();
             };
             pnlDetails.Controls.Add(txtBrand);
-            curY += (int)(34 * dpiScale);
+            curY += (int)(36 * dpiScale);
 
             // 硬件拓扑与状态指引
             lblHardwareStatus = new Label();

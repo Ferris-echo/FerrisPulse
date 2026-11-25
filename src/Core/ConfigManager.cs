@@ -24,6 +24,11 @@ namespace RazerBatteryTray
         public const string DesktopShortcutInitialized = "DesktopShortcutInitialized";
         public const string AutoCheckUpdate = "AutoCheckUpdate";
         public const string LastUpdateCheckTime = "LastUpdateCheckTime";
+        public const string MultiTrayEnabledKey = "MultiTrayEnabled";
+        public const string MultiTrayMaxCountKey = "MultiTrayMaxCount";
+        public const string LowBatteryNotifyEnabledKey = "LowBatteryNotifyEnabled";
+        public const string LowBatteryUiColorEnabledKey = "LowBatteryUiColorEnabled";
+        public const string LowBatteryTrayColorEnabledKey = "LowBatteryTrayColorEnabled";
 
         public static int GetInt(string name, int defaultValue)
         {
@@ -134,6 +139,61 @@ namespace RazerBatteryTray
         public static void SetLastUpdateCheckTime(string timeStr)
         {
             SetString(LastUpdateCheckTime, timeStr);
+        }
+
+        public static bool GetMultiTrayEnabled()
+        {
+            return GetBool(MultiTrayEnabledKey, false);
+        }
+
+        public static void SetMultiTrayEnabled(bool enabled)
+        {
+            SetBool(MultiTrayEnabledKey, enabled);
+        }
+
+        public static int GetMultiTrayMaxCount()
+        {
+            int count = GetInt(MultiTrayMaxCountKey, 3);
+            if (count < 2) count = 2;
+            if (count > 16) count = 16;
+            return count;
+        }
+
+        public static void SetMultiTrayMaxCount(int count)
+        {
+            if (count < 2) count = 2;
+            if (count > 16) count = 16;
+            SetInt(MultiTrayMaxCountKey, count);
+        }
+
+        public static bool GetLowBatteryNotifyEnabled()
+        {
+            return GetBool(LowBatteryNotifyEnabledKey, true);
+        }
+
+        public static void SetLowBatteryNotifyEnabled(bool enabled)
+        {
+            SetBool(LowBatteryNotifyEnabledKey, enabled);
+        }
+
+        public static bool GetLowBatteryUiColorEnabled()
+        {
+            return GetBool(LowBatteryUiColorEnabledKey, true);
+        }
+
+        public static void SetLowBatteryUiColorEnabled(bool enabled)
+        {
+            SetBool(LowBatteryUiColorEnabledKey, enabled);
+        }
+
+        public static bool GetLowBatteryTrayColorEnabled()
+        {
+            return GetBool(LowBatteryTrayColorEnabledKey, false);
+        }
+
+        public static void SetLowBatteryTrayColorEnabled(bool enabled)
+        {
+            SetBool(LowBatteryTrayColorEnabledKey, enabled);
         }
     }
 }

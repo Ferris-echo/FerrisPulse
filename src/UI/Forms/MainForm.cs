@@ -213,6 +213,12 @@ namespace RazerBatteryTray
 
 
         private NotifyIcon trayIcon;
+        private bool multiTrayEnabled = false;
+        private int multiTrayMaxCount = 3;
+        private MultiTrayIconHost multiTrayHost;
+        private ToolStripMenuItem multiTrayMenuItem;
+        private string trayContextDeviceId = null;
+        private bool isSlotContextOpening = false;
         private bool isTogglingWindow = false;
 
         private ContextMenuStrip contextMenu;
@@ -792,6 +798,9 @@ namespace RazerBatteryTray
 
 
         private bool lowBatteryAlertEnabled = true;
+        private bool lowBatteryNotifyEnabled = true;
+        private bool lowBatteryUiColorEnabled = true;
+        private bool lowBatteryTrayColorEnabled = false;
 
         private bool dpiOsdEnabled = true;
 
@@ -1014,35 +1023,36 @@ namespace RazerBatteryTray
 
             updateTimer.Tick += (s, e) => RefreshBatteryStatus(false);
 
-            updateTimer.Start();
-
-
-
-            RefreshBatteryStatus(false);
-
-            StartBootPolling();
-
-            StartDpiMonitor();
-
-            StartGameMonitor();
-
-            StartPeriodicUpdateCheck();
-
-            StartWakeupEventListener();
-
-            // 挂载操作系统会话注销、关机与电源睡眠/唤醒守护
-            try
+            bool sandboxActive = HardwareCommandBus.IsHardwareSandboxActive;
+            if (!sandboxActive)
             {
-                Microsoft.Win32.SystemEvents.SessionEnding += (s, e) => {
-                    RestoreDesktopSettingsSynchronous();
-                };
-                Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) => {
-                    if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
-                    {
+                updateTimer.Start();
+
+                RefreshBatteryStatus(false);
+
+                StartBootPolling();
+
+                StartDpiMonitor();
+
+                StartGameMonitor();
+
+                StartPeriodicUpdateCheck();
+
+                StartWakeupEventListener();
+
+                // 挂载操作系统会话注销、关机与电源睡眠/唤醒守护
+                try
+                {
+                    Microsoft.Win32.SystemEvents.SessionEnding += (s, e) => {
                         RestoreDesktopSettingsSynchronous();
-                    }
-                    else if (e.Mode == Microsoft.Win32.PowerModes.Resume)
-                    {
+                    };
+                    Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) => {
+                        if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
+                        {
+                            RestoreDesktopSettingsSynchronous();
+                        }
+                        else if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                        {
                         ThreadPool.QueueUserWorkItem(_ => {
                             System.Threading.Thread.Sleep(1500);
                             try
@@ -1059,6 +1069,7 @@ namespace RazerBatteryTray
                 };
             }
             catch { }
+            }
 
         }
 
@@ -1187,9 +1198,11 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+            float probedScale = DpiScaleHelper.GetDpiScaleForWindow(this.Handle);
+            if (probedScale >= 1.0f) this.systemDpiScale = probedScale;
             ApplyModernWin11Theme();
             RegisterUsbNotification();
-            if (isMouseSleeping)
+            if (!HardwareCommandBus.IsHardwareSandboxActive && ShouldMonitorMouseWakeInput())
             {
                 EnableMouseWakeDetector(true);
             }
@@ -1470,6 +1483,17 @@ namespace RazerBatteryTray
                     {
                         this.RecreateHandle();
                         RestoreWindowPosition();
+                        float liveScale = DpiScaleHelper.GetDpiScaleForWindow(this.Handle);
+                        if (liveScale >= 1.0f && Math.Abs(liveScale - this.systemDpiScale) > 0.01f)
+                        {
+                            this.systemDpiScale = liveScale;
+                            if (this.userZoomScale < DpiScaleHelper.MinScale)
+                            {
+                                Screen scr = Screen.FromHandle(this.Handle);
+                                this.dpiScale = DpiScaleHelper.ClampScaleToScreen(liveScale, scr, DpiScaleHelper.DefaultExpandedBaseHeight);
+                            }
+                            ApplyDpiScaleToControls();
+                        }
                     }
                     catch { }
 
@@ -1634,6 +1658,12 @@ namespace RazerBatteryTray
 
                 trayDeviceItemFont = null;
 
+            }
+
+            if (multiTrayHost != null)
+            {
+                try { multiTrayHost.HideAll(); multiTrayHost.Dispose(); } catch { }
+                multiTrayHost = null;
             }
 
             base.OnFormClosed(e);
@@ -2154,7 +2184,11 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
             catch { }
 
-
+            multiTrayEnabled = ConfigManager.GetMultiTrayEnabled();
+            multiTrayMaxCount = ConfigManager.GetMultiTrayMaxCount();
+            lowBatteryNotifyEnabled = ConfigManager.GetLowBatteryNotifyEnabled();
+            lowBatteryUiColorEnabled = ConfigManager.GetLowBatteryUiColorEnabled();
+            lowBatteryTrayColorEnabled = ConfigManager.GetLowBatteryTrayColorEnabled();
 
             CleanupLegacyAutoStart();
 
@@ -2291,6 +2325,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
             }
 
+            SetMultiTrayEnabled(multiTrayEnabled, false);
             RelayoutDpiButtons();
 
             Screen curScrn = Screen.PrimaryScreen;
@@ -2639,11 +2674,97 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
 
 
+        public bool IsEffectiveLowBatteryNotifyEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryNotifyEnabled;
+        }
+
+        public bool IsEffectiveLowBatteryUiColorEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryUiColorEnabled;
+        }
+
+        public bool IsEffectiveLowBatteryTrayColorEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryTrayColorEnabled;
+        }
+
+        public void ApplyLowBatteryAlertOptions(bool notifyEnabled, bool uiColorEnabled, bool trayColorEnabled)
+        {
+            lowBatteryNotifyEnabled = notifyEnabled;
+            lowBatteryUiColorEnabled = uiColorEnabled;
+            lowBatteryTrayColorEnabled = trayColorEnabled;
+
+            if (!DisableConfigSaveForTesting)
+            {
+                ConfigManager.SetLowBatteryNotifyEnabled(notifyEnabled);
+                ConfigManager.SetLowBatteryUiColorEnabled(uiColorEnabled);
+                ConfigManager.SetLowBatteryTrayColorEnabled(trayColorEnabled);
+            }
+
+            bool anyEnabled = notifyEnabled || uiColorEnabled || trayColorEnabled;
+            lowBatteryAlertEnabled = anyEnabled;
+
+            isUpdatingUI = true;
+            try
+            {
+                UpdateMenuStatusTexts();
+                if (chkLowAlert != null && chkLowAlert.Checked != lowBatteryAlertEnabled)
+                {
+                    chkLowAlert.Checked = lowBatteryAlertEnabled;
+                }
+            }
+            finally
+            {
+                isUpdatingUI = false;
+            }
+
+            SaveConfig();
+            RefreshLowBatteryAlertVisuals();
+        }
+
+        public void OpenLowBatteryAlertSettingsDialog()
+        {
+            using (var dlg = new LowBatteryAlertSettingsDialog(lowBatteryNotifyEnabled, lowBatteryUiColorEnabled, lowBatteryTrayColorEnabled, this.dpiScale))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    ApplyLowBatteryAlertOptions(dlg.ResultNotifyEnabled, dlg.ResultUiColorEnabled, dlg.ResultTrayColorEnabled);
+                }
+            }
+        }
+
+        private void RefreshLowBatteryAlertVisuals()
+        {
+            if (selectedDevice != null)
+            {
+                UpdateUI(selectedDevice, false);
+            }
+            if (multiTrayEnabled)
+            {
+                RefreshMultiTrayHost();
+            }
+            else if (lastInfo != null)
+            {
+                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+            }
+        }
+
         private void SetLowBatteryAlert(bool enabled, bool showNotification = false)
 
         {
 
             lowBatteryAlertEnabled = enabled;
+            if (enabled && !lowBatteryNotifyEnabled && !lowBatteryUiColorEnabled && !lowBatteryTrayColorEnabled)
+            {
+                lowBatteryNotifyEnabled = true;
+                lowBatteryUiColorEnabled = true;
+                if (!DisableConfigSaveForTesting)
+                {
+                    ConfigManager.SetLowBatteryNotifyEnabled(true);
+                    ConfigManager.SetLowBatteryUiColorEnabled(true);
+                }
+            }
 
 
 
@@ -2670,6 +2791,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
 
             SaveConfig();
+            RefreshLowBatteryAlertVisuals();
 
         }
 

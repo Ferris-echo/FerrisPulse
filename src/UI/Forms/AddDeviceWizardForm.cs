@@ -2,7 +2,8 @@
 // 模块名称: AddDeviceWizardForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
+//   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、未适配大厂外设兜底展示、
+//   一键硬件诊断快照导出、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
 //   扫描与后台轮询共享端点归属锁；脚本先查询一次，再由内置扫描跳过已接管端点。
 // 依赖关系: Controls.*, Hardware.DeviceManager, Core.ConfigManager, Models.CustomDeviceConfig
 //
@@ -32,6 +33,7 @@ namespace RazerBatteryTray
         private ModernDarkDropdown cmbCategory;
         private Label lblTestStatus;
         private ModernButton btnScan;
+        private ModernButton btnDiagnostic;
         private ModernButton btnSave;
         private ModernButton btnCancel;
         private ModernButton btnCopyPrompt;
@@ -396,8 +398,28 @@ namespace RazerBatteryTray
             // Row 8: Buttons
             int btnH = (int)(36 * dpiScale);
             int btnY = (int)(548 * dpiScale);
+            int diagW = (int)(118 * dpiScale);
             int cancelW = (int)(110 * dpiScale);
             int saveW = (int)(150 * dpiScale);
+
+            btnDiagnostic = new ModernButton();
+            btnDiagnostic.Text = "🩺 诊断快照";
+            btnDiagnostic.Font = new Font("Microsoft YaHei UI", 8.8F);
+            btnDiagnostic.NormalColor = Color.FromArgb(28, 36, 52);
+            btnDiagnostic.HoverColor = Color.FromArgb(40, 52, 74);
+            btnDiagnostic.PressedColor = Color.FromArgb(20, 26, 38);
+            btnDiagnostic.BorderColor = Color.FromArgb(58, 76, 108);
+            btnDiagnostic.TextColor = Color.FromArgb(145, 200, 255);
+            btnDiagnostic.Location = new Point(pad, btnY);
+            btnDiagnostic.Size = new Size(diagW, btnH);
+            btnDiagnostic.Click += (s, e) =>
+            {
+                using (DiagnosticReportDialog dlg = new DiagnosticReportDialog(null, dpiScale))
+                {
+                    dlg.ShowDialog(this);
+                }
+            };
+            this.Controls.Add(btnDiagnostic);
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
@@ -1027,6 +1049,50 @@ namespace RazerBatteryTray
                             }
                         }
                     }
+
+                    // 2.6b 暴露未命中任何专属驱动的大厂 HID 外设（如老款 1532:0528 黑鲨等），方便定位或导出诊断
+                    HashSet<string> alreadyDetectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string exId in existingIds)
+                    {
+                        if (string.IsNullOrEmpty(exId)) continue;
+                        alreadyDetectedKeys.Add(exId);
+                        HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, exId);
+                        var exVars = DeviceManager.GetDeviceIdVariants(exId);
+                        for (int vi = 0; vi < exVars.Count; vi++) alreadyDetectedKeys.Add(exVars[vi]);
+                    }
+                    for (int ti = 0; ti < tempConfigs.Count; ti++)
+                    {
+                        CustomDeviceConfig tc = tempConfigs[ti];
+                        if (tc == null) continue;
+                        if (!string.IsNullOrEmpty(tc.DeviceId))
+                        {
+                            alreadyDetectedKeys.Add(tc.DeviceId);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, tc.DeviceId);
+                            var tVars = DeviceManager.GetDeviceIdVariants(tc.DeviceId);
+                            for (int vi = 0; vi < tVars.Count; vi++) alreadyDetectedKeys.Add(tVars[vi]);
+                        }
+                        if (!string.IsNullOrEmpty(tc.HardwareFingerprint))
+                        {
+                            alreadyDetectedKeys.Add(tc.HardwareFingerprint);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, tc.HardwareFingerprint);
+                            var fVars = DeviceManager.GetDeviceIdVariants(tc.HardwareFingerprint);
+                            for (int vi = 0; vi < fVars.Count; vi++) alreadyDetectedKeys.Add(fVars[vi]);
+                        }
+                    }
+
+                    var unmatchedMajor = GenericHidHelper.ScanUnmatchedMajorBrandHidDevices(alreadyDetectedKeys);
+                    for (int ui = 0; ui < unmatchedMajor.Count; ui++)
+                    {
+                        CustomDeviceConfig um = unmatchedMajor[ui];
+                        if (um == null) continue;
+                        string umKey = (um.DeviceId != null && um.DeviceId.StartsWith("HID:")) ? um.DeviceId.Substring(4) : um.DeviceId;
+                        bool dup = tempConfigs.Exists(c => (c.DeviceId != null && c.DeviceId.IndexOf(umKey, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                                                           (c.HardwareFingerprint != null && c.HardwareFingerprint.IndexOf(umKey, StringComparison.OrdinalIgnoreCase) >= 0));
+                        if (!dup)
+                        {
+                            tempConfigs.Add(um);
+                        }
+                    }
                 }
                 catch { }
 
@@ -1361,6 +1427,50 @@ namespace RazerBatteryTray
             return sb.ToString().TrimEnd();
         }
 
+        private static string GetDeviceTracesForVidPid(int vid, int pid)
+        {
+            if (vid == 0 && pid == 0)
+            {
+                return "    - （无有效 VID:PID，暂无匹配的驱动探测轨迹）";
+            }
+
+            List<string> allTraces = HardwareDiagnosticService.GetRecentDriverTraces();
+            if (allTraces == null || allTraces.Count == 0)
+            {
+                return "    - （当前会话暂无与该 VID:PID 匹配的驱动探测轨迹）";
+            }
+
+            string vpKey = string.Format("{0:X4}:{1:X4}", vid, pid);
+            string vpBracket = "[" + vpKey + "]";
+            List<string> matched = new List<string>();
+            for (int i = 0; i < allTraces.Count; i++)
+            {
+                string line = allTraces[i];
+                if (string.IsNullOrEmpty(line)) continue;
+                string upper = line.ToUpperInvariant();
+                if (upper.Contains(vpBracket) || upper.Contains(vpKey))
+                {
+                    if (!matched.Contains(line))
+                    {
+                        matched.Add(line);
+                    }
+                }
+            }
+
+            if (matched.Count == 0)
+            {
+                return "    - （当前会话暂无与 " + vpKey + " 匹配的驱动探测轨迹）";
+            }
+
+            int start = matched.Count > 12 ? matched.Count - 12 : 0;
+            StringBuilder traceSb = new StringBuilder();
+            for (int i = start; i < matched.Count; i++)
+            {
+                traceSb.AppendLine("    - " + matched[i]);
+            }
+            return traceSb.ToString().TrimEnd('\r', '\n');
+        }
+
         public static string GetAiAdaptationPrompt()
         {
             return GetAiAdaptationPrompt(null, null);
@@ -1400,66 +1510,22 @@ namespace RazerBatteryTray
 
             int count = validItems.Count;
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v2.0 / .fp-driver.cs 硬件适配扩展包");
+            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」外设系统生成零幻觉硬件适配扩展包 (FDAS v2.0 / .fp-driver.cs)");
             sb.AppendLine();
             if (count > 1)
             {
-                sb.AppendLine(string.Format("你好！我现在使用的 {0} 款外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑（包含部分手动指定的设备），为我批量输出符合 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（`.fp-adapter.json`）或动态 C# 5.0 驱动脚本扩展包（`.fp-driver.cs`）。", count));
+                sb.AppendLine(string.Format("你好！我当前有 {0} 款外设暂未被「FerrisPulse (灵脉)」原生识别。请你作为 Windows HID 协议与固件逆向工程师，严格依据第 1 节捕获的真实硬件指纹与驱动诊断上下文，遵循第 2 节的零幻觉工作流与安全红线，为每款设备分别输出可直接导入主程序的 **FDAS v2.0** 规范包（`.fp-adapter.json`）或 **C# 5.0** 动态驱动脚本（`.fp-driver.cs`）。", count));
             }
             else
             {
-                sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份符合 **FDAS v2.0 (FerrisPulse Device Adapter Specification)** 标准（向下兼容 FDAS v1.0）的适配规范包（`.fp-adapter.json`）或动态 C# 5.0 驱动脚本扩展包（`.fp-driver.cs`）。");
+                sb.AppendLine("你好！我当前有一款外设暂未被「FerrisPulse (灵脉)」原生识别。请你作为 Windows HID 协议与固件逆向工程师，严格依据第 1 节捕获的真实硬件指纹与驱动诊断上下文，遵循第 2 节的零幻觉工作流与安全红线，输出可直接导入主程序的 **FDAS v2.0** 规范包（`.fp-adapter.json`）或 **C# 5.0** 动态驱动脚本（`.fp-driver.cs`）。");
             }
             sb.AppendLine();
-            sb.AppendLine("## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）");
-            sb.AppendLine("你必须严格按以下两阶段开展工作：");
-            sb.AppendLine();
-            sb.AppendLine("### 阶段一：硬件物理安全第一与官方 WebHID 源码逆向 (Safety First)");
-            sb.AppendLine("1. **严厉安全红线：严禁在真机上下发盲测性质的写指令 (如 Cmd 0x07、写未知内存地址)**！");
-            sb.AppendLine("   - 现代国产无线外设（如 CompX、PixArt 等主控）多将单片机板载 EEPROM / Flash 直接映射为写指令。");
-            sb.AppendLine("   - 盲猜写指令或写错地址/长度，会瞬间冲毁 2.4G RF 配对表、校验扇区或引导记录，导致接收器硬件彻底死锁变砖！");
-            sb.AppendLine("2. **官方 WebHID 源码逆向法（首选且唯一推荐的写指令来源，100% 零风险）**：");
-            sb.AppendLine("   - 现代外设厂商（VGN, ATK, VXE, 迈从, 达摩鲨, 狼蛛, 雷神, 机械师等）90% 均提供官方 Web 驱动（Chrome 浏览器网页端，如 hub.vgn.cn、hub.atk.pro 等）。");
-            sb.AppendLine("   - 请优先让用户或你在浏览器打开该网页驱动，按 F12 打开开发者工具：在 Sources / Network 面板中检索 `sendReport`、`write`、`0x07`、`0x55`、`rate`、`dpi` 等关键词；");
-            sb.AppendLine("   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！");
-            sb.AppendLine("3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。");
-            sb.AppendLine();
-            sb.AppendLine("### 阶段二：FDAS v2.0 声明式扩展包与动态微表达式 (Dynamic Calculation)");
-            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器与 `DriverStateStore` 统一注册表缓存，无需改动主程序即可实现内置包同等待遇：");
-            sb.AppendLine("1. **FDAS v2.0 多 PID 矩阵与主题契约 (`metadata.brandColor` / `hardware.devices`)**：支持声明有线 USB 与 2.4G 接收器多 PID。");
-            sb.AppendLine("2. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验。");
-            sb.AppendLine("3. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
-            sb.AppendLine("4. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：支持多步查询序列。");
-            sb.AppendLine("5. **全套五档批量写入与自定义硬件动作 (`capabilities.customActions`)**：支持 Toggle / Slider / Button 控件。");
-            sb.AppendLine();
-            sb.AppendLine("## 🛡️ 逃生舱机制：`.fp-driver.cs` 动态 C# 5.0 驱动脚本包与源码深度定制授权");
-            sb.AppendLine("如果该设备的物理协议极其复杂，超出了声明式 JSON 的表达边界：直接输出继承自 `RazerBatteryTray.HardwareDriverBase` 的 C# 5.0 驱动类，优先级（Priority 300）高于内置驱动。同时也明确授权你直接深入修改 FerrisPulse 本地 C# 源码。");
-            sb.AppendLine();
-            sb.AppendLine("## 🤝 开源生态飞轮：社区反哺指引");
-            sb.AppendLine("成功适配后请输出《灵脉设备适配成果报告》并引导提交至 GitHub/Gitee Issues 或邮箱投递。");
-            sb.AppendLine("1. GitHub Issues / PR: https://github.com/Ferris-echo/FerrisPulse/issues");
-            sb.AppendLine("2. Gitee Issues / PR: https://gitee.com/Ferris-echo/FerrisPulse/issues");
-            sb.AppendLine("3. 作者个人邮箱直连投递: 2949225840@qq.com 或 2949225840zpf@gmail.com");
-            sb.AppendLine();
-            sb.AppendLine("## 2. 官方源码规范索引");
-            sb.AppendLine("- GitHub: https://github.com/Ferris-echo/FerrisPulse.git");
-            sb.AppendLine("- Gitee: https://gitee.com/Ferris-echo/ferris-pulse.git");
-            sb.AppendLine("- 规范文档: docs/ADAPTER_SPECIFICATION.md");
-            sb.AppendLine("- 避坑指南: docs/AGENT_HANDBOOK.md & AGENT_RULES.md");
-            sb.AppendLine();
-
-            if (count > 1)
-            {
-                sb.AppendLine(string.Format("## 3. 当前硬件现场物理指纹与待适配设备清单（共 {0} 款设备）：", count));
-            }
-            else
-            {
-                sb.AppendLine("## 3. 当前硬件现场物理指纹（由 FerrisPulse 硬件探针实时捕获）：");
-            }
-
+            sb.AppendLine("## 1. 现场硬件指纹与驱动诊断上下文");
             if (validItems.Count == 0)
             {
-                sb.AppendLine("- （未指定具体设备）");
+                sb.AppendLine("- （未传入具体探测设备；若需完整设备指纹，请先在「添加设备向导」选中对应设备导出，或提供 VID/PID 与 HID 端点快照）");
+                sb.AppendLine();
             }
             else
             {
@@ -1480,7 +1546,7 @@ namespace RazerBatteryTray
                     }
 
                     string userRefName = !string.IsNullOrEmpty(it.CustomName) ? it.CustomName.Trim() : "未知设备";
-                    string prefix = (count > 1) ? string.Format("### 3.{0} 设备 {0}：{1} [{2}]\r\n", i + 1, userRefName, catCn) : "";
+                    string prefix = (count > 1) ? string.Format("### 1.{0} 设备 {0}：{1} [{2}]\r\n", i + 1, userRefName, catCn) : "";
                     sb.Append(prefix);
                     sb.AppendLine(string.Format("- 设备推测分类: {0} ({1})", catStr, catCn));
                     sb.AppendLine(string.Format("- 用户参考名称: {0}", userRefName));
@@ -1501,82 +1567,156 @@ namespace RazerBatteryTray
                         sb.AppendLine(string.Format("- 连接物理通道: {0}", it.ScannedConfig.Transport ?? "2.4G/USB"));
                         sb.AppendLine("- HID 通信拓扑端点列表:");
                         sb.AppendLine(endpoints);
+                        sb.AppendLine("- 驱动探测轨迹 (Driver Trace):");
+                        sb.AppendLine(GetDeviceTracesForVidPid(vid, pid));
                     }
                     else
                     {
-                        string brand = !string.IsNullOrEmpty(it.Brand) ? it.Brand : "用户手动指定（请从商业型号反查）";
+                        string brand = !string.IsNullOrEmpty(it.Brand) ? it.Brand : "用户手动指定（请先引导用户核实 VID/PID）";
                         sb.AppendLine(string.Format("- 厂商/品牌归属: {0}", brand));
                         sb.AppendLine(string.Format("- 商业型号参考: {0}", userRefName));
-                        sb.AppendLine("- 物理探针状态: ⚠️ 此设备由用户手动添加（当前未通过物理探针捕获），暂无实时 HID 端点描述符数据。请优先指导用户提供该设备官方 Web 驱动网址（如 hub.xxx.com）或指导其提供抓包数据以反查报文格式。");
+                        sb.AppendLine("- 物理探针状态: ⚠️ 用户手动添加，暂无实时 HID 端点描述符与 Driver Trace。请先要求用户提供设备管理器中的 VID/PID、官方 WebHID 网址或抓包报文，不要凭型号猜测协议。");
                     }
                     sb.AppendLine();
                 }
             }
 
-            sb.AppendLine("## 4. 输出格式与契约规范（二选一：常规设备输出 JSON，复杂协议输出 C# 5.0 脚本）");
+            sb.AppendLine("## 2. 零幻觉工作流与硬件安全红线（必须严格遵守）");
+            sb.AppendLine("1. **缺口即停规则（Zero-Hallucination Gate）**：");
+            sb.AppendLine("   - 如果当前对话与上述指纹中**没有**经过验证的真实协议证据（例如：官方 WebHID 前端源码、OpenRazer/libratbag/开源项目文档、或实机 USBPcap 抓包的 `TX`/`RX` 字节序列），**请立刻停止并明确告知缺失哪些信息**。");
+            sb.AppendLine("   - 绝对禁止为了凑齐代码而编造 `queryBatteryTxHex`、猜测 Report ID / 字节偏移、或虚构 `sampleRxHex`。");
+            sb.AppendLine("   - 缺失协议事实时，按以下顺序指导用户采集真实数据后再继续：");
+            sb.AppendLine("     1) **Chrome WebHID F12 逆向（首选）**：打开厂商网页驱动（如 `hub.atk.pro`、`hub.vgn.cn`、`hub.mchose.com.cn` 等）-> 按 F12 在 Sources/Network 检索 `sendReport`、`sendFeatureReport`、`oninputreport`，提取真实报文构造与电量解析公式；");
+            sb.AppendLine("     2) **本地只读探针**：在工程根目录运行 `powershell -ExecutionPolicy Bypass -File tools/probe_hid_device.ps1`（只读收集描述符与安全白名单电量，自动拦截写入）；");
+            sb.AppendLine("     3) **Wireshark + USBPcap 抓包**：开启官方驱动读取电量的瞬间抓包，提取真实 `TX`/`RX` Hex 帧与校验和算法。");
+            sb.AppendLine("2. **只读优先与禁盲写 EEPROM 红线**：");
+            sb.AppendLine("   - **严禁盲测写指令（如 `0x07`、DPI/回报率/灯效写入、未知 Feature 写入）**：国产无线主控（CompX、PixArt 等）常直接将写指令映射至片上 EEPROM/Flash，猜错偏移或校验和可能损坏 2.4G 配对表或导致接收器变砖。");
+            sb.AppendLine("   - 未获取 100% 实证的写指令前，**只实现电量与充电状态只读查询**：在 JSON 中省略未验证的写模板并将 `supportsDpi`/`supportsPollingRate` 置为 `false`；在 `.fp-driver.cs` 中不要重写 `SetDpi` / `SetPollingRate`。");
+            sb.AppendLine("3. **Windows HID 底层避坑规则**：");
+            sb.AppendLine("   - 键盘类 HID 句柄必须以权限 `0`（仅属性）或 `HidTransport.OpenFeature` 避开 Windows 内核防监听独占锁；");
+            sb.AppendLine("   - 过滤 `HIDI2C` 内置触控板与虚拟 HID 设备；");
+            sb.AppendLine("   - 共用公版 VID（如 CompX `0x3554`）必须同时校验 `VID + PID + UsagePage + Usage + Input/Output 长度` 隔离设备；");
+            sb.AppendLine("   - 8K 高回报率鼠标/接收器严禁盲目死循环 `DrainReports`，控制读取次数防止阻塞。");
+            sb.AppendLine("## 3. 扩展包选型与契约规范（二选一）");
             if (count > 1)
             {
-                sb.AppendLine(string.Format("注意：本次需为上述 **{0} 款外设分别独立生成对应的适配规范包**（如每款分别输出独立的 `.fp-adapter.json` 或 `.fp-driver.cs` 代码块）。", count));
+                sb.AppendLine(string.Format("注意：请为上述 **{0} 款外设分别输出各自独立的 `.fp-adapter.json` 或 `.fp-driver.cs` 代码块**。", count));
             }
-            sb.AppendLine("### 方式 A：FDAS v2.0 声明式扩展包（保存为 `{brand}_{model}.fp-adapter.json`）");
-            sb.AppendLine("1. `fdasVersion`: `\"2.0\"`, `metadata`: brand, model, category, author, brandColor, description");
-            sb.AppendLine("2. `hardware`: vendorId, productId, `devices` (多 PID 矩阵), endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
-            sb.AppendLine("3. `capabilities`:");
-            sb.AppendLine("   - `battery`: reportId, batteryPercentByteOffset, chargingByteOffset, chargingBitMask, batteryFormula, sampleRxHex");
-            sb.AppendLine("   - `mouse`: (针对鼠标类别: minDpi, maxDpi, step, sensorDescription, defaultStages, supportedRates 等)");
-            sb.AppendLine("   - `customActions`: 可选自定义硬件动作数组（id, title, type: Toggle/Slider/Button, activeText, inactiveText, min, max, onTxHex, offTxHex, txTemplate）");
-            sb.AppendLine("4. `protocol`:");
-            sb.AppendLine("   - queryBatteryTxHex (或 queryBatteryPipeline)");
-            sb.AppendLine("   - variables (动态算式字典，如 rateParity, dpiLow, dpiParity 等)");
-            sb.AppendLine("   - rateCodeMap (厂商私有回报率编码映射)");
-            sb.AppendLine("   - setDpiTxTemplate / setStagesTxTemplate / setPollingRateTxTemplate");
-            sb.AppendLine("   - checksumType (None / SumMod256 / VgnCompxSum55 / XorSum / SonyInzone)");
+            sb.AppendLine("### 方式 A：FDAS v2.0 声明式扩展包（保存为 `{brand}_{model}.fp-adapter.json`，常规单帧协议首选）");
+            sb.AppendLine("- 适用场景：通过单条或顺序管线报文查询电量，配合公式/掩码即可完成解析。");
+            sb.AppendLine("- 核心字段：`fdasVersion` (`\"2.0\"`)、`metadata` (`brand`/`model`/`category`/`brandColor`/`author`)、`hardware` (`vendorId`/`productId`/`devices` 多 PID 矩阵/`endpointTopology`)、`capabilities` (`battery` 含 `reportId`/`batteryPercentByteOffset`/`chargingByteOffset`/`chargingBitMask`/`batteryFormula`/`sampleRxHex`，可选 `mouse`/`customActions`)、`protocol` (`queryBatteryTxHex` 或 `queryBatteryPipeline`、`variables`、`rateCodeMap`、`checksumType`: `None`/`SumMod256`/`VgnCompxSum55`/`XorSum`/`SonyInzone`)。");
             sb.AppendLine();
-            sb.AppendLine("### 方式 B：C# 5.0 动态驱动脚本扩展包（保存为 `{brand}_{model}.fp-driver.cs`）");
-            sb.AppendLine("- 继承 `RazerBatteryTray.HardwareDriverBase`，实现免编译热插拔驱动。");
+            sb.AppendLine("### 方式 B：C# 5.0 动态驱动脚本扩展包（保存为 `{brand}_{model}.fp-driver.cs`，复杂协议使用）");
+            sb.AppendLine("- 适用场景：需要多步状态机握手、BUSY 重试、共享接收器拆分子设备、或自定义二进制解码。Priority 300 高于内置驱动。");
+            sb.AppendLine("- **严格 C# 5.0 / .NET Framework 4.0 编译约束（必须遵守）**：");
+            sb.AppendLine("  - **严禁使用 C# 6+ 语法**：禁止 `$\"...\"` 字符串插值、禁止 `?.` / `??=`、禁止 `nameof`、禁止 `out var`、禁止 `=>` 表达式体成员（必须用 `{ get { return ...; } }` 与 `string.Format`）。");
+            sb.AppendLine("- **宿主可用核心 API**：");
+            sb.AppendLine("  - 继承 `RazerBatteryTray.HardwareDriverBase`：必须实现 `DriverId`、`Brand`，建议重写 `IsExternalPackage { get { return true; } }`、`MatchesVidPid(int vid, int pid)`、`PopulateCapabilities(MouseBatteryInfo dev)`、`QueryDevices()`。");
+            sb.AppendLine("  - HID 通信使用 `HidTransport`：`Enumerate(int vid, int pid)`、`Open(path)`、`OpenRead(path)`、`OpenFeature(path)`、`Close(h)`、`WriteReport(h, buf, len, timeoutMs)`、`ReadReportExact(h, len, timeoutMs, out report)`、`SetFeature(h, buf)`、`GetFeature(h, buf)`。");
+            sb.AppendLine("  - 休眠缓存与诊断日志使用 `DriverStateStore.SaveBatteryState` / `TryLoadBatteryState`，异常或跳过端点请调用 `HardwareDiagnosticService.RecordDriverTrace`。");
             sb.AppendLine();
-            sb.AppendLine("## 5. 标准化示例参考（Razer DeathAdder V4 Pro 旗舰双模鼠标 FDAS v2.0 范例）");
+
+            sb.AppendLine("## 4. 经引擎验证的最小可用模板（请严格参照结构，勿照抄占位字节）");
+            sb.AppendLine("### 模板 A：FDAS v2.0 最小可用示例（已实测 ATK A87 PRO 33B 中断报文，只读电量）");
             sb.AppendLine("```json");
             sb.AppendLine("{");
             sb.AppendLine("  \"fdasVersion\": \"2.0\",");
             sb.AppendLine("  \"metadata\": {");
-            sb.AppendLine("    \"brand\": \"Razer\",");
-            sb.AppendLine("    \"model\": \"DeathAdder V4 Pro\",");
-            sb.AppendLine("    \"category\": \"Mouse\",");
-            sb.AppendLine("    \"brandColor\": \"#00FF00\",");
-            sb.AppendLine("    \"sensorDescription\": \"Focus Pro 35K Gen-2 · 1-DPI 精准步进 (100 ~ 35,000 DPI)\",");
-            sb.AppendLine("    \"author\": \"FerrisPulse Official\"");
+            sb.AppendLine("    \"brand\": \"ATK\",");
+            sb.AppendLine("    \"model\": \"A87 PRO\",");
+            sb.AppendLine("    \"category\": \"Keyboard\",");
+            sb.AppendLine("    \"brandColor\": \"#A78BFA\",");
+            sb.AppendLine("    \"author\": \"Community Contributor\"");
             sb.AppendLine("  },");
             sb.AppendLine("  \"hardware\": {");
-            sb.AppendLine("    \"vendorId\": \"0x1532\",");
-            sb.AppendLine("    \"productId\": \"0x00BE\",");
-            sb.AppendLine("    \"devices\": [");
-            sb.AppendLine("      { \"productId\": \"0x00BE\", \"model\": \"Razer DeathAdder V4 Pro (2.4G)\", \"transport\": \"2.4G 无线\", \"maxRate\": 8000 },");
-            sb.AppendLine("      { \"productId\": \"0x00BF\", \"model\": \"Razer DeathAdder V4 Pro (Wired)\", \"transport\": \"USB 有线\", \"maxRate\": 8000 }");
-            sb.AppendLine("    ],");
-            sb.AppendLine("    \"endpointTopology\": { \"usagePage\": \"0x0001\", \"usage\": \"0x0002\", \"reportType\": \"Feature\", \"reportLength\": 91 }");
+            sb.AppendLine("    \"vendorId\": \"0x373B\",");
+            sb.AppendLine("    \"productId\": \"0x111F\",");
+            sb.AppendLine("    \"endpointTopology\": {");
+            sb.AppendLine("      \"usagePage\": \"0xFF60\",");
+            sb.AppendLine("      \"usage\": \"0x0061\",");
+            sb.AppendLine("      \"reportLength\": 33,");
+            sb.AppendLine("      \"reportType\": \"Interrupt\",");
+            sb.AppendLine("      \"readTimeoutMs\": 250");
+            sb.AppendLine("    }");
             sb.AppendLine("  },");
             sb.AppendLine("  \"capabilities\": {");
             sb.AppendLine("    \"battery\": {");
-            sb.AppendLine("      \"reportId\": \"0x00\", \"batteryPercentByteOffset\": 10, \"chargingByteOffset\": 9, \"chargingBitMask\": \"0x01\",");
-            sb.AppendLine("      \"batteryFormula\": \"(b[10] * 100) / 255\",");
-            sb.AppendLine("      \"sampleRxHex\": \"00 02 1F 00 00 00 02 07 80 01 CC 00 00 00 00 00 00 00 00 00\"");
-            sb.AppendLine("    },");
-            sb.AppendLine("    \"mouse\": {");
-            sb.AppendLine("      \"dpi\": { \"minDpi\": 100, \"maxDpi\": 35000, \"step\": 1, \"defaultStages\": [400, 800, 1600, 3200, 6400], \"supportsXyIndependence\": true },");
-            sb.AppendLine("      \"pollingRate\": { \"supportedRates\": [125, 250, 500, 1000, 2000, 4000, 8000], \"defaultRate\": 1000, \"maxRate\": 8000 }");
+            sb.AppendLine("      \"reportId\": \"0x00\",");
+            sb.AppendLine("      \"batteryPercentByteOffset\": 4,");
+            sb.AppendLine("      \"chargingByteOffset\": 5,");
+            sb.AppendLine("      \"chargingBitMask\": \"0x01\",");
+            sb.AppendLine("      \"batteryFormula\": \"DirectPercent\",");
+            sb.AppendLine("      \"sampleRxHex\": \"00 0B 03 00 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\"");
             sb.AppendLine("    }");
             sb.AppendLine("  },");
             sb.AppendLine("  \"protocol\": {");
-            sb.AppendLine("    \"queryBatteryTxHex\": \"00 00 1F 00 00 00 02 07 80 00 00 00 00 00 00 00 00 00 00 00\",");
-            sb.AppendLine("    \"setDpiTxTemplate\": \"00 00 1F 00 00 00 07 04 05 01 {stage} {dpiX_hi} {dpiX_lo} {dpiY_hi} {dpiY_lo} 00 00\",");
-            sb.AppendLine("    \"setPollingRateTxTemplate\": \"00 00 1F 00 00 00 02 00 40 01 {rateIndex} 00 00 00 00 00\",");
-            sb.AppendLine("    \"checksumType\": \"XorSum\"");
+            sb.AppendLine("    \"queryBatteryTxHex\": \"00 0B 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\",");
+            sb.AppendLine("    \"checksumType\": \"None\"");
             sb.AppendLine("  }");
             sb.AppendLine("}");
             sb.AppendLine("```");
             sb.AppendLine();
-            sb.AppendLine("用户将直接把输出内容导入 FerrisPulse「导入扩展适配包」窗口自动点亮外设！");
+            sb.AppendLine("### 模板 B：C# 5.0 动态驱动脚本最小编译模板（只读电量骨架）");
+            sb.AppendLine("```csharp");
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using RazerBatteryTray;");
+            sb.AppendLine();
+            sb.AppendLine("namespace FerrisPulse.Extensions");
+            sb.AppendLine("{");
+            sb.AppendLine("    public sealed class SampleVendorBatteryDriver : HardwareDriverBase");
+            sb.AppendLine("    {");
+            sb.AppendLine("        private const int TargetVid = 0x0000;");
+            sb.AppendLine("        private const int TargetPid = 0x0000;");
+            sb.AppendLine();
+            sb.AppendLine("        public override string DriverId { get { return \"custom_sample_vendor\"; } }");
+            sb.AppendLine("        public override string Brand { get { return \"SampleBrand\"; } }");
+            sb.AppendLine("        public override bool IsExternalPackage { get { return true; } }");
+            sb.AppendLine();
+            sb.AppendLine("        public override bool MatchesVidPid(int vid, int pid)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return vid == TargetVid && pid == TargetPid;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public override void PopulateCapabilities(MouseBatteryInfo dev)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (dev == null) return;");
+            sb.AppendLine("            dev.Capabilities.SupportsBattery = true;");
+            sb.AppendLine("            dev.Capabilities.SupportsDpi = false;");
+            sb.AppendLine("            dev.Capabilities.SupportsPollingRate = false;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public override List<MouseBatteryInfo> QueryDevices()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            List<MouseBatteryInfo> results = new List<MouseBatteryInfo>();");
+            sb.AppendLine("            List<HidDeviceDescriptor> eps = HidTransport.Enumerate(TargetVid, TargetPid);");
+            sb.AppendLine("            for (int i = 0; i < eps.Count; i++)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                HidDeviceDescriptor ep = eps[i];");
+            sb.AppendLine("                if (ep.UsagePage != 0xFF00 || ep.InputReportLength <= 0) continue;");
+            sb.AppendLine("                // Replace with verified TX/RX query and DriverStateStore.SaveBatteryState");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return results;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+
+            sb.AppendLine("## 5. 规范索引、交付自检与社区反哺");
+            sb.AppendLine("- **项目源码与文档**：GitHub `https://github.com/Ferris-echo/FerrisPulse.git` | Gitee `https://gitee.com/Ferris-echo/ferris-pulse.git`");
+            sb.AppendLine("- **规范文档**：`docs/ADAPTER_SPECIFICATION.md`、`docs/AGENT_HANDBOOK.md`、`AGENT_RULES.md`");
+            sb.AppendLine("- **交付前自检清单**：");
+            sb.AppendLine("  1. `vendorId`/`productId` 与第 1 节硬件指纹完全一致；");
+            sb.AppendLine("  2. 报文字节、Offset 与公式均来自真实抓包或 WebHID 源码，未凭空编造；");
+            sb.AppendLine("  3. 未验证的写指令已保持关闭或留空；");
+            sb.AppendLine("  4. 若输出 `.fp-driver.cs`，已确认零 C# 6+ 语法且可直接通过 .NET 4.0 编译。");
+            sb.AppendLine("- **社区反哺（输出适配文件后附带简要适配报告）**：");
+            sb.AppendLine("  - GitHub Issues / PR: https://github.com/Ferris-echo/FerrisPulse/issues");
+            sb.AppendLine("  - Gitee Issues / PR: https://gitee.com/Ferris-echo/ferris-pulse/issues");
+            sb.AppendLine("  - 作者个人邮箱直连投递: ferris.echo@gmail.com");
+            sb.AppendLine();
+            sb.AppendLine("用户将直接把你输出的 `.fp-adapter.json` 或 `.fp-driver.cs` 导入 FerrisPulse「导入扩展适配包」窗口。");
             return sb.ToString();
         }
     }

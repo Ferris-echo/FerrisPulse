@@ -20,17 +20,52 @@ namespace RazerBatteryTray
     internal static class NativeMethods
     {
         // ==================== DPI Awareness ====================
+        public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE = new IntPtr(-3);
+        public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+        private const int PROCESS_PER_MONITOR_DPI_AWARE = 2;
+
         [DllImport("user32.dll")]
         public static extern bool SetProcessDPIAware();
 
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetProcessDpiAwarenessContext(IntPtr dpiFlag);
+
+        [DllImport("shcore.dll")]
+        public static extern int SetProcessDpiAwareness(int awareness);
+
         [DllImport("user32.dll")]
         public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+        public static void EnableBestDpiAwareness()
+        {
+            try
+            {
+                IntPtr hUser32 = GetModuleHandle("user32.dll");
+                if (hUser32 != IntPtr.Zero && GetProcAddress(hUser32, "SetProcessDpiAwarenessContext") != IntPtr.Zero)
+                {
+                    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return;
+                    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)) return;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0) return;
+            }
+            catch { }
+
+            try { SetProcessDPIAware(); } catch { }
+        }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
         public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint GetShortPathName(string lpszLongPath, StringBuilder lpszShortPath, uint cchBuffer);
 
         // ==================== System Uptime & Process Queries ====================
         [DllImport("kernel32.dll")]

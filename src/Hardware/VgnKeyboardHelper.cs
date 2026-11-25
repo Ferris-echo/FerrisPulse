@@ -308,6 +308,11 @@ namespace RazerBatteryTray
             int red, int green, int blue, out string error)
         {
             error = null;
+            if (HardwareCommandBus.IsHardwareSandboxActive)
+            {
+                error = "测试沙盒已拦截物理键盘灯光写入。";
+                return false;
+            }
             int pid;
             HidDeviceDescriptor endpoint = FindWiredEndpoint(out pid);
             if (endpoint == null)

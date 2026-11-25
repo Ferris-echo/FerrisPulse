@@ -810,6 +810,7 @@ namespace RazerBatteryTray
         /// <summary>下发完整 DPI 表（6 档，X/Y 独立，同时指定当前档位）。</summary>
         public static bool WriteDpiStages(int[] stagesX, int[] stagesY, int activeStage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesY == null) return false;
             if (activeStage < 0) activeStage = 0;
             if (activeStage >= MaxDpiStages) activeStage = MaxDpiStages - 1;
@@ -883,6 +884,7 @@ namespace RazerBatteryTray
         /// <summary>切换回报率（写入档位位标志）。</summary>
         public static bool WritePollingRate(int rateHz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             int flag = RateFlagFromHz(rateHz);
             if (flag == 0) return false;
 

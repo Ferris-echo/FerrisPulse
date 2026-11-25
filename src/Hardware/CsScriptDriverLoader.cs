@@ -64,6 +64,16 @@ namespace RazerBatteryTray
             try { selfLoc = selfAsm.Location; } catch { }
             if (!string.IsNullOrEmpty(selfLoc) && File.Exists(selfLoc)) return selfLoc;
 
+            if (HardwareCommandBus.IsHardwareSandboxActive)
+            {
+                try
+                {
+                    string testBin = Environment.GetEnvironmentVariable("FERRISPULSE_TEST_BIN");
+                    if (!string.IsNullOrEmpty(testBin) && File.Exists(testBin)) return Path.GetFullPath(testBin);
+                }
+                catch { }
+            }
+
             try
             {
                 string c1 = Path.Combine(Environment.CurrentDirectory, "FerrisPulse.exe");
@@ -94,7 +104,6 @@ namespace RazerBatteryTray
 
             lock (compileLock)
             {
-                string tempRefCopy = "";
                 try
                 {
                     using (CSharpCodeProvider provider = new CSharpCodeProvider())
@@ -114,22 +123,23 @@ namespace RazerBatteryTray
                         string selfLoc = ResolveSelfAssemblyPath();
                         if (!string.IsNullOrEmpty(selfLoc) && File.Exists(selfLoc))
                         {
-                            // 若路径包含特殊非 ASCII 字符，拷贝至纯 ASCII 临时路径供 csc.exe 引用，完成后立即删除，零句柄占用
-                            bool hasNonAscii = false;
-                            for (int si = 0; si < selfLoc.Length; si++)
+                            // 优先解析 Windows 8.3 短路径直接引用原文件，绝不往 %TEMP% 复制自身 .exe，杜绝杀软 Dropper 误报
+                            string refPath = selfLoc;
+                            try
                             {
-                                if (selfLoc[si] > 127) { hasNonAscii = true; break; }
+                                StringBuilder shortBuf = new StringBuilder(512);
+                                uint len = NativeMethods.GetShortPathName(selfLoc, shortBuf, (uint)shortBuf.Capacity);
+                                if (len > 0 && len < shortBuf.Capacity)
+                                {
+                                    string shortCandidate = shortBuf.ToString();
+                                    if (!string.IsNullOrEmpty(shortCandidate) && File.Exists(shortCandidate))
+                                    {
+                                        refPath = shortCandidate;
+                                    }
+                                }
                             }
-                            if (hasNonAscii)
-                            {
-                                tempRefCopy = Path.Combine(Path.GetTempPath(), "fp_ref_" + Guid.NewGuid().ToString("N") + ".exe");
-                                File.Copy(selfLoc, tempRefCopy, true);
-                                cp.ReferencedAssemblies.Add(tempRefCopy);
-                            }
-                            else
-                            {
-                                cp.ReferencedAssemblies.Add(selfLoc);
-                            }
+                            catch { }
+                            cp.ReferencedAssemblies.Add(refPath);
                         }
 
                         CompilerResults cr = provider.CompileAssemblyFromSource(cp, csSource);
@@ -189,13 +199,6 @@ namespace RazerBatteryTray
                 catch (Exception ex)
                 {
                     errors.Add("脚本编译器异常: " + ex.Message);
-                }
-                finally
-                {
-                    if (!string.IsNullOrEmpty(tempRefCopy))
-                    {
-                        try { if (File.Exists(tempRefCopy)) File.Delete(tempRefCopy); } catch { }
-                    }
                 }
             }
 

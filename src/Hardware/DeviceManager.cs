@@ -602,6 +602,8 @@ namespace RazerBatteryTray
                 return ia.CompareTo(ib);
             });
 
+            ApplyDeviceAppearances(result);
+
             for (int i = 0; i < result.Count; i++)
             {
                 result[i].PriorityIndex = i + 1;
@@ -614,6 +616,7 @@ namespace RazerBatteryTray
         {
             var dev = new MouseBatteryInfo();
             dev.DeviceId = deviceId;
+            dev.Category = DeviceCategory.Generic;
             dev.IsConnected = false;
             dev.BatteryPercent = -1;
 
@@ -649,7 +652,7 @@ namespace RazerBatteryTray
                 if (dev.BatteryPercent < 0 && cfg.CachedBattery > 0) dev.BatteryPercent = cfg.CachedBattery;
             }
 
-            // If Razer device, resolve official name and category
+            // If Razer device, resolve official name, category, model rates, and hardware cache state
             if (deviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))
             {
                 dev.Brand = "Razer";
@@ -659,6 +662,55 @@ namespace RazerBatteryTray
                 string officialName = RazerDeviceHelper.GetRazerOfficialModelName(pid, dev.DeviceName);
                 if (string.IsNullOrEmpty(dev.DeviceName)) dev.DeviceName = officialName;
                 if (dev.Category == DeviceCategory.Generic) dev.Category = RazerDeviceHelper.GetRazerDeviceCategory(pid, officialName);
+                if (dev.Category == DeviceCategory.Mouse)
+                {
+                    dev.SupportedPollingRates = RazerDeviceHelper.GetSupportedPollingRatesForModel(pid, officialName);
+                }
+
+                string normRzId = RazerDeviceHelper.NormalizeRazerDeviceId(deviceId);
+                if (dev.BatteryPercent < 0 && !string.IsNullOrEmpty(normRzId) && !string.Equals(normRzId, deviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    int nb; bool nchg; string ndn; DateTime ndt;
+                    if (DriverStateStore.TryLoadBatteryState(normRzId, out nb, out nchg, out ndn, out ndt))
+                    {
+                        dev.BatteryPercent = nb;
+                        dev.IsCharging = nchg;
+                        if (string.IsNullOrEmpty(dev.DeviceName) && !string.IsNullOrEmpty(ndn)) dev.DeviceName = ndn;
+                        if (dev.LastUpdated == DateTime.MinValue) dev.LastUpdated = ndt;
+                    }
+                }
+
+                var rzState = RazerDeviceHelper.GetDeviceState(deviceId);
+                if (rzState != null)
+                {
+                    if (dev.BatteryPercent < 0 && rzState.BatteryPercent > 0) dev.BatteryPercent = rzState.BatteryPercent;
+                    if (dev.ExactBatteryPercent <= 0 && rzState.ExactBatteryPercent > 0) dev.ExactBatteryPercent = rzState.ExactBatteryPercent;
+                    if (dev.LastUpdated == DateTime.MinValue && rzState.LastUpdated != DateTime.MinValue) dev.LastUpdated = rzState.LastUpdated;
+                    if (rzState.DpiStages != null && rzState.DpiStages.Length > 0) dev.DpiStages = (int[])rzState.DpiStages.Clone();
+                    if (rzState.DpiStagesY != null && rzState.DpiStagesY.Length > 0) dev.DpiStagesY = (int[])rzState.DpiStagesY.Clone();
+                    if (rzState.Dpi > 0) dev.Dpi = rzState.Dpi;
+                    if (rzState.DpiY > 0) dev.DpiY = rzState.DpiY;
+                    if (rzState.DpiStage > 0) dev.DpiStage = rzState.DpiStage;
+                    if (rzState.DpiStageCount > 0) dev.DpiStageCount = rzState.DpiStageCount;
+                    dev.IsXyIndependent = rzState.IsXyIndependent;
+                    if (rzState.XyRatio > 0) dev.XyRatio = rzState.XyRatio;
+                    if (rzState.PollingRate > 0) dev.PollingRate = rzState.PollingRate;
+                }
+                else if (!string.IsNullOrEmpty(RazerDeviceHelper.CachedDeviceName) &&
+                         string.Equals(RazerDeviceHelper.CachedDeviceName, officialName, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dev.BatteryPercent < 0 && RazerDeviceHelper.CachedBatteryPercent > 0) dev.BatteryPercent = RazerDeviceHelper.CachedBatteryPercent;
+                    if (dev.LastUpdated == DateTime.MinValue && RazerDeviceHelper.CachedLastUpdated != DateTime.MinValue) dev.LastUpdated = RazerDeviceHelper.CachedLastUpdated;
+                    if (RazerDeviceHelper.CachedDpiStages != null && RazerDeviceHelper.CachedDpiStages.Length > 0) dev.DpiStages = (int[])RazerDeviceHelper.CachedDpiStages.Clone();
+                    if (RazerDeviceHelper.CachedDpiStagesY != null && RazerDeviceHelper.CachedDpiStagesY.Length > 0) dev.DpiStagesY = (int[])RazerDeviceHelper.CachedDpiStagesY.Clone();
+                    if (RazerDeviceHelper.CachedDpi > 0) dev.Dpi = RazerDeviceHelper.CachedDpi;
+                    if (RazerDeviceHelper.CachedDpiY > 0) dev.DpiY = RazerDeviceHelper.CachedDpiY;
+                    if (RazerDeviceHelper.CachedDpiStage > 0) dev.DpiStage = RazerDeviceHelper.CachedDpiStage;
+                    if (RazerDeviceHelper.CachedDpiStageCount > 0) dev.DpiStageCount = RazerDeviceHelper.CachedDpiStageCount;
+                    dev.IsXyIndependent = RazerDeviceHelper.CachedIsXyIndependent;
+                    if (RazerDeviceHelper.CachedXyRatio > 0) dev.XyRatio = RazerDeviceHelper.CachedXyRatio;
+                    if (RazerDeviceHelper.CachedPollingRate > 0) dev.PollingRate = RazerDeviceHelper.CachedPollingRate;
+                }
             }
             else if (deviceId.StartsWith("Keychron:3434:D026:MS", StringComparison.OrdinalIgnoreCase) ||
                      deviceId.StartsWith("Keychron:3434:D060:MS", StringComparison.OrdinalIgnoreCase))
@@ -676,15 +728,65 @@ namespace RazerBatteryTray
             {
                 dev.Brand = "Rapoo";
                 if (dev.Category == DeviceCategory.Generic) dev.Category = DeviceCategory.Mouse;
+                if (dev.Category == DeviceCategory.Mouse)
+                {
+                    string hex = deviceId.Substring("Rapoo:24AE:".Length).Trim();
+                    int pid = 0;
+                    int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out pid);
+                    dev.SupportedPollingRates = RapooDeviceHelper.GetSupportedPollingRatesForModel(pid, dev.DeviceName);
+                }
             }
-            else if (deviceId.IndexOf(":KB", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (deviceId.IndexOf(":KB", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     deviceId.IndexOf("NuPhy", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     deviceId.IndexOf("WH80", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     deviceId.IndexOf("19F5", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     (!string.IsNullOrEmpty(dev.DeviceName) &&
+                      (dev.DeviceName.IndexOf("NuPhy", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.IndexOf("WH80", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.IndexOf("Air75", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.IndexOf("Air96", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.IndexOf("Air60", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.IndexOf("Keyboard", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       dev.DeviceName.Contains("键盘"))))
             {
+                if (deviceId.IndexOf("NuPhy", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    deviceId.IndexOf("WH80", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    deviceId.IndexOf("19F5", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (!string.IsNullOrEmpty(dev.DeviceName) && dev.DeviceName.IndexOf("NuPhy", StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    if (string.IsNullOrEmpty(dev.Brand)) dev.Brand = "NuPhy";
+                }
                 if (dev.Category == DeviceCategory.Generic) dev.Category = DeviceCategory.Keyboard;
             }
 
             if (string.IsNullOrEmpty(dev.DeviceName))
             {
                 dev.DeviceName = !string.IsNullOrEmpty(dev.CustomName) ? dev.CustomName : deviceId;
+            }
+
+            if (dev.Category == DeviceCategory.Mouse)
+            {
+                int cachedDx, cachedDy, cachedSt, cachedPr;
+                bool loadedDpi = DriverStateStore.TryLoadDpiState(deviceId, out cachedDx, out cachedDy, out cachedSt, out cachedPr);
+                if (!loadedDpi && deviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string normRz = RazerDeviceHelper.NormalizeRazerDeviceId(deviceId);
+                    if (!string.IsNullOrEmpty(normRz))
+                    {
+                        loadedDpi = DriverStateStore.TryLoadDpiState(normRz, out cachedDx, out cachedDy, out cachedSt, out cachedPr);
+                    }
+                }
+                if (loadedDpi)
+                {
+                    if (dev.Dpi <= 0 && cachedDx > 0) dev.Dpi = cachedDx;
+                    if (dev.DpiY <= 0 && cachedDy > 0) dev.DpiY = cachedDy;
+                    if (dev.DpiStage <= 0 && cachedSt > 0) dev.DpiStage = cachedSt;
+                    if (dev.PollingRate <= 0 && cachedPr > 0) dev.PollingRate = cachedPr;
+                }
+                if (dev.DpiStages != null && dev.DpiStages.Length > 0 && dev.DpiStageCount <= 0)
+                {
+                    dev.DpiStageCount = dev.DpiStages.Length;
+                }
             }
 
             return dev;
@@ -3136,6 +3238,8 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            ApplyDeviceAppearances(list);
+
             // 3.6 Guarantee no duplicate NuPhy devices in list
             var nuphyDevices = list.FindAll(x => x.Brand == "NuPhy" || NuphyDeviceHelper.IsNuphyDevice(x.DeviceId) || NuphyDeviceHelper.IsNuphyDevice(x.DeviceName));
             if (nuphyDevices.Count > 1)
@@ -3375,6 +3479,160 @@ namespace RazerBatteryTray
             }
 
             return list;
+        }
+
+        public class DeviceAppearanceConfig
+        {
+            public string DeviceId { get; set; }
+            public string CustomName { get; set; }
+            public string ThemeColorHex { get; set; }
+            public string TrayColorHex { get; set; }
+            private bool linkTrayColorToTheme = true;
+            public bool LinkTrayColorToTheme
+            {
+                get { return linkTrayColorToTheme; }
+                set { linkTrayColorToTheme = value; }
+            }
+        }
+
+        private const string DeviceAppearanceRegKey = @"Software\FerrisPulse\DeviceAppearance";
+
+        private static string GetCanonicalAppearanceId(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return "";
+            string id = deviceId;
+            if (id.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))
+            {
+                id = RazerDeviceHelper.NormalizeRazerDeviceId(id);
+            }
+            return id.Replace('\\', '_').Replace('/', '_');
+        }
+
+        public static void SaveDeviceAppearance(MouseBatteryInfo dev, string customName, string themeColorHex, string trayColorHex, bool linkTrayColorToTheme)
+        {
+            if (dev == null || string.IsNullOrEmpty(dev.DeviceId)) return;
+            string cleanName = string.IsNullOrEmpty(customName) ? "" : customName.Trim();
+            string cleanTheme = string.IsNullOrEmpty(themeColorHex) ? "" : themeColorHex.Trim();
+            string cleanTray = linkTrayColorToTheme ? cleanTheme : (string.IsNullOrEmpty(trayColorHex) ? "" : trayColorHex.Trim());
+
+            dev.CustomName = cleanName;
+            dev.CustomThemeColorHex = cleanTheme;
+            dev.CustomTrayColorHex = cleanTray;
+            dev.LinkTrayColorToTheme = linkTrayColorToTheme;
+
+            SaveDeviceAppearance(dev.DeviceId, cleanName, cleanTheme, cleanTray, linkTrayColorToTheme);
+        }
+
+        public static void SaveDeviceAppearance(string deviceId, string customName, string themeColorHex, string trayColorHex, bool linkTrayColorToTheme)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            string subName = GetCanonicalAppearanceId(deviceId);
+            if (string.IsNullOrEmpty(subName)) return;
+
+            try
+            {
+                using (var key = Registry.CurrentUser.CreateSubKey(DeviceAppearanceRegKey + @"\" + subName))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("DeviceId", deviceId);
+                        key.SetValue("CustomName", customName ?? "");
+                        key.SetValue("ThemeColorHex", themeColorHex ?? "");
+                        key.SetValue("TrayColorHex", linkTrayColorToTheme ? (themeColorHex ?? "") : (trayColorHex ?? ""));
+                        key.SetValue("LinkTrayColorToTheme", linkTrayColorToTheme ? 1 : 0, RegistryValueKind.DWord);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static DeviceAppearanceConfig GetDeviceAppearance(string deviceId, string hardwareFingerprint = null)
+        {
+            if (string.IsNullOrEmpty(deviceId) && string.IsNullOrEmpty(hardwareFingerprint)) return null;
+            var candidates = new List<string>();
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                candidates.Add(GetCanonicalAppearanceId(deviceId));
+                var variants = GetDeviceIdVariants(deviceId);
+                for (int i = 0; i < variants.Count; i++) candidates.Add(GetCanonicalAppearanceId(variants[i]));
+            }
+            if (!string.IsNullOrEmpty(hardwareFingerprint))
+            {
+                candidates.Add(GetCanonicalAppearanceId(hardwareFingerprint));
+            }
+
+            try
+            {
+                using (var rootKey = Registry.CurrentUser.OpenSubKey(DeviceAppearanceRegKey, false))
+                {
+                    if (rootKey == null) return null;
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        string subName = candidates[i];
+                        if (string.IsNullOrEmpty(subName)) continue;
+                        using (var sub = rootKey.OpenSubKey(subName, false))
+                        {
+                            if (sub != null)
+                            {
+                                var cfg = new DeviceAppearanceConfig();
+                                cfg.DeviceId = sub.GetValue("DeviceId", subName) as string;
+                                cfg.CustomName = sub.GetValue("CustomName", "") as string;
+                                cfg.ThemeColorHex = sub.GetValue("ThemeColorHex", "") as string;
+                                cfg.TrayColorHex = sub.GetValue("TrayColorHex", "") as string;
+                                object linkObj = sub.GetValue("LinkTrayColorToTheme", 1);
+                                cfg.LinkTrayColorToTheme = Convert.ToInt32(linkObj) != 0;
+                                return cfg;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static void ClearDeviceAppearance(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return;
+            try
+            {
+                using (var rootKey = Registry.CurrentUser.OpenSubKey(DeviceAppearanceRegKey, true))
+                {
+                    if (rootKey != null)
+                    {
+                        rootKey.DeleteSubKeyTree(GetCanonicalAppearanceId(deviceId), false);
+                        var variants = GetDeviceIdVariants(deviceId);
+                        for (int i = 0; i < variants.Count; i++)
+                        {
+                            rootKey.DeleteSubKeyTree(GetCanonicalAppearanceId(variants[i]), false);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void ApplyDeviceAppearances(List<MouseBatteryInfo> list)
+        {
+            if (list == null || list.Count == 0) return;
+            try
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var dev = list[i];
+                    if (dev == null) continue;
+                    var app = GetDeviceAppearance(dev.DeviceId, dev.HardwareFingerprint);
+                    if (app == null) continue;
+                    if (!string.IsNullOrEmpty(app.CustomName))
+                    {
+                        dev.CustomName = app.CustomName;
+                    }
+                    dev.CustomThemeColorHex = app.ThemeColorHex ?? "";
+                    dev.CustomTrayColorHex = app.TrayColorHex ?? "";
+                    dev.LinkTrayColorToTheme = app.LinkTrayColorToTheme;
+                }
+            }
+            catch { }
         }
     }
 }

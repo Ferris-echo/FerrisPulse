@@ -143,20 +143,31 @@ namespace RazerBatteryTray
             btnExportBuiltIn.Click += (s, e) => DoExportBuiltInTemplates();
             this.Controls.Add(btnExportBuiltIn);
 
-            // Multiline Editor
+            // Multiline Editor inside RoundedCard (matches dark rounded design language)
             int txtY = Scale(96);
             int txtH = Scale(265);
+            var editorCard = new RoundedCard();
+            editorCard.CardColor = Color.FromArgb(24, 27, 36);
+            editorCard.BorderColor = Color.FromArgb(50, 56, 72);
+            editorCard.CornerRadius = Scale(8);
+            editorCard.Location = new Point(pad, txtY);
+            editorCard.Size = new Size(clientW - pad * 2, txtH);
+            this.Controls.Add(editorCard);
+
+            int edPad = Scale(8);
             txtJson = new TextBox();
             txtJson.Multiline = true;
             txtJson.ScrollBars = ScrollBars.Vertical;
             txtJson.Font = new Font("Consolas", 9F);
-            txtJson.BackColor = Color.FromArgb(24, 27, 36);
+            txtJson.BackColor = editorCard.CardColor;
             txtJson.ForeColor = Color.FromArgb(230, 235, 245);
-            txtJson.BorderStyle = BorderStyle.FixedSingle;
-            txtJson.Location = new Point(pad, txtY);
-            txtJson.Size = new Size(clientW - pad * 2, txtH);
+            txtJson.BorderStyle = BorderStyle.None;
+            txtJson.Location = new Point(edPad, edPad);
+            txtJson.Size = new Size(editorCard.Width - edPad * 2, editorCard.Height - edPad * 2);
+            txtJson.GotFocus += (s, e) => { editorCard.BorderColor = Color.FromArgb(0, 230, 118); editorCard.Invalidate(); };
+            txtJson.LostFocus += (s, e) => { editorCard.BorderColor = Color.FromArgb(50, 56, 72); editorCard.Invalidate(); };
             txtJson.TextChanged += (s, e) => ValidateJsonInput();
-            this.Controls.Add(txtJson);
+            editorCard.Controls.Add(txtJson);
 
             // Status Card
             int statusY = txtY + txtH + Scale(10);

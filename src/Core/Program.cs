@@ -63,10 +63,10 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2. 声明系统物理级 High-DPI 感知
+            // 2. 声明系统物理级 High-DPI 感知 (优先 Per-Monitor V2，多屏高分与自带笔记本屏切换不发虚)
             try
             {
-                NativeMethods.SetProcessDPIAware();
+                NativeMethods.EnableBestDpiAwareness();
             }
             catch { }
 

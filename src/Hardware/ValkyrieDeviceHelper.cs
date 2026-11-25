@@ -492,6 +492,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateValkyrieHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
@@ -544,6 +545,7 @@ namespace RazerBatteryTray
 
         public static bool SetValkyriePollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
 
             IntPtr handle = RazerDeviceHelper.CreateFile(
@@ -598,6 +600,7 @@ namespace RazerBatteryTray
 
         public static bool SetValkyrieDpi(int dpiX, int dpiY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
 
             IntPtr handle = RazerDeviceHelper.CreateFile(

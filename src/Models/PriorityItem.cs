@@ -30,5 +30,16 @@ namespace RazerBatteryTray
         public float TargetY { get; set; }
         public bool IsCustom { get; set; }
         public string HardwareFingerprint { get; set; }
+        public string OriginalName { get; set; }
+        public Color DefaultBrandColor { get; set; }
+        public string ThemeColorHex { get; set; }
+        public string TrayColorHex { get; set; }
+        private bool linkTrayColorToTheme = true;
+        public bool LinkTrayColorToTheme
+        {
+            get { return linkTrayColorToTheme; }
+            set { linkTrayColorToTheme = value; }
+        }
+        public Color TrayAccentColor { get; set; }
     }
 }

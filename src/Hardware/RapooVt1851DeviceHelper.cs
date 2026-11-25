@@ -539,6 +539,7 @@ namespace RazerBatteryTray
         // --------------------------------------------------------------------
         public static bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (!EnsureEndpoints()) return false;
             if (dpiY > 0 && dpiY != dpiX) return false; // 本型号无 Y 轴 DPI 表
 
@@ -606,6 +607,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (!EnsureEndpoints()) return false;
             if (stagesX == null || stagesX.Length == 0 || stagesX.Length > 7) return false;
 
@@ -695,6 +697,7 @@ namespace RazerBatteryTray
 
         public static bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (!EnsureEndpoints()) return false;
             byte code = EncodePollingRate(rateHz);
             if (code == 0) return false;

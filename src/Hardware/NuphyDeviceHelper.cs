@@ -426,6 +426,7 @@ namespace RazerBatteryTray
 
         public static bool SetWinLock(bool lockWin)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             try
             {
                 string path = FindNuphyCommandEndpoint();
@@ -458,6 +459,7 @@ namespace RazerBatteryTray
 
         public static bool SetAutoSleep(bool enable)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             try
             {
                 string path = FindNuphyCommandEndpoint();
@@ -494,6 +496,7 @@ namespace RazerBatteryTray
 
         public static bool SetBacklightBrightness(int percent)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (percent < 0) percent = 0;
             if (percent > 100) percent = 100;
             try
@@ -542,6 +545,7 @@ namespace RazerBatteryTray
 
         public static bool SetSidelightBrightness(int percent)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (percent < 0) percent = 0;
             if (percent > 100) percent = 100;
             try

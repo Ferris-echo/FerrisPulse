@@ -162,7 +162,37 @@ namespace RazerBatteryTray
                 }
             }
 
+            // 支持 Windows BLE HID 实例路径格式：..._DEV_VID&02046D_PID&B034_REV&...
+            int bleVid, blePid;
+            if (TryExtractBleTaggedHex4(s, "vid&", out bleVid) &&
+                TryExtractBleTaggedHex4(s, "pid&", out blePid))
+            {
+                vid = bleVid;
+                pid = blePid;
+                return true;
+            }
+
             return false;
+        }
+
+        private static bool TryExtractBleTaggedHex4(string lower, string prefix, out int value)
+        {
+            value = 0;
+            int idx = lower.IndexOf(prefix, StringComparison.Ordinal);
+            if (idx < 0) return false;
+            int start = idx + prefix.Length;
+            int end = start;
+            while (end < lower.Length)
+            {
+                char ch = lower[end];
+                bool isHex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+                if (!isHex) break;
+                end++;
+            }
+            int len = end - start;
+            if (len < 4) return false;
+            string hex4 = lower.Substring(end - 4, 4);
+            return int.TryParse(hex4, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
         }
     }
 }

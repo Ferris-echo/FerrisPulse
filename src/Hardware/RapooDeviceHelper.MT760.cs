@@ -420,6 +420,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateOfficeHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length < 1 || stagesX.Length > 7) return false;
             if (stagesY == null) stagesY = stagesX;
             if (stagesY.Length != stagesX.Length) return false;
@@ -502,6 +503,7 @@ namespace RazerBatteryTray
 
         public static bool SetOfficePollingRate(int rateHz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (!IsSupportedOfficeRate(rateHz)) return false;
             byte code = EncodeOfficeRateCode(rateHz);
             if (code == 0) return false;

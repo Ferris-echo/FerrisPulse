@@ -2,9 +2,10 @@
 // 模块名称: LogitechDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   罗技 (Logitech) HID++ 1.0/2.0 私有协议通信、电量检测、DPI调节 (Feature 0x2201/0x2202 支持XY轴独立) 与回报率设置 (Feature 0x8060/0x8061 最高8000Hz) 实现
+//   罗技 (Logitech) HID++ 1.0/2.0 私有协议通信、电量检测（含 20B 端点评分择优与 HID++ 1.0 0x0D/0x07 兜底）、
+//   DPI 调节 (Feature 0x2201/0x2202 支持 XY 轴独立) 与回报率设置 (Feature 0x8060/0x8061 最高 8000Hz) 实现，
 //   另含 G PRO X Wireless 耳机 (046D:0ABA) 专属 HID++ 4.2 电量通道 (Feature 0x1F20 ADC_MEASUREMENT)
-// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
+// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, HardwareDiagnosticService.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、协议解析或签名时，【必须】同步更新上方说明。
@@ -783,6 +784,67 @@ public static class LogitechDeviceHelper
         return BuildProXHeadsetInfo(percent, charging, true, DateTime.Now);
     }
 
+    public static int ScoreLogitechEndpoint(ushort usagePage, ushort usage, int inputLen, int outputLen)
+    {
+        if (inputLen == 20 && outputLen == 20 && usagePage == 0xFF00 && usage == 0x0002) return 100;
+        if (inputLen == 20 && outputLen == 20) return 80;
+        if (inputLen >= 20 && outputLen >= 20) return 60;
+        if (inputLen == 7 && outputLen == 7) return 40;
+        return 10;
+    }
+
+    public static bool TryParseHidpp10BatteryReply(byte[] rx, out int batteryPercent, out bool isCharging)
+    {
+        batteryPercent = -1;
+        isCharging = false;
+        if (rx == null || rx.Length < 5) return false;
+
+        // 1. Standard HID++ 1.0 GET_REGISTER response (0x10 devIdx 0x81 reg ...)
+        if (rx[0] == 0x10 && rx[2] == 0x81)
+        {
+            byte reg = rx[3];
+            if (reg == 0x0D && rx.Length >= 7)
+            {
+                int pct = rx[4];
+                if (pct >= 0 && pct <= 100)
+                {
+                    batteryPercent = pct;
+                    byte chgState = rx[6];
+                    isCharging = (chgState == 0x30 || chgState == 0x50 || (chgState & 0xF0) == 0x30);
+                    return true;
+                }
+                return false;
+            }
+            if (reg == 0x07 && rx.Length >= 6)
+            {
+                int mapped;
+                switch (rx[4])
+                {
+                    case 1: mapped = 5; break;
+                    case 3: mapped = 20; break;
+                    case 5: mapped = 50; break;
+                    case 7: mapped = 90; break;
+                    default: return false;
+                }
+                batteryPercent = mapped;
+                byte st = rx[5];
+                isCharging = (st == 0x21 || st == 0x22 || st == 0x24 || st == 0x25 || st == 0x26);
+                return true;
+            }
+            return false;
+        }
+
+        // 2. Legacy compact format
+        if (rx[2] == 0x0D && rx[3] <= 100)
+        {
+            batteryPercent = rx[3];
+            isCharging = (rx[4] == 1);
+            return true;
+        }
+
+        return false;
+    }
+
     public static MouseBatteryInfo QueryLogitechProXHeadset()
     {
         Guid hidGuid;
@@ -997,12 +1059,20 @@ public static class LogitechDeviceHelper
             {
                 var group = kvp.Value;
                 LogitechRawEndpoint bestEndpoint = null;
+                int bestScore = int.MinValue;
+                LogitechRawEndpoint shortEndpoint = null;
                 for (int i = 0; i < group.Count; i++)
                 {
-                    if (group[i].OutputReportByteLength >= 20 && group[i].InputReportByteLength >= 20)
+                    var cand = group[i];
+                    int sc = ScoreLogitechEndpoint(cand.UsagePage, cand.Usage, cand.InputReportByteLength, cand.OutputReportByteLength);
+                    if (sc > bestScore)
                     {
-                        bestEndpoint = group[i];
-                        break;
+                        bestScore = sc;
+                        bestEndpoint = cand;
+                    }
+                    if (cand.InputReportByteLength == 7 && cand.OutputReportByteLength == 7 && shortEndpoint == null)
+                    {
+                        shortEndpoint = cand;
                     }
                 }
                 if (bestEndpoint == null) bestEndpoint = group[0];
@@ -1011,6 +1081,7 @@ public static class LogitechDeviceHelper
                 int foundPid = bestEndpoint.ProductId;
                 if (foundPid == 0x0ABA) continue; // G PRO X 耳机已由专属通道 QueryLogitechProXHeadset() 处理
                 string foundName = bestEndpoint.ProductString;
+                string vidPidKey = string.Format("{0:X4}:{1:X4}", foundVid, foundPid);
 
                 IntPtr handle = CreateFile(
                     bestEndpoint.DevicePath,
@@ -1021,7 +1092,11 @@ public static class LogitechDeviceHelper
                     FILE_FLAG_OVERLAPPED,
                     IntPtr.Zero);
 
-                if (handle == IntPtr.Zero || handle.ToInt64() == -1) continue;
+                if (handle == IntPtr.Zero || handle.ToInt64() == -1)
+                {
+                    HardwareDiagnosticService.RecordDriverTrace("Logitech", vidPidKey, string.Format("OPEN_FAIL Win32Error={0} UP=0x{1:X4} U=0x{2:X4} In={3} Out={4}", Marshal.GetLastWin32Error(), bestEndpoint.UsagePage, bestEndpoint.Usage, bestEndpoint.InputReportByteLength, bestEndpoint.OutputReportByteLength));
+                    continue;
+                }
 
                 try
                 {
@@ -1042,6 +1117,7 @@ public static class LogitechDeviceHelper
                             foreach (byte devIdx in targetIndices)
                             {
                                 bool deviceOnline = false;
+                                bool isHidpp10Only = false;
                                 string detectedName = null;
                                 int batteryPercent = -1;
                                 bool isCharging = false;
@@ -1090,6 +1166,58 @@ public static class LogitechDeviceHelper
                                     }
                                 }
 
+                                // 1.5 HID++ 1.0 老型号兜底 (0x0D Mileage / 0x07 Status)，独立于 HID++ 2.0 Ping
+                                if (!deviceOnline)
+                                {
+                                    IntPtr hLegacy = handle;
+                                    int legacyInLen = bestEndpoint.InputReportByteLength;
+                                    int legacyOutLen = bestEndpoint.OutputReportByteLength;
+                                    IntPtr tempShortHandle = IntPtr.Zero;
+
+                                    if (shortEndpoint != null && shortEndpoint != bestEndpoint)
+                                    {
+                                        IntPtr sh = CreateFile(shortEndpoint.DevicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
+                                        if (sh != IntPtr.Zero && sh.ToInt64() != -1)
+                                        {
+                                            tempShortHandle = sh;
+                                            hLegacy = sh;
+                                            legacyInLen = shortEndpoint.InputReportByteLength;
+                                            legacyOutLen = shortEndpoint.OutputReportByteLength;
+                                        }
+                                    }
+
+                                    try
+                                    {
+                                        byte[] txReg0D = new byte[7] { 0x10, devIdx, 0x81, 0x0D, 0x00, 0x00, 0x00 };
+                                        byte[] rxReg0D = SendAndReceive(hLegacy, hEvent, txReg0D, legacyInLen, 220, legacyOutLen);
+                                        int h1Pct;
+                                        bool h1Chg;
+                                        if (TryParseHidpp10BatteryReply(rxReg0D, out h1Pct, out h1Chg))
+                                        {
+                                            deviceOnline = true;
+                                            isHidpp10Only = true;
+                                            batteryPercent = h1Pct;
+                                            isCharging = h1Chg;
+                                        }
+                                        else
+                                        {
+                                            byte[] txReg07 = new byte[7] { 0x10, devIdx, 0x81, 0x07, 0x00, 0x00, 0x00 };
+                                            byte[] rxReg07 = SendAndReceive(hLegacy, hEvent, txReg07, legacyInLen, 220, legacyOutLen);
+                                            if (TryParseHidpp10BatteryReply(rxReg07, out h1Pct, out h1Chg))
+                                            {
+                                                deviceOnline = true;
+                                                isHidpp10Only = true;
+                                                batteryPercent = h1Pct;
+                                                isCharging = h1Chg;
+                                            }
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        if (tempShortHandle != IntPtr.Zero) CloseHandle(tempShortHandle);
+                                    }
+                                }
+
                                 // 2. Discover Features if online
                                 int hardwareDpi = -1;
                                 int hardwareDpiY = -1;
@@ -1098,8 +1226,8 @@ public static class LogitechDeviceHelper
                                 byte extRateFeatIdx = 0;
                                 byte rateFeatIdx = 0;
                                 int detectedRate = 1000;
-                                int[] supportedRates = new int[] { 1000, 2000, 4000, 8000 };
-                                if (deviceOnline)
+                                int[] supportedRates = isHidpp10Only ? new int[] { 125, 250, 500, 1000 } : new int[] { 1000, 2000, 4000, 8000 };
+                                if (deviceOnline && !isHidpp10Only)
                                 {
                                     // Feature 0x0005: Device Name Type
                                     byte[] txFeatName = new byte[20];
@@ -1406,6 +1534,8 @@ public static class LogitechDeviceHelper
                                     ? detectedName
                                     : (!string.IsNullOrEmpty(cachedDeviceName) ? cachedDeviceName : GetModelName(detectedPid, foundName));
 
+                                HardwareDiagnosticService.RecordDriverTrace("Logitech", vidPidKey, string.Format("slot=0x{0:X2} online={1} batt={2} UP=0x{3:X4} U=0x{4:X4} len={5}/{6} name={7}", devIdx, deviceOnline ? 1 : 0, batteryPercent, bestEndpoint.UsagePage, bestEndpoint.Usage, bestEndpoint.InputReportByteLength, bestEndpoint.OutputReportByteLength, finalName));
+
                                 // 音频类硬件（麦克风 / 音箱）虽然对 HID++ ping 有应答，但没有电池特性。
                                 // 绝不入库：否则会以「鼠标 + 未知电量」污染设备列表。
                                 if (IsLogitechAudioOnlyPeripheral(detectedPid, finalName) ||
@@ -1565,6 +1695,7 @@ public static class LogitechDeviceHelper
 
     public static bool SetLogitechDpi(int dpiX, int dpiY, string targetDeviceId = null)
     {
+        if (HardwareCommandBus.IsHardwareSandboxActive) return false;
         lock (hidLock)
         {
             LogitechEndpoint ep = FindEndpoint(targetDeviceId);
@@ -1654,6 +1785,7 @@ public static class LogitechDeviceHelper
 
     public static bool SetLogitechPollingRate(int hz, string targetDeviceId = null)
     {
+        if (HardwareCommandBus.IsHardwareSandboxActive) return false;
         lock (hidLock)
         {
             LogitechEndpoint ep = FindEndpoint(targetDeviceId);

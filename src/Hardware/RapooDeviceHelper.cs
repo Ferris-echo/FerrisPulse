@@ -1142,6 +1142,7 @@ namespace RazerBatteryTray
 
         public static bool SetRapooPollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (hz != 125 && hz != 250 && hz != 500 && hz != 1000 && hz != 2000 && hz != 4000 && hz != 8000) return false;
             try
             {
@@ -1189,6 +1190,7 @@ namespace RazerBatteryTray
 
         public static bool SetRapooDpiStage(int targetStage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (targetStage < 1 || targetStage > 6 || CachedDpiStageCount == 0 || (CachedDpiStages != null && targetStage > CachedDpiStages.Length)) return false;
             try
             {
@@ -1247,6 +1249,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateRapooHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
 

@@ -167,8 +167,8 @@ namespace RazerBatteryTray
             lblDeviceName.Size = new Size(nameMaxW, (int)(24 * dpiScale));
             lblDeviceName.AutoEllipsis = true;
             lblDeviceName.Cursor = Cursors.Hand;
-            lblDeviceName.Click += (s, e) => RenameCurrentDevice();
-            toolTipTop.SetToolTip(lblDeviceName, "点击即可重命名当前设备 (支持中文与个性化昵称)");
+            lblDeviceName.Click += (s, e) => OpenPersonalizeDialogForCurrentDevice();
+            toolTipTop.SetToolTip(lblDeviceName, "点击即可个性化设置当前设备 (名称 / 主题色 / 托盘色)");
             cardBattery.Controls.Add(lblDeviceName);
 
             lblBatteryBig = new Label();
@@ -280,8 +280,14 @@ namespace RazerBatteryTray
 
             btnDpiManage = new ModernButton();
             btnDpiManage.IsGearButton = true;
+            btnDpiManage.NormalColor = Color.FromArgb(28, 33, 45);
+            btnDpiManage.HoverColor = Color.FromArgb(40, 48, 65);
+            btnDpiManage.PressedColor = Color.FromArgb(20, 24, 33);
+            btnDpiManage.BorderColor = Color.FromArgb(65, 75, 95);
+            btnDpiManage.ForeColor = Color.FromArgb(210, 220, 235);
             btnDpiManage.CornerRadius = (int)(6 * dpiScale);
             btnDpiManage.Cursor = Cursors.Hand;
+            btnDpiManage.Visible = false;
             btnDpiManage.Click += (s, e) => OpenDpiManagementDialog();
             toolTipTop.SetToolTip(btnDpiManage, "自定义 DPI 档位与板载设置");
             cardPerformance.Controls.Add(btnDpiManage);
@@ -318,8 +324,14 @@ namespace RazerBatteryTray
 
             btnRateManage = new ModernButton();
             btnRateManage.IsGearButton = true;
+            btnRateManage.NormalColor = Color.FromArgb(28, 33, 45);
+            btnRateManage.HoverColor = Color.FromArgb(40, 48, 65);
+            btnRateManage.PressedColor = Color.FromArgb(20, 24, 33);
+            btnRateManage.BorderColor = Color.FromArgb(65, 75, 95);
+            btnRateManage.ForeColor = Color.FromArgb(210, 220, 235);
             btnRateManage.CornerRadius = (int)(6 * dpiScale);
             btnRateManage.Cursor = Cursors.Hand;
+            btnRateManage.Visible = false;
             btnRateManage.Click += (s, e) => OpenPollingRateManagementDialog();
             toolTipTop.SetToolTip(btnRateManage, "自定义常用回报率档位与快捷设置");
             cardPerformance.Controls.Add(btnRateManage);
@@ -622,24 +634,13 @@ namespace RazerBatteryTray
                     {
                         try
                         {
-                            var psi = new System.Diagnostics.ProcessStartInfo("rundll32.exe", "shell32.dll,Control_RunDLL main.cpl @1")
+                            var psi = new System.Diagnostics.ProcessStartInfo("ms-settings:keyboard")
                             {
                                 UseShellExecute = true
                             };
                             System.Diagnostics.Process.Start(psi);
                         }
-                        catch
-                        {
-                            try
-                            {
-                                var psi = new System.Diagnostics.ProcessStartInfo("ms-settings:keyboard")
-                                {
-                                    UseShellExecute = true
-                                };
-                                System.Diagnostics.Process.Start(psi);
-                            }
-                            catch { }
-                        }
+                        catch { }
                     }
                 });
             };
@@ -1107,10 +1108,13 @@ namespace RazerBatteryTray
             chkLowAlert.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Regular, GraphicsUnit.Point);
             chkLowAlert.Location = new Point(cPad, chkY2);
             chkLowAlert.Size = new Size(chkW, chkH);
+            chkLowAlert.TextActsAsActionLink = true;
+            chkLowAlert.TextLinkClicked += (s, e) => OpenLowBatteryAlertSettingsDialog();
             chkLowAlert.CheckedChanged += (s, e) => {
                 if (isUpdatingUI) return;
                 SetLowBatteryAlert(chkLowAlert.Checked);
             };
+            toolTipTop.SetToolTip(chkLowAlert, "勾选左侧方框开关总提醒；点击文字自定义通知/主界面变色/托盘变色");
             cardSettings.Controls.Add(chkLowAlert);
 
             chkDpiOsd = new ModernCheckBox();
@@ -1206,6 +1210,15 @@ namespace RazerBatteryTray
         private void RelayoutDpiButtons()
         {
             if (cardPerformance == null || btnDpiStages == null || btnDpiManage == null) return;
+            if (!IsSelectedDeviceSupportingAutoGameRate())
+            {
+                for (int i = 0; i < btnDpiStages.Length; i++)
+                {
+                    if (btnDpiStages[i] != null) btnDpiStages[i].Visible = false;
+                }
+                btnDpiManage.Visible = false;
+                return;
+            }
 
             int cPad = (int)(14 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
@@ -1266,7 +1279,8 @@ namespace RazerBatteryTray
                 }
             }
 
-            btnDpiManage.Visible = selectedDevice == null || selectedDevice.SupportsDpiWrite != false;
+            btnDpiManage.Visible = (selectedDevice == null || selectedDevice.SupportsDpiWrite != false) &&
+                                   !(selectedDevice != null && !selectedDevice.IsConnected && count == 0);
             btnDpiManage.Location = new Point(dpiStartX + count * (stageW + gap), r1Y);
             btnDpiManage.Size = new Size(manageBtnW, segH);
 
@@ -1302,6 +1316,15 @@ namespace RazerBatteryTray
         private void RelayoutRateButtons()
         {
             if (cardPerformance == null || btnRates == null || btnRateManage == null) return;
+            if (!IsSelectedDeviceSupportingAutoGameRate())
+            {
+                for (int i = 0; i < btnRates.Length; i++)
+                {
+                    if (btnRates[i] != null) btnRates[i].Visible = false;
+                }
+                btnRateManage.Visible = false;
+                return;
+            }
 
             int cPad = (int)(14 * dpiScale);
             int secW = cardPerformance.ClientSize.Width - (cPad * 2);
@@ -1353,7 +1376,7 @@ namespace RazerBatteryTray
                 }
             }
 
-            btnRateManage.Visible = true;
+            btnRateManage.Visible = !(selectedDevice != null && !selectedDevice.IsConnected && count == 0);
             btnRateManage.Location = new Point(hzStartX + count * (hzSegW + gap), r2Y);
             btnRateManage.Size = new Size(manageBtnW, segH);
             bool manageWritable = !(selectedDevice != null && selectedDevice.SupportsPollingRateWrite == false);
@@ -1392,6 +1415,19 @@ namespace RazerBatteryTray
             RelayoutRateButtons();
 
             bool supportsAutoGameRate = IsSelectedDeviceSupportingAutoGameRate();
+            bool hasOfflineData = (selectedDevice == null || selectedDevice.IsConnected ||
+                                   (dpiStageList != null && dpiStageList.Count > 0) ||
+                                   (pollingRateValues != null && pollingRateValues.Length > 0));
+            if (!supportsAutoGameRate || !hasOfflineData)
+            {
+                if (lblDpiTitle != null) lblDpiTitle.Visible = false;
+                if (lblRateTitle != null) lblRateTitle.Visible = false;
+                supportsAutoGameRate = false;
+            }
+            else if (selectedDevice != null && !selectedDevice.IsConnected && (dpiStageList == null || dpiStageList.Count == 0))
+            {
+                if (lblDpiTitle != null) lblDpiTitle.Visible = false;
+            }
 
             // Row 3: 全屏游戏自动优化总开关 + 游戏管理 (恒定 Y = 112)
             int gameSwY = (int)(112 * dpiScale);
@@ -1866,31 +1902,55 @@ namespace RazerBatteryTray
                 lblLiveRateBadge.Visible = showBadge;
                 if (showBadge)
                 {
-                    string badgeText = "● 硬件生效: " + currentActiveHz + " Hz";
-                    if (currentActiveDpi > 0)
+                    string badgeText;
+                    if (selectedDevice != null && !selectedDevice.IsConnected)
                     {
-                        if (isDiffXy)
+                        if (measuredDesktopHz > 0)
                         {
-                            badgeText += " · " + currentActiveDpi + "×" + currentActiveDpiY + " DPI";
+                            badgeText = "● 离线记忆: " + measuredDesktopHz + " Hz";
+                            if (currentActiveDpi > 0)
+                            {
+                                badgeText += isDiffXy
+                                    ? (" · " + currentActiveDpi + "×" + currentActiveDpiY + " DPI")
+                                    : (" · " + currentActiveDpi + " DPI");
+                            }
                         }
                         else
                         {
-                            badgeText += " · " + currentActiveDpi + " DPI";
+                            badgeText = (currentActiveDpi > 0)
+                                ? ("● 离线记忆: " + currentActiveDpi + " DPI")
+                                : "● 设备离线 (待接入同步)";
                         }
+                        lblLiveRateBadge.ForeColor = Color.FromArgb(145, 155, 175);
                     }
-                    if (isGamingActive)
+                    else
                     {
-                        if (!string.IsNullOrEmpty(inGameActiveGameTitle))
+                        badgeText = "● 硬件生效: " + currentActiveHz + " Hz";
+                        if (currentActiveDpi > 0)
                         {
-                            badgeText += " (专属: " + inGameActiveGameTitle + ")";
+                            if (isDiffXy)
+                            {
+                                badgeText += " · " + currentActiveDpi + "×" + currentActiveDpiY + " DPI";
+                            }
+                            else
+                            {
+                                badgeText += " · " + currentActiveDpi + " DPI";
+                            }
                         }
-                        else
+                        if (isGamingActive)
                         {
-                            badgeText += " (电竞)";
+                            if (!string.IsNullOrEmpty(inGameActiveGameTitle))
+                            {
+                                badgeText += " (专属: " + inGameActiveGameTitle + ")";
+                            }
+                            else
+                            {
+                                badgeText += " (电竞)";
+                            }
                         }
+                        lblLiveRateBadge.ForeColor = isGamingActive ? Color.FromArgb(0, 230, 118) : Color.FromArgb(180, 210, 240);
                     }
                     lblLiveRateBadge.Text = badgeText;
-                    lblLiveRateBadge.ForeColor = isGamingActive ? Color.FromArgb(0, 230, 118) : Color.FromArgb(180, 210, 240);
                 }
             }
 
@@ -2430,9 +2490,19 @@ namespace RazerBatteryTray
                         return ia.CompareTo(ib);
                     });
                     for (int i = 0; i < activeDevices.Count; i++) activeDevices[i].PriorityIndex = i + 1;
+
+                    multiTrayMaxCount = form.ResultMultiTrayMaxCount;
+                    ConfigManager.SetMultiTrayMaxCount(multiTrayMaxCount);
+                    SetMultiTrayEnabled(form.ResultMultiTrayEnabled, true);
                 }
                 activeDevices.RemoveAll(d => DeviceManager.IsDeviceHidden(d.DeviceId) || (!string.IsNullOrEmpty(d.HardwareFingerprint) && DeviceManager.IsDeviceHidden(d.HardwareFingerprint)));
+                DeviceManager.ApplyDeviceAppearances(activeDevices);
+                if (lastInfo != null) DeviceManager.ApplyDeviceAppearances(new List<MouseBatteryInfo> { lastInfo });
+                if (selectedDevice != null && selectedDevice != lastInfo) DeviceManager.ApplyDeviceAppearances(new List<MouseBatteryInfo> { selectedDevice });
+                UpdateDeviceTabsUI();
+                if (selectedDevice != null) UpdateUI(selectedDevice, false);
                 RefreshBatteryStatus(false);
+                if (multiTrayEnabled) RefreshMultiTrayHost();
             }
         }
 
@@ -2522,9 +2592,18 @@ namespace RazerBatteryTray
             startupCheckTimer.Start();
         }
 
+        public List<MouseBatteryInfo> GetDeviceSwitcherDevices()
+        {
+            var known = DeviceManager.GetAllKnownDevicesForPriority(activeDevices);
+            if (known == null) known = new List<MouseBatteryInfo>();
+            DeviceManager.ApplyDeviceAppearances(known);
+            return known;
+        }
+
         private void ToggleDeviceSwitcherFlyout()
         {
-            if (activeDevices == null || activeDevices.Count == 0 || focusDeviceSelector == null) return;
+            var switcherDevices = GetDeviceSwitcherDevices();
+            if (switcherDevices == null || switcherDevices.Count == 0 || focusDeviceSelector == null) return;
 
             // Debounce toggle if clicked while flyout was closing
             if ((DateTime.Now - lastFlyoutCloseTime).TotalMilliseconds < 250)
@@ -2540,7 +2619,7 @@ namespace RazerBatteryTray
             }
 
             switcherFlyout = new ModernDeviceSwitcherFlyout(dpiScale);
-            switcherFlyout.Devices = this.activeDevices;
+            switcherFlyout.Devices = switcherDevices;
             switcherFlyout.SelectedDevice = this.selectedDevice;
             switcherFlyout.OnSelectDevice = (d) => {
                 SelectDeviceView(d);
@@ -2566,54 +2645,55 @@ namespace RazerBatteryTray
 
         private void RenameCurrentDevice()
         {
+            OpenPersonalizeDialogForCurrentDevice();
+        }
+
+        public void OpenPersonalizeDialogForCurrentDevice()
+        {
             var targetDev = selectedDevice ?? lastInfo;
             if (targetDev == null) return;
 
-            string currentName = targetDev.DisplayName;
-            string newName;
-            if (PromptDialog.Show(this, "修改设备名称", "请输入外设的自定义名称 (支持中文或英文):", currentName, out newName, this.dpiScale))
+            using (var dlg = new DevicePersonalizeDialog(
+                targetDev.DeviceName,
+                targetDev.CustomName,
+                targetDev.DefaultBrandColor,
+                targetDev.CustomThemeColorHex,
+                targetDev.CustomTrayColorHex,
+                targetDev.LinkTrayColorToTheme,
+                this.dpiScale))
             {
-                newName = (newName != null) ? newName.Trim() : "";
-                if (!string.IsNullOrEmpty(newName) && !string.Equals(newName, currentName, StringComparison.Ordinal))
+                if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    targetDev.CustomName = newName;
-                    lblDeviceName.Text = targetDev.DisplayName;
-                    UpdateDeviceTabsUI();
-                    UpdateTrayDeviceMenuItems();
+                    DeviceManager.SaveDeviceAppearance(
+                        targetDev,
+                        dlg.ResultCustomName,
+                        dlg.ResultThemeColorHex,
+                        dlg.ResultTrayColorHex,
+                        dlg.ResultLinkTrayColorToTheme);
 
-                    var existingConfigs = DeviceManager.LoadCustomDevices();
-                    CustomDeviceConfig cfg = null;
-                    if (existingConfigs != null)
+                    if (activeDevices != null)
                     {
-                        cfg = existingConfigs.Find(c => 
-                            c.DeviceId.Equals(targetDev.DeviceId, StringComparison.OrdinalIgnoreCase) ||
-                            (!string.IsNullOrEmpty(c.HardwareFingerprint) && !string.IsNullOrEmpty(targetDev.HardwareFingerprint) &&
-                             c.HardwareFingerprint.Equals(targetDev.HardwareFingerprint, StringComparison.OrdinalIgnoreCase)));
+                        DeviceManager.ApplyDeviceAppearances(activeDevices);
                     }
+                    var syncList = new List<MouseBatteryInfo>();
+                    syncList.Add(targetDev);
+                    if (lastInfo != null && lastInfo != targetDev) syncList.Add(lastInfo);
+                    if (selectedDevice != null && selectedDevice != targetDev && selectedDevice != lastInfo) syncList.Add(selectedDevice);
+                    DeviceManager.ApplyDeviceAppearances(syncList);
 
-                    if (cfg != null)
-                    {
-                        cfg.CustomName = newName;
-                        DeviceManager.SaveCustomDevice(cfg);
-                    }
-                    else
-                    {
-                        cfg = new CustomDeviceConfig
-                        {
-                            DeviceId = targetDev.DeviceId,
-                            OriginalName = targetDev.DeviceName,
-                            CustomName = newName,
-                            Category = targetDev.Category,
-                            Transport = targetDev.Transport,
-                            CachedBattery = targetDev.BatteryPercent,
-                            HardwareFingerprint = targetDev.HardwareFingerprint
-                        };
-                        DeviceManager.SaveCustomDevice(cfg);
-                    }
-
+                    if (lblDeviceName != null) lblDeviceName.Text = targetDev.DisplayName;
                     UpdateStatusDisplay();
                     UpdateDeviceTabsUI();
+                    UpdateUI(targetDev, false);
                     UpdateTrayDeviceMenuItems();
+                    if (multiTrayEnabled)
+                    {
+                        RefreshMultiTrayHost();
+                    }
+                    else if (lastInfo != null)
+                    {
+                        UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+                    }
                 }
             }
         }

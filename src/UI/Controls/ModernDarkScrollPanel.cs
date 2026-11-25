@@ -5,7 +5,7 @@
 //   现代化暗黑微晶滚动容器，彻底废除 Win32 原生粗糙白色横向/竖向滚动条，
 //   提供纯 GDI+ 双缓冲矢量纤细圆角悬浮滚动条、平滑鼠标滚轮交互与自适应换行。
 //   原生集成直接文本双缓冲绘制引擎 (Direct GDI+ Double-Buffered Rendering)，
-//   彻底杜绝 Windows Forms 在 WS_CLIPCHILDREN 容器内多透明 Label 滚动时发生的残影、文字撕裂与重叠覆盖缺陷。
+//   支持更新日志排版与诊断快照多色日志高亮模式，彻底杜绝闪烁、残影与滚动撕裂。
 // 依赖关系: ModernThemeHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -38,6 +38,8 @@ namespace RazerBatteryTray
         private int totalContentHeight = 0;
         private float currentDpiScale = 1.0f;
         private IList<string> rawChangelogLines;
+        private bool isDiagnosticMode = false;
+        private string rawDiagnosticText = null;
 
         private Panel contentPanel;
         private int scrollOffset = 0;
@@ -119,6 +121,8 @@ namespace RazerBatteryTray
 
         public void SetChangelog(IList<string> lines, float dpiScale)
         {
+            this.isDiagnosticMode = false;
+            this.rawDiagnosticText = null;
             this.rawChangelogLines = lines;
             this.currentDpiScale = (dpiScale > 0.1f) ? dpiScale : 1.0f;
 
@@ -131,6 +135,102 @@ namespace RazerBatteryTray
             RebuildChangelogItems();
             this.scrollOffset = 0;
             Invalidate();
+        }
+
+        public void SetDiagnosticText(string text, float dpiScale)
+        {
+            this.isDiagnosticMode = true;
+            this.rawDiagnosticText = text ?? "";
+            this.rawChangelogLines = null;
+            this.currentDpiScale = (dpiScale > 0.1f) ? dpiScale : 1.0f;
+
+            if (contentPanel != null)
+            {
+                contentPanel.Controls.Clear();
+                contentPanel.Visible = false;
+            }
+
+            RebuildDiagnosticItems();
+            this.scrollOffset = 0;
+            Invalidate();
+        }
+
+        public void HandleWheelDelta(int delta)
+        {
+            int max = GetMaxScroll();
+            if (max <= 0 || delta == 0) return;
+            ScrollOffset += (delta > 0 ? -42 : 42);
+        }
+
+        private void RebuildDiagnosticItems()
+        {
+            string text = this.rawDiagnosticText ?? "";
+            string[] lines = text.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.None);
+            this.Text = text;
+
+            int availW = this.ClientSize.Width - scrollBarWidth - (scrollBarMargin * 2) - 12;
+            if (availW < 50) availW = 540;
+
+            Font monoBold = new Font("Consolas", 8.8F * currentDpiScale, FontStyle.Bold);
+            Font monoRegular = new Font("Consolas", 8.6F * currentDpiScale, FontStyle.Regular);
+            TextFormatFlags measureFlags = TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix;
+
+            int curY = 4;
+            List<ChangelogVisualItem> list = new List<ChangelogVisualItem>();
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                if (line.Length == 0)
+                {
+                    curY += Math.Max(6, (int)(8 * currentDpiScale));
+                    continue;
+                }
+
+                bool isHeader = line.StartsWith("===") || line.StartsWith("[1.") || line.StartsWith("[2.") || line.StartsWith("[3.");
+                Font font = isHeader ? monoBold : monoRegular;
+                Color color = Color.FromArgb(215, 224, 240);
+
+                if (isHeader)
+                {
+                    if (i > 0) curY += (int)(4 * currentDpiScale);
+                    color = Color.FromArgb(130, 200, 255);
+                }
+                else if (line.Contains("[已识别]") || line.Contains(" OK "))
+                {
+                    color = Color.FromArgb(0, 226, 120);
+                }
+                else if (line.Contains("[未匹配内置驱动]"))
+                {
+                    color = Color.FromArgb(255, 196, 77);
+                }
+                else if (line.Contains("SKIPPED") || line.Contains("OPEN_FAIL") || line.Contains("NO_BATT") || line.Contains("NO_REPLY") || line.Contains("Error"))
+                {
+                    color = Color.FromArgb(255, 125, 138);
+                }
+                else if (line.StartsWith("      - "))
+                {
+                    color = Color.FromArgb(148, 160, 182);
+                }
+
+                Size measured = TextRenderer.MeasureText(line, font, new Size(availW, 0), measureFlags);
+                int minRowH = (int)(17 * currentDpiScale);
+                int itemH = Math.Max(minRowH, measured.Height + 2);
+
+                ChangelogVisualItem item = new ChangelogVisualItem();
+                item.Text = line;
+                item.IsHeader = isHeader;
+                item.Font = font;
+                item.Color = color;
+                item.Top = curY;
+                item.Height = itemH;
+                list.Add(item);
+
+                curY += itemH + (int)(2 * currentDpiScale);
+            }
+
+            this.changelogItems = list;
+            this.totalContentHeight = curY + 8;
         }
 
         private void RebuildChangelogItems()
@@ -210,7 +310,11 @@ namespace RazerBatteryTray
         protected override void OnResize(EventArgs eventargs)
         {
             base.OnResize(eventargs);
-            if (changelogItems != null && changelogItems.Count > 0)
+            if (isDiagnosticMode)
+            {
+                RebuildDiagnosticItems();
+            }
+            else if (changelogItems != null && changelogItems.Count > 0)
             {
                 RebuildChangelogItems();
             }
@@ -302,6 +406,9 @@ namespace RazerBatteryTray
             // 1. 绘制日志条目（硬件级内存双缓冲，每次滚动先全清底色，绝不产生残影、重叠与水平撕裂）
             if (changelogItems != null && changelogItems.Count > 0)
             {
+                TextFormatFlags drawFlags = isDiagnosticMode
+                    ? (TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix)
+                    : (TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
                 for (int i = 0; i < changelogItems.Count; i++)
                 {
                     ChangelogVisualItem item = changelogItems[i];
@@ -311,8 +418,7 @@ namespace RazerBatteryTray
                     if (drawY + item.Height >= 0 && drawY <= clientH)
                     {
                         Rectangle rect = new Rectangle(4, drawY, availW, item.Height);
-                        TextRenderer.DrawText(g, item.Text, item.Font, rect, item.Color,
-                            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+                        TextRenderer.DrawText(g, item.Text, item.Font, rect, item.Color, drawFlags);
                     }
                 }
             }

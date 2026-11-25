@@ -22,6 +22,29 @@ namespace RazerBatteryTray
     {
         public static bool DisableHardwareWriteForTesting { get; set; }
 
+        public static bool IsHardwareSandboxActive
+        {
+            get
+            {
+                return DisableHardwareWriteForTesting ||
+                       MainForm.DisableConfigSaveForTesting ||
+                       string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private static bool ShouldBlockBuiltInWriteInSandbox(IHardwareDriver drv, MouseBatteryInfo dev)
+        {
+            if (!IsHardwareSandboxActive) return false;
+            if (drv != null && drv.GetType().Assembly != typeof(HardwareCommandBus).Assembly) return false;
+            if (dev != null && !string.IsNullOrEmpty(dev.DeviceId) &&
+                (dev.DeviceId.StartsWith("TEST_", StringComparison.OrdinalIgnoreCase) ||
+                 dev.DeviceId.StartsWith("MOCK_", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+            return true;
+        }
+
         private static readonly object lockTableSync = new object();
         private static readonly Dictionary<string, object> deviceLocks = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
@@ -90,6 +113,7 @@ namespace RazerBatteryTray
 
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
+            if (ShouldBlockBuiltInWriteInSandbox(drv, dev)) return false;
 
             lock (GetDeviceLock(dev))
             {
@@ -118,6 +142,7 @@ namespace RazerBatteryTray
 
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
+            if (ShouldBlockBuiltInWriteInSandbox(drv, dev)) return false;
 
             lock (GetDeviceLock(dev))
             {
@@ -155,6 +180,7 @@ namespace RazerBatteryTray
 
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
+            if (ShouldBlockBuiltInWriteInSandbox(drv, dev)) return false;
 
             lock (GetDeviceLock(dev))
             {
@@ -180,6 +206,7 @@ namespace RazerBatteryTray
             if (dev == null) return false;
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
+            if (ShouldBlockBuiltInWriteInSandbox(drv, dev)) return false;
 
             lock (GetDeviceLock(dev))
             {
@@ -199,6 +226,7 @@ namespace RazerBatteryTray
             if (dev == null || string.IsNullOrEmpty(actionId)) return false;
             IHardwareDriver drv = HardwareDriverRegistry.ResolveDriver(dev);
             if (drv == null) return false;
+            if (ShouldBlockBuiltInWriteInSandbox(drv, dev)) return false;
 
             lock (GetDeviceLock(dev))
             {

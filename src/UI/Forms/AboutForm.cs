@@ -61,6 +61,8 @@ namespace RazerBatteryTray
         private Panel qrPanelAlipay;
         private LinkLabel lnkQQ;
         private LinkLabel lnkGithub;
+        private LinkLabel lnkDiagnostic;
+        private Label lblFooterSep;
         private LinkLabel lnkResetApp;
 
         // 背面控件
@@ -440,7 +442,36 @@ namespace RazerBatteryTray
             };
             cardDonate.Controls.Add(lnkGithub);
 
-            // 底部低调维护入口：故障排查与深度重置文字链接（克制优雅，彻底还顶部视觉清爽）
+            // 底部低调维护入口：诊断快照 + 深度重置（单行居中，保留 600x668 原生紧凑比例）
+            lnkDiagnostic = new LinkLabel();
+            lnkDiagnostic.Text = "导出外设诊断快照";
+            lnkDiagnostic.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lnkDiagnostic.LinkColor = Color.FromArgb(102, 184, 255);
+            lnkDiagnostic.ActiveLinkColor = Color.FromArgb(154, 210, 255);
+            lnkDiagnostic.VisitedLinkColor = Color.FromArgb(102, 184, 255);
+            lnkDiagnostic.LinkBehavior = LinkBehavior.NeverUnderline;
+            lnkDiagnostic.BackColor = Color.Transparent;
+            lnkDiagnostic.AutoSize = true;
+            lnkDiagnostic.Cursor = Cursors.Hand;
+            lnkDiagnostic.MouseEnter += delegate { lnkDiagnostic.LinkColor = Color.FromArgb(165, 215, 255); };
+            lnkDiagnostic.MouseLeave += delegate { lnkDiagnostic.LinkColor = Color.FromArgb(102, 184, 255); };
+            lnkDiagnostic.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
+            {
+                using (DiagnosticReportDialog dlg = new DiagnosticReportDialog(null, EffectiveScale))
+                {
+                    dlg.ShowDialog(this);
+                }
+            };
+            cardDonate.Controls.Add(lnkDiagnostic);
+
+            lblFooterSep = new Label();
+            lblFooterSep.Text = "·";
+            lblFooterSep.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lblFooterSep.ForeColor = Color.FromArgb(80, 88, 104);
+            lblFooterSep.BackColor = Color.Transparent;
+            lblFooterSep.AutoSize = true;
+            cardDonate.Controls.Add(lblFooterSep);
+
             lnkResetApp = new LinkLabel();
             lnkResetApp.Text = "故障排查与深度重置 (清空旧版残留)";
             lnkResetApp.Font = new Font("Microsoft YaHei UI", 8.2F);
@@ -666,10 +697,33 @@ namespace RazerBatteryTray
                 CenterControlHorizontally(lnkGithub, cardWidth);
                 lnkGithub.BringToFront();
             }
-            if (lnkResetApp != null)
+            int footerY = (lnkGithub != null ? lnkGithub.Bottom : qrBottom + S(16)) + S(12);
+            if (lnkDiagnostic != null && lblFooterSep != null && lnkResetApp != null)
+            {
+                SetAboutFont(lnkDiagnostic, 8.2F, FontStyle.Regular);
+                SetAboutFont(lblFooterSep, 8.2F, FontStyle.Regular);
+                SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
+
+                int wDiag = lnkDiagnostic.PreferredSize.Width;
+                int wSep = lblFooterSep.PreferredSize.Width;
+                int wReset = lnkResetApp.PreferredSize.Width;
+                int sepGap = S(6);
+                int totalFooterW = wDiag + sepGap + wSep + sepGap + wReset;
+                int startX = (cardWidth - totalFooterW) / 2;
+                if (startX < S(8)) startX = S(8);
+
+                lnkDiagnostic.Location = new Point(startX, footerY);
+                lblFooterSep.Location = new Point(startX + wDiag + sepGap, footerY);
+                lnkResetApp.Location = new Point(startX + wDiag + sepGap + wSep + sepGap, footerY);
+
+                lnkDiagnostic.BringToFront();
+                lblFooterSep.BringToFront();
+                lnkResetApp.BringToFront();
+            }
+            else if (lnkResetApp != null)
             {
                 SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
-                lnkResetApp.Top = (lnkGithub != null ? lnkGithub.Bottom : qrBottom + S(16)) + S(12);
+                lnkResetApp.Top = footerY;
                 CenterControlHorizontally(lnkResetApp, cardWidth);
                 lnkResetApp.BringToFront();
             }

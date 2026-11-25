@@ -3,10 +3,10 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   雷蛇 (Razer) 私有 HID 协议通信实现：
-//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)
-//   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态
-//   3. 实时查询与固化写入板载 DPI 档位与 8000Hz 超高回报率 (全系支持 Focus Pro 35K Gen-2 与巴蛇 V3 专业版 35K)
-// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHardwareState.cs
+//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)，按设备全接口聚合择优（真应答压过坏端点占位）
+//   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态（带 BUSY 0x01 渐进退避重试）
+//   3. 实时查询与固化写入板载 DPI 档位与 125~8000Hz 回报率（兼容经典 1K 协议 0x85/0x05 与现代 8K 协议 0xC0/0x40）
+// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHardwareState.cs, HardwareDiagnosticService.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、报文结构或新增 PID 时，【必须】同步更新上方说明。
@@ -95,8 +95,8 @@ namespace RazerBatteryTray
                 case 0x0092: return 0x0091; // Naga Pro Dongle -> Wired
                 case 0x00A3: return 0x00A2; // DeathAdder V2 Pro Dongle -> Wired
                 case 0x0088: return 0x0086; // Basilisk Ultimate Dongle -> Wired
-                case 0x007B: return 0x007A; // Basilisk Ultimate Dongle -> Wired
-                case 0x007D: return 0x007C; // DeathAdder V2 Mini Dongle -> Wired
+                case 0x007B: return 0x007A; // Viper Ultimate Dongle -> Wired
+                case 0x007D: return 0x007C; // DeathAdder V2 Pro Dongle -> Wired
                 case 0xB007: return 0xB007; // DeathAdder V4 HyperSpeed
                 case 0xB005: return 0xB005; // Viper V4 HyperSpeed
                 default:
@@ -294,7 +294,6 @@ namespace RazerBatteryTray
                     case 0x00CC: case 0x00CD: // Basilisk V3 Pro 35K
                     case 0x00D6: case 0x00D7: // Basilisk V3 Pro 35K Phantom Green
                     case 0x00C4: case 0x00C5: // Basilisk V3 35K
-                    case 0x00A5: case 0x00A6: // Cobra Pro
                     case 0x008F: case 0x0090: // Naga V2 Pro
                     case 0x0095: // Naga V2 HyperSpeed
                     case 0x00B9: // HyperPolling Wireless Dongle
@@ -325,6 +324,64 @@ namespace RazerBatteryTray
             else
             {
                 return new int[] { 125, 250, 500, 1000 };
+            }
+        }
+
+        /// <summary>
+        /// 判断设备 PID 是否属于经典 1000Hz 轮询率指令集 (读 0x00/0x85，写 0x00/0x05)。
+        /// </summary>
+        public static bool IsClassicPollingProtocolPid(int pid)
+        {
+            if (pid == 0) return false;
+            int normPid = NormalizeRazerPid(pid);
+            int[] targetPids = new int[] { pid, normPid };
+            for (int i = 0; i < targetPids.Length; i++)
+            {
+                switch (targetPids[i])
+                {
+                    case 0x007A: case 0x007B: // Viper Ultimate
+                    case 0x007C: case 0x007D: // DeathAdder V2 Pro
+                    case 0x0083: case 0x0085: // Basilisk X HyperSpeed
+                    case 0x0084:              // DeathAdder V2
+                    case 0x0086: case 0x0088: // Basilisk Ultimate
+                    case 0x008A:              // DeathAdder V2
+                    case 0x008C:              // DeathAdder V2 Mini
+                    case 0x0091: case 0x0092: // Naga Pro
+                    case 0x0094: case 0x0099: // Orochi V2
+                    case 0x009C:              // DeathAdder V2 X HyperSpeed
+                    case 0x00A2: case 0x00A3: // DeathAdder V2 Pro alt
+                    case 0x00A4:              // Cobra
+                    case 0x00A5: case 0x00A6: // Viper V2 Pro (1K Dongle / Wired)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        public static int DecodeClassicPollingRateByte(byte rawPoll)
+        {
+            switch (rawPoll)
+            {
+                case 0x01: return 1000;
+                case 0x02: return 500;
+                case 0x04: return 250;
+                case 0x08: return 125;
+                default: return 0;
+            }
+        }
+
+        public static int DecodeModernPollingRateByte(byte rawPoll)
+        {
+            switch (rawPoll)
+            {
+                case 0x01: return 8000;
+                case 0x02: return 4000;
+                case 0x04: return 2000;
+                case 0x08: return 1000;
+                case 0x10: return 500;
+                case 0x20: return 250;
+                case 0x40: return 125;
+                default: return 0;
             }
         }
 
@@ -362,8 +419,8 @@ namespace RazerBatteryTray
             { 0x00B5, "Razer Viper V2 Pro" },
             { 0x00A7, "Razer Viper Mini Signature Edition" },
             { 0x00A8, "Razer Viper Mini Signature Edition" },
-            { 0x0084, "Razer Viper Ultimate" },
-            { 0x0088, "Razer Basilisk Ultimate" },
+            { 0x007A, "Razer Viper Ultimate" },
+            { 0x007B, "Razer Viper Ultimate" },
             { 0x0078, "Razer Viper Mini" },
             { 0x0071, "Razer Viper 8KHz" },
             { 0x0070, "Razer Viper" },
@@ -383,10 +440,12 @@ namespace RazerBatteryTray
             { 0x00B0, "Razer DeathAdder V3" },
             { 0x00A2, "Razer DeathAdder V2 Pro" },
             { 0x00A3, "Razer DeathAdder V2 Pro" },
+            { 0x007C, "Razer DeathAdder V2 Pro" },
+            { 0x007D, "Razer DeathAdder V2 Pro" },
             { 0x009C, "Razer DeathAdder V2 X HyperSpeed" },
+            { 0x0084, "Razer DeathAdder V2" },
             { 0x008A, "Razer DeathAdder V2" },
-            { 0x007C, "Razer DeathAdder V2 Mini" },
-            { 0x007D, "Razer DeathAdder V2 Mini" },
+            { 0x008C, "Razer DeathAdder V2 Mini" },
             { 0x005C, "Razer DeathAdder Elite" },
 
             // Basilisk series
@@ -401,10 +460,10 @@ namespace RazerBatteryTray
             { 0x00AA, "Razer Basilisk V3 Pro" },
             { 0x00AB, "Razer Basilisk V3 Pro" },
             { 0x00B8, "Razer Basilisk V3" },
+            { 0x0083, "Razer Basilisk X HyperSpeed" },
             { 0x0085, "Razer Basilisk X HyperSpeed" },
             { 0x0086, "Razer Basilisk Ultimate" },
-            { 0x007A, "Razer Basilisk Ultimate" },
-            { 0x007B, "Razer Basilisk Ultimate" },
+            { 0x0088, "Razer Basilisk Ultimate" },
             { 0x0064, "Razer Basilisk" },
 
             // Viper V2 Pro and Cobra
@@ -422,6 +481,7 @@ namespace RazerBatteryTray
             { 0x0067, "Razer Naga Trinity" },
 
             // Orochi series
+            { 0x0094, "Razer Orochi V2" },
             { 0x0099, "Razer Orochi V2" },
 
             // Web Synapse: HyperSpeed Mice (工程驱动与下一代极速版)
@@ -692,8 +752,8 @@ namespace RazerBatteryTray
             if (normPid != curPid) return true;
 
             // 纯无线/干电池无线设备（无有线模式）
-            if (curPid == 0x0099 || // Orochi V2
-                curPid == 0x0085 || curPid == 0x0086 || // Basilisk X HyperSpeed
+            if (curPid == 0x0094 || curPid == 0x0099 || // Orochi V2
+                curPid == 0x0083 || curPid == 0x0085 || // Basilisk X HyperSpeed
                 curPid == 0x00AC || // Viper V3 HyperSpeed
                 curPid == 0x009C || // DeathAdder V2 X HyperSpeed (AA 干电池，纯无线)
                 curPid == 0x0095 || // Naga V2 HyperSpeed
@@ -1154,11 +1214,160 @@ namespace RazerBatteryTray
             return state;
         }
 
+        private sealed class RazerScanAccumulator
+        {
+            public string NormId;
+            public bool AnyLiveSuccess;
+            public bool AnyLinkDown;
+            public MouseBatteryInfo BestLiveInfo;
+            public string BestLivePath;
+            public int BestLiveReportLen;
+            public bool BestLivePrepended;
+            public byte BestLiveTid;
+            public int BestLivePct;
+            public double BestLiveExactPct;
+            public int BestLiveDpi;
+            public int BestLiveDpiY;
+            public int BestLiveActiveStage;
+            public int BestLiveStageCount;
+            public int[] BestLiveStageList;
+            public int[] BestLiveStageListY;
+            public int BestLivePollingRate;
+            public string BestLiveModelName;
+
+            public bool HasFallback;
+            public int FallbackPid;
+            public string FallbackModelName;
+            public bool FallbackIsDongle;
+            public string FallbackPath;
+            public int FallbackReportLen;
+            public bool FallbackPrepended;
+        }
+
+        public static int ExtractRazerPidFromDeviceId(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return 0;
+            int idx = deviceId.IndexOf("1532:", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && deviceId.Length >= idx + 9)
+            {
+                string hex = deviceId.Substring(idx + 5, 4);
+                int pid;
+                if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out pid))
+                {
+                    return pid;
+                }
+            }
+            return 0;
+        }
+
+        public static bool ShouldReplaceCandidateDevice(MouseBatteryInfo existing, bool existingIsLive, MouseBatteryInfo candidate, bool candidateIsLive)
+        {
+            if (existing == null) return candidate != null;
+            if (candidate == null) return false;
+            if (candidateIsLive && !existingIsLive) return true;
+            if (!candidateIsLive && existingIsLive) return false;
+            if (!candidate.IsDonglePresent && existing.IsDonglePresent) return true;
+            if (existing.IsSleeping && !candidate.IsSleeping) return true;
+            if (candidate.BatteryPercent > 0 && existing.BatteryPercent <= 0) return true;
+            return false;
+        }
+
+        public static byte[] ReadRazerResponseWithBusyRetry(
+            Func<byte[]> readOnce,
+            int offset,
+            byte expectedClass,
+            byte expectedCmdId,
+            int maxAttempts,
+            Action<int> sleepAction,
+            out byte lastStatus)
+        {
+            lastStatus = 0;
+            if (readOnce == null || maxAttempts <= 0 || offset < 0) return null;
+
+            int[] delays = new int[] { 15, 20, 25, 30 };
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                int delayMs = delays[attempt < delays.Length ? attempt : (delays.Length - 1)];
+                if (sleepAction != null) sleepAction(delayMs);
+
+                byte[] resp = readOnce();
+                if (resp == null || resp.Length <= offset + 8) continue;
+
+                byte st = resp[offset + 0];
+                lastStatus = st;
+                if (st == 0x01 || st == 0x00)
+                {
+                    continue; // BUSY / NEW: wait and retry
+                }
+                if (st == 0x02 && resp[offset + 6] == expectedClass && resp[offset + 7] == expectedCmdId)
+                {
+                    return resp;
+                }
+                // 0x03 FAIL, 0x04 NO_RESPONSE, 0x05 NOT_SUPPORTED, or cmd mismatch: stop immediately
+                return null;
+            }
+            return null;
+        }
+
+        private static byte[] SendAndReadRazerFeature(
+            IntPtr handle,
+            byte[] req,
+            int reportLength,
+            bool prepended,
+            byte expectedClass,
+            byte expectedCmdId,
+            int maxAttempts,
+            out byte lastStatus)
+        {
+            lastStatus = 0;
+            if (!HidD_SetFeature(handle, req, req.Length))
+            {
+                return null;
+            }
+            int offset = prepended ? 1 : 0;
+            return ReadRazerResponseWithBusyRetry(
+                delegate()
+                {
+                    byte[] resp = new byte[reportLength];
+                    if (prepended) resp[0] = 0x00;
+                    return HidD_GetFeature(handle, resp, resp.Length) ? resp : null;
+                },
+                offset,
+                expectedClass,
+                expectedCmdId,
+                maxAttempts,
+                delegate(int ms) { Thread.Sleep(ms); },
+                out lastStatus);
+        }
+
+        private static int QuerySinglePollingRate(IntPtr handle, byte tid, int reportLength, int offset, bool prepended, bool useClassic)
+        {
+            byte cmdId = useClassic ? (byte)0x85 : (byte)0xC0;
+            byte[] pollReq = CreateRazerReport(tid, 0x00, cmdId, 0x01, reportLength, prepended);
+            byte pollStatus;
+            byte[] pollResp = SendAndReadRazerFeature(handle, pollReq, reportLength, prepended, 0x00, cmdId, 2, out pollStatus);
+            if (pollResp == null) return 0;
+
+            if (useClassic)
+            {
+                int rate = DecodeClassicPollingRateByte(pollResp[offset + 8]);
+                if (rate == 0 && offset + 9 < pollResp.Length)
+                {
+                    rate = DecodeClassicPollingRateByte(pollResp[offset + 9]);
+                }
+                return rate;
+            }
+            return DecodeModernPollingRateByte(pollResp[offset + 9]);
+        }
+
         public static List<MouseBatteryInfo> QueryAllRazerDevices()
         {
             lock (hidLock)
             {
                 var detectedByNormId = new Dictionary<string, MouseBatteryInfo>(StringComparer.OrdinalIgnoreCase);
+                var scanByNormId = new Dictionary<string, RazerScanAccumulator>(StringComparer.OrdinalIgnoreCase);
+                var scanOrder = new List<string>();
+                var tracedNon90Pids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 Guid hidGuid;
                 HidD_GetHidGuid(out hidGuid);
@@ -1179,31 +1388,36 @@ namespace RazerBatteryTray
                     {
                         uint reqSize;
                         SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize == 0)
+                        {
+                            ifData.cbSize = Marshal.SizeOf(ifData);
+                            continue;
+                        }
 
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-                        Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
 
-                            if (devicePath != null && devicePath.ToLower().Contains("vid_1532"))
+                            if (SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-                                if (handle != IntPtr.Zero && handle.ToInt64() != -1)
-                                {
-                                    try
-                                    {
-                                        IntPtr preparsed;
-                                        if (HidD_GetPreparsedData(handle, out preparsed))
-                                        {
-                                            HIDP_CAPS caps;
-                                            HidP_GetCaps(preparsed, out caps);
-                                            HidD_FreePreparsedData(preparsed);
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
 
-                                            if (caps.FeatureReportByteLength >= 90)
+                                if (devicePath != null && devicePath.ToLower().Contains("vid_1532"))
+                                {
+                                    IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                    {
+                                        try
+                                        {
+                                            IntPtr preparsed;
+                                            if (HidD_GetPreparsedData(handle, out preparsed))
                                             {
+                                                HIDP_CAPS caps;
+                                                HidP_GetCaps(preparsed, out caps);
+                                                HidD_FreePreparsedData(preparsed);
+
                                                 StringBuilder prod = new StringBuilder(256);
                                                 string prodName = "Razer Mouse";
                                                 if (HidD_GetProductString(handle, prod, prod.Capacity) && prod.Length > 0)
@@ -1227,283 +1441,324 @@ namespace RazerBatteryTray
                                                     }
                                                 }
 
-                                                int normPid = NormalizeRazerPid(curPid);
-                                                bool isDongle = DetermineIsDongle(curPid, prodName, 0, false);
-                                                string normId = "Razer:1532:" + (normPid != 0 ? normPid.ToString("X4") : (!string.IsNullOrEmpty(prodName) ? prodName : "Mouse"));
-                                                string resolvedModelName = GetRazerOfficialModelName(curPid, prodName);
+                                                string vidPidKey = string.Format("1532:{0:X4}", curPid);
 
-                                                byte[] transIds = new byte[] { 0x1F, 0x3F, 0xFF };
-                                                bool prepended = (caps.FeatureReportByteLength == 91);
-                                                int offset = prepended ? 1 : 0;
-                                                bool querySuccess = false;
-                                                bool linkDownReply = false;
-
-                                                int pct = 0;
-                                                double exactPct = 0.0;
-                                                bool isCharging = false;
-                                                int liveDpi = 0;
-                                                int liveDpiY = 0;
-                                                int activeStage = 0;
-                                                int stageCount = 0;
-                                                int[] stageList = null;
-                                                int[] stageListY = null;
-                                                int pollingRate = 0;
-                                                byte successfulTid = 0x1F;
-
-                                                foreach (byte tid in transIds)
+                                                if (caps.FeatureReportByteLength < 90)
                                                 {
-                                                    // 1. Query Battery
-                                                    byte[] req = CreateRazerReport(tid, 0x07, 0x80, 0x02, caps.FeatureReportByteLength, prepended);
-                                                    if (HidD_SetFeature(handle, req, req.Length))
+                                                    if (caps.UsagePage >= 0xFF00 && tracedNon90Pids.Add(vidPidKey + "|" + caps.UsagePage.ToString("X4")))
                                                     {
-                                                        Thread.Sleep(15);
-                                                        byte[] resp = new byte[caps.FeatureReportByteLength];
-                                                        if (prepended) resp[0] = 0x00;
+                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("非 90B 厂商接口 ({0}) UP=0x{1:X4} In={2} Out={3} Feat={4}", prodName, caps.UsagePage, caps.InputReportByteLength, caps.OutputReportByteLength, caps.FeatureReportByteLength));
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    int normPid = NormalizeRazerPid(curPid);
+                                                    bool isDongle = DetermineIsDongle(curPid, prodName, 0, false);
+                                                    string normId = "Razer:1532:" + (normPid != 0 ? normPid.ToString("X4") : (!string.IsNullOrEmpty(prodName) ? prodName : "Mouse"));
+                                                    string resolvedModelName = GetRazerOfficialModelName(curPid, prodName);
 
-                                                        if (HidD_GetFeature(handle, resp, resp.Length))
+                                                    byte[] transIds = new byte[] { 0x1F, 0x3F, 0xFF };
+                                                    bool prepended = (caps.FeatureReportByteLength == 91);
+                                                    int offset = prepended ? 1 : 0;
+                                                    bool querySuccess = false;
+                                                    bool linkDownReply = false;
+                                                    byte lastObservedStatus = 0;
+                                                    byte lastTriedTid = 0x1F;
+
+                                                    int pct = 0;
+                                                    double exactPct = 0.0;
+                                                    bool isCharging = false;
+                                                    int liveDpi = 0;
+                                                    int liveDpiY = 0;
+                                                    int activeStage = 0;
+                                                    int stageCount = 0;
+                                                    int[] stageList = null;
+                                                    int[] stageListY = null;
+                                                    int pollingRate = 0;
+                                                    byte successfulTid = 0x1F;
+
+                                                    foreach (byte tid in transIds)
+                                                    {
+                                                        lastTriedTid = tid;
+                                                        // 1. Query Battery (with progressive BUSY 0x01 retry for legacy receivers)
+                                                        byte[] req = CreateRazerReport(tid, 0x07, 0x80, 0x02, caps.FeatureReportByteLength, prepended);
+                                                        byte battStatus;
+                                                        byte[] resp = SendAndReadRazerFeature(handle, req, caps.FeatureReportByteLength, prepended, 0x07, 0x80, 4, out battStatus);
+                                                        if (battStatus != 0) lastObservedStatus = battStatus;
+                                                        if (battStatus == 0x04) linkDownReply = true;
+
+                                                        if (resp != null && resp[offset + 9] > 0)
                                                         {
-                                                            byte status = resp[offset + 0];
-                                                            if (status == 0x04) linkDownReply = true;
-                                                            byte cmdClass = resp[offset + 6];
-                                                            byte cmdId = resp[offset + 7];
                                                             byte rawBatt = resp[offset + 9];
+                                                            querySuccess = true;
+                                                            successfulTid = tid;
+                                                            pct = (int)Math.Round((rawBatt / 255.0) * 100);
+                                                            pct = Math.Max(1, Math.Min(100, pct));
+                                                            exactPct = Math.Round((rawBatt / 255.0) * 100.0, 2);
+                                                            exactPct = Math.Max(1.0, Math.Min(100.0, exactPct));
 
-                                                            if (status == 0x02 && cmdClass == 0x07 && cmdId == 0x80 && rawBatt > 0)
+                                                            // 2. Query Charging (with BUSY retry)
+                                                            byte[] chgReq = CreateRazerReport(tid, 0x07, 0x84, 0x02, caps.FeatureReportByteLength, prepended);
+                                                            byte chgStatus;
+                                                            byte[] chgResp = SendAndReadRazerFeature(handle, chgReq, caps.FeatureReportByteLength, prepended, 0x07, 0x84, 3, out chgStatus);
+                                                            if (chgResp != null)
                                                             {
-                                                                querySuccess = true;
-                                                                pct = (int)Math.Round((rawBatt / 255.0) * 100);
-                                                                pct = Math.Max(1, Math.Min(100, pct));
-                                                                exactPct = Math.Round((rawBatt / 255.0) * 100.0, 2);
-                                                                exactPct = Math.Max(1.0, Math.Min(100.0, exactPct));
+                                                                isCharging = (chgResp[offset + 9] == 1);
+                                                            }
 
-                                                                 // 2. Query Charging
-                                                                byte[] chgReq = CreateRazerReport(tid, 0x07, 0x84, 0x02, caps.FeatureReportByteLength, prepended);
-                                                                if (HidD_SetFeature(handle, chgReq, chgReq.Length))
+                                                            // 3. Query DPI Stages & Active DPI (带 3 次退避与 BUSY 0x01 过滤)
+                                                            byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, caps.FeatureReportByteLength, prepended, new byte[] { 0x01 });
+                                                            if (HidD_SetFeature(handle, stagesReq, stagesReq.Length))
+                                                            {
+                                                                byte[] stResp = new byte[caps.FeatureReportByteLength];
+                                                                if (prepended) stResp[0] = 0x00;
+                                                                for (int attempt = 0; attempt < 3; attempt++)
                                                                 {
                                                                     Thread.Sleep(15);
-                                                                    byte[] chgResp = new byte[caps.FeatureReportByteLength];
-                                                                    if (prepended) chgResp[0] = 0x00;
-                                                                    if (HidD_GetFeature(handle, chgResp, chgResp.Length) && chgResp[offset + 0] == 0x02 && chgResp[offset + 6] == 0x07 && chgResp[offset + 7] == 0x84)
+                                                                    if (HidD_GetFeature(handle, stResp, stResp.Length))
                                                                     {
-                                                                        isCharging = (chgResp[offset + 9] == 1);
+                                                                        byte stStatus = stResp[offset + 0];
+                                                                        byte stClass = stResp[offset + 6];
+                                                                        byte stId = stResp[offset + 7];
+                                                                        if (stStatus == 0x01) continue; // BUSY
+                                                                        if (stStatus == 0x02 && stClass == 0x04 && stId == 0x86)
+                                                                        {
+                                                                            RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
+                                                                            if (parsedStages != null)
+                                                                            {
+                                                                                activeStage = parsedStages.DpiStage;
+                                                                                stageCount = parsedStages.DpiStageCount;
+                                                                                stageList = parsedStages.DpiStages;
+                                                                                stageListY = parsedStages.DpiStagesY;
+                                                                                liveDpi = parsedStages.Dpi;
+                                                                                liveDpiY = parsedStages.DpiY;
+                                                                                break;
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
+                                                            }
 
-                                                                // 3. Query DPI Stages & Active DPI (带 3 次退避与 BUSY 0x01 过滤)
-                                                                byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, caps.FeatureReportByteLength, prepended, new byte[] { 0x01 });
-                                                                if (HidD_SetFeature(handle, stagesReq, stagesReq.Length))
+                                                            if (liveDpi <= 0)
+                                                            {
+                                                                byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, caps.FeatureReportByteLength, prepended, new byte[] { 0x00 });
+                                                                if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
                                                                 {
-                                                                    byte[] stResp = new byte[caps.FeatureReportByteLength];
-                                                                    if (prepended) stResp[0] = 0x00;
+                                                                    byte[] dpiResp = new byte[caps.FeatureReportByteLength];
+                                                                    if (prepended) dpiResp[0] = 0x00;
                                                                     for (int attempt = 0; attempt < 3; attempt++)
                                                                     {
                                                                         Thread.Sleep(15);
-                                                                        if (HidD_GetFeature(handle, stResp, stResp.Length))
+                                                                        if (HidD_GetFeature(handle, dpiResp, dpiResp.Length))
                                                                         {
-                                                                            byte stStatus = stResp[offset + 0];
-                                                                            byte stClass = stResp[offset + 6];
-                                                                            byte stId = stResp[offset + 7];
-                                                                            if (stStatus == 0x01) continue; // BUSY
-                                                                            if (stStatus == 0x02 && stClass == 0x04 && stId == 0x86)
+                                                                            byte dStatus = dpiResp[offset + 0];
+                                                                            byte dClass = dpiResp[offset + 6];
+                                                                            byte dId = dpiResp[offset + 7];
+                                                                            if (dStatus == 0x01) continue;
+                                                                            if (dStatus == 0x02 && dClass == 0x04 && dId == 0x85)
                                                                             {
-                                                                                RazerDeviceHardwareState parsedStages = ParseDpiStagesReport(stResp, offset);
-                                                                                if (parsedStages != null)
+                                                                                int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
+                                                                                if (readLiveDpi >= 100 && readLiveDpi <= 50000)
                                                                                 {
-                                                                                    activeStage = parsedStages.DpiStage;
-                                                                                    stageCount = parsedStages.DpiStageCount;
-                                                                                    stageList = parsedStages.DpiStages;
-                                                                                    stageListY = parsedStages.DpiStagesY;
-                                                                                    liveDpi = parsedStages.Dpi;
-                                                                                    liveDpiY = parsedStages.DpiY;
+                                                                                    liveDpi = readLiveDpi;
+                                                                                    int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
+                                                                                    liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 50000 ? readLiveDpiY : readLiveDpi;
                                                                                     break;
                                                                                 }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
-
-                                                                if (liveDpi <= 0)
-                                                                {
-                                                                    byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, caps.FeatureReportByteLength, prepended, new byte[] { 0x00 });
-                                                                    if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
-                                                                    {
-                                                                        byte[] dpiResp = new byte[caps.FeatureReportByteLength];
-                                                                        if (prepended) dpiResp[0] = 0x00;
-                                                                        for (int attempt = 0; attempt < 3; attempt++)
-                                                                        {
-                                                                            Thread.Sleep(15);
-                                                                            if (HidD_GetFeature(handle, dpiResp, dpiResp.Length))
-                                                                            {
-                                                                                byte dStatus = dpiResp[offset + 0];
-                                                                                byte dClass = dpiResp[offset + 6];
-                                                                                byte dId = dpiResp[offset + 7];
-                                                                                if (dStatus == 0x01) continue;
-                                                                                if (dStatus == 0x02 && dClass == 0x04 && dId == 0x85)
-                                                                                {
-                                                                                    int readLiveDpi = (dpiResp[offset + 9] << 8) | dpiResp[offset + 10];
-                                                                                    if (readLiveDpi >= 100 && readLiveDpi <= 50000)
-                                                                                    {
-                                                                                        liveDpi = readLiveDpi;
-                                                                                        int readLiveDpiY = (dpiResp[offset + 11] << 8) | dpiResp[offset + 12];
-                                                                                        liveDpiY = readLiveDpiY >= 100 && readLiveDpiY <= 50000 ? readLiveDpiY : readLiveDpi;
-                                                                                        break;
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                // 4. Query Polling Rate
-                                                                byte[] pollReq = CreateRazerReport(tid, 0x00, 0xC0, 0x01, caps.FeatureReportByteLength, prepended);
-                                                                if (HidD_SetFeature(handle, pollReq, pollReq.Length))
-                                                                {
-                                                                    Thread.Sleep(15);
-                                                                    byte[] pollResp = new byte[caps.FeatureReportByteLength];
-                                                                    if (prepended) pollResp[0] = 0x00;
-                                                                    if (HidD_GetFeature(handle, pollResp, pollResp.Length) && pollResp[offset + 0] == 0x02 && pollResp[offset + 6] == 0x00 && pollResp[offset + 7] == 0xC0)
-                                                                    {
-                                                                        byte rawPoll = pollResp[offset + 9];
-                                                                        switch (rawPoll)
-                                                                        {
-                                                                            case 0x01: pollingRate = 8000; break;
-                                                                            case 0x02: pollingRate = 4000; break;
-                                                                            case 0x04: pollingRate = 2000; break;
-                                                                            case 0x08: pollingRate = 1000; break;
-                                                                            case 0x10: pollingRate = 500; break;
-                                                                            case 0x20: pollingRate = 250; break;
-                                                                            case 0x40: pollingRate = 125; break;
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                break; // Succeeded with this tid
                                                             }
+
+                                                            // 4. Query Polling Rate (adaptive Classic 0x85 <-> Modern 0xC0)
+                                                            bool preferClassicPoll = IsClassicPollingProtocolPid(curPid);
+                                                            pollingRate = QuerySinglePollingRate(handle, tid, caps.FeatureReportByteLength, offset, prepended, preferClassicPoll);
+                                                            if (pollingRate == 0)
+                                                            {
+                                                                pollingRate = QuerySinglePollingRate(handle, tid, caps.FeatureReportByteLength, offset, prepended, !preferClassicPoll);
+                                                            }
+
+                                                            break; // Succeeded with this tid
                                                         }
                                                     }
-                                                }
 
-                                                RazerDeviceHardwareState stState = GetOrCreateState(normId);
-
-                                                if (querySuccess)
-                                                {
-                                                    isDongle = DetermineIsDongle(curPid, prodName, pct, isCharging);
-
-                                                    // Device responded actively!
-                                                    stState.DevicePath = devicePath;
-                                                    stState.ReportLength = caps.FeatureReportByteLength;
-                                                    stState.IsPrepended = prepended;
-                                                    stState.BatteryPercent = pct;
-                                                    stState.ExactBatteryPercent = exactPct;
-                                                    stState.DeviceName = resolvedModelName;
-
-                                                    // 物理状态防破坏锁：当快速连续点击刷新或遇接收器忙时，若单次未读出档位，平滑继承已知有效档位，严禁清零！
-                                                    if (activeStage <= 0 && stState.DpiStage > 0)
+                                                    RazerScanAccumulator acc;
+                                                    if (!scanByNormId.TryGetValue(normId, out acc))
                                                     {
-                                                        activeStage = stState.DpiStage;
-                                                        stageCount = stState.DpiStageCount;
-                                                        stageList = stState.DpiStages;
-                                                        stageListY = stState.DpiStagesY;
-                                                    }
-                                                    if (liveDpi <= 0 && stState.Dpi > 0)
-                                                    {
-                                                        liveDpi = stState.Dpi;
-                                                        liveDpiY = stState.DpiY;
+                                                        acc = new RazerScanAccumulator { NormId = normId };
+                                                        scanByNormId[normId] = acc;
+                                                        scanOrder.Add(normId);
                                                     }
 
-                                                    stState.Dpi = liveDpi;
-                                                    stState.DpiY = liveDpiY;
-                                                    stState.IsXyIndependent = liveDpiY > 0 && liveDpi != liveDpiY;
-                                                    stState.XyRatio = liveDpi > 0 ? (double)liveDpiY / liveDpi : 1.0;
-                                                    stState.DpiStage = activeStage;
-                                                    stState.DpiStageCount = stageCount;
-                                                    stState.DpiStages = stageList;
-                                                    stState.DpiStagesY = stageListY;
-                                                    if (pollingRate > 0) stState.PollingRate = pollingRate;
-                                                    stState.ActiveTransactionId = successfulTid;
-                                                    stState.LastUpdated = DateTime.Now;
-                                                    stState.ConsecutiveFailures = 0;
-                                                    stState.ConsecutiveLinkDown = 0;
-                                                    stState.LastSuccessfulCommunication = DateTime.Now;
-
-                                                    var activeDev = new MouseBatteryInfo
+                                                    if (querySuccess)
                                                     {
-                                                        DeviceId = normId,
-                                                        Brand = "Razer",
-                                                        Category = GetRazerDeviceCategory(curPid, resolvedModelName),
-                                                        IsConnected = true,
-                                                        IsSleeping = false,
-                                                        IsDonglePresent = isDongle,
-                                                        Transport = isDongle ? "2.4G 无线" : "USB 有线",
-                                                        HardwareId = "HID:1532:" + curPid.ToString("X4"),
-                                                        DeviceName = resolvedModelName,
-                                                        BatteryPercent = pct,
-                                                        ExactBatteryPercent = exactPct,
-                                                        IsCharging = isCharging,
-                                                        LastUpdated = DateTime.Now,
-                                                        Dpi = liveDpi,
-                                                        DpiY = liveDpiY,
-                                                        IsXyIndependent = stState.IsXyIndependent,
-                                                        XyRatio = stState.XyRatio,
-                                                        DpiStage = activeStage,
-                                                        DpiStageCount = stageCount,
-                                                        DpiStages = stageList,
-                                                        DpiStagesY = stageListY,
-                                                        PollingRate = pollingRate,
-                                                        MaxPollingRate = GetMaxPollingRateForModel(curPid, resolvedModelName),
-                                                        SupportedPollingRates = GetSupportedPollingRatesForModel(curPid, resolvedModelName)
-                                                    };
+                                                        isDongle = DetermineIsDongle(curPid, prodName, pct, isCharging);
+                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("OK TID=0x{0:X2} batt={1}% chg={2} dpi={3} poll={4}Hz dongle={5} len={6}", successfulTid, pct, isCharging ? 1 : 0, liveDpi, pollingRate, isDongle ? 1 : 0, caps.FeatureReportByteLength));
 
-                                                    // If already present: Wired connection takes precedence over Dongle!
-                                                    if (detectedByNormId.ContainsKey(normId))
-                                                    {
-                                                        var existing = detectedByNormId[normId];
-                                                        if (existing.IsSleeping || (!isDongle && existing.IsDonglePresent))
+                                                        var activeDev = new MouseBatteryInfo
                                                         {
-                                                            detectedByNormId[normId] = activeDev;
+                                                            DeviceId = normId,
+                                                            Brand = "Razer",
+                                                            Category = GetRazerDeviceCategory(curPid, resolvedModelName),
+                                                            IsConnected = true,
+                                                            IsSleeping = false,
+                                                            IsDonglePresent = isDongle,
+                                                            Transport = isDongle ? "2.4G 无线" : "USB 有线",
+                                                            HardwareId = "HID:1532:" + curPid.ToString("X4"),
+                                                            DeviceName = resolvedModelName,
+                                                            BatteryPercent = pct,
+                                                            ExactBatteryPercent = exactPct,
+                                                            IsCharging = isCharging,
+                                                            LastUpdated = DateTime.Now,
+                                                            Dpi = liveDpi,
+                                                            DpiY = liveDpiY,
+                                                            IsXyIndependent = (liveDpiY > 0 && liveDpi != liveDpiY),
+                                                            XyRatio = (liveDpi > 0 && liveDpiY > 0) ? (double)liveDpiY / liveDpi : 1.0,
+                                                            DpiStage = activeStage,
+                                                            DpiStageCount = stageCount,
+                                                            DpiStages = stageList,
+                                                            DpiStagesY = stageListY,
+                                                            PollingRate = pollingRate,
+                                                            MaxPollingRate = GetMaxPollingRateForModel(curPid, resolvedModelName),
+                                                            SupportedPollingRates = GetSupportedPollingRatesForModel(curPid, resolvedModelName)
+                                                        };
+
+                                                        if (!acc.AnyLiveSuccess || ShouldReplaceCandidateDevice(acc.BestLiveInfo, true, activeDev, true))
+                                                        {
+                                                            acc.AnyLiveSuccess = true;
+                                                            acc.BestLiveInfo = activeDev;
+                                                            acc.BestLivePath = devicePath;
+                                                            acc.BestLiveReportLen = caps.FeatureReportByteLength;
+                                                            acc.BestLivePrepended = prepended;
+                                                            acc.BestLiveTid = successfulTid;
+                                                            acc.BestLivePct = pct;
+                                                            acc.BestLiveExactPct = exactPct;
+                                                            acc.BestLiveDpi = liveDpi;
+                                                            acc.BestLiveDpiY = liveDpiY;
+                                                            acc.BestLiveActiveStage = activeStage;
+                                                            acc.BestLiveStageCount = stageCount;
+                                                            acc.BestLiveStageList = stageList;
+                                                            acc.BestLiveStageListY = stageListY;
+                                                            acc.BestLivePollingRate = pollingRate;
+                                                            acc.BestLiveModelName = resolvedModelName;
                                                         }
                                                     }
                                                     else
                                                     {
-                                                        detectedByNormId[normId] = activeDev;
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    stState.ConsecutiveFailures++;
-                                                    if (linkDownReply) stState.ConsecutiveLinkDown++; else stState.ConsecutiveLinkDown = 0;
+                                                        if (linkDownReply) acc.AnyLinkDown = true;
+                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("NO_BATT lastTid=0x{0:X2} status=0x{1:X2} len={2} ({3})", lastTriedTid, lastObservedStatus, caps.FeatureReportByteLength, HardwareDiagnosticService.SanitizeDevicePath(devicePath)));
 
-                                                    // Device didn't respond (e.g. asleep or off).
-                                                    // Save handle path so wake attempts or FastQueryDpi can reach it.
-                                                    if (string.IsNullOrEmpty(stState.DevicePath) || !isDongle)
-                                                    {
-                                                        stState.DevicePath = devicePath;
-                                                        stState.ReportLength = caps.FeatureReportByteLength;
-                                                        stState.IsPrepended = prepended;
-                                                    }
-
-                                                    if (!detectedByNormId.ContainsKey(normId))
-                                                    {
-                                                        detectedByNormId[normId] = CreateFallbackDeviceInfo(normId, curPid, resolvedModelName, isDongle, stState);
+                                                        if (!acc.HasFallback || !isDongle)
+                                                        {
+                                                            acc.HasFallback = true;
+                                                            acc.FallbackPid = curPid;
+                                                            acc.FallbackModelName = resolvedModelName;
+                                                            acc.FallbackIsDongle = isDongle;
+                                                            acc.FallbackPath = devicePath;
+                                                            acc.FallbackReportLen = caps.FeatureReportByteLength;
+                                                            acc.FallbackPrepended = prepended;
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        CloseHandle(handle);
+                                        finally
+                                        {
+                                            CloseHandle(handle);
+                                        }
                                     }
                                 }
                             }
                         }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                        }
 
-                        Marshal.FreeHGlobal(detailBuffer);
+                        ifData.cbSize = Marshal.SizeOf(ifData);
                     }
                 }
                 finally
                 {
                     SetupDiDestroyDeviceInfoList(devInfo);
+                }
+
+                // Finalize per-device state ONCE after all HID interfaces have been evaluated
+                for (int i = 0; i < scanOrder.Count; i++)
+                {
+                    RazerScanAccumulator acc = scanByNormId[scanOrder[i]];
+                    RazerDeviceHardwareState stState = GetOrCreateState(acc.NormId);
+
+                    if (acc.AnyLiveSuccess && acc.BestLiveInfo != null)
+                    {
+                        int finalStage = acc.BestLiveActiveStage;
+                        int finalStageCount = acc.BestLiveStageCount;
+                        int[] finalStageList = acc.BestLiveStageList;
+                        int[] finalStageListY = acc.BestLiveStageListY;
+                        int finalDpi = acc.BestLiveDpi;
+                        int finalDpiY = acc.BestLiveDpiY;
+
+                        // 物理状态防破坏锁：当快速连续点击刷新或遇接收器忙时，若单次未读出档位，平滑继承已知有效档位，严禁清零！
+                        if (finalStage <= 0 && stState.DpiStage > 0)
+                        {
+                            finalStage = stState.DpiStage;
+                            finalStageCount = stState.DpiStageCount;
+                            finalStageList = stState.DpiStages;
+                            finalStageListY = stState.DpiStagesY;
+                        }
+                        if (finalDpi <= 0 && stState.Dpi > 0)
+                        {
+                            finalDpi = stState.Dpi;
+                            finalDpiY = stState.DpiY;
+                        }
+
+                        stState.DevicePath = acc.BestLivePath;
+                        stState.ReportLength = acc.BestLiveReportLen;
+                        stState.IsPrepended = acc.BestLivePrepended;
+                        stState.BatteryPercent = acc.BestLivePct;
+                        stState.ExactBatteryPercent = acc.BestLiveExactPct;
+                        stState.DeviceName = acc.BestLiveModelName;
+                        stState.Dpi = finalDpi;
+                        stState.DpiY = finalDpiY;
+                        stState.IsXyIndependent = (finalDpiY > 0 && finalDpi != finalDpiY);
+                        stState.XyRatio = (finalDpi > 0 && finalDpiY > 0) ? (double)finalDpiY / finalDpi : 1.0;
+                        stState.DpiStage = finalStage;
+                        stState.DpiStageCount = finalStageCount;
+                        stState.DpiStages = finalStageList;
+                        stState.DpiStagesY = finalStageListY;
+                        if (acc.BestLivePollingRate > 0) stState.PollingRate = acc.BestLivePollingRate;
+                        stState.ActiveTransactionId = acc.BestLiveTid;
+                        stState.LastUpdated = DateTime.Now;
+                        stState.ConsecutiveFailures = 0;
+                        stState.ConsecutiveLinkDown = 0;
+                        stState.LastSuccessfulCommunication = DateTime.Now;
+
+                        acc.BestLiveInfo.Dpi = finalDpi;
+                        acc.BestLiveInfo.DpiY = finalDpiY;
+                        acc.BestLiveInfo.IsXyIndependent = stState.IsXyIndependent;
+                        acc.BestLiveInfo.XyRatio = stState.XyRatio;
+                        acc.BestLiveInfo.DpiStage = finalStage;
+                        acc.BestLiveInfo.DpiStageCount = finalStageCount;
+                        acc.BestLiveInfo.DpiStages = finalStageList;
+                        acc.BestLiveInfo.DpiStagesY = finalStageListY;
+
+                        detectedByNormId[acc.NormId] = acc.BestLiveInfo;
+                    }
+                    else if (acc.HasFallback)
+                    {
+                        stState.ConsecutiveFailures++;
+                        if (acc.AnyLinkDown) stState.ConsecutiveLinkDown++; else stState.ConsecutiveLinkDown = 0;
+
+                        if (string.IsNullOrEmpty(stState.DevicePath) || !acc.FallbackIsDongle)
+                        {
+                            stState.DevicePath = acc.FallbackPath;
+                            stState.ReportLength = acc.FallbackReportLen;
+                            stState.IsPrepended = acc.FallbackPrepended;
+                        }
+
+                        detectedByNormId[acc.NormId] = CreateFallbackDeviceInfo(acc.NormId, acc.FallbackPid, acc.FallbackModelName, acc.FallbackIsDongle, stState);
+                    }
                 }
 
                 // Update primary/legacy cached fields from the best active device
@@ -2190,6 +2445,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateRazerHardwareStages(int activeStage, int[] stagesX, int[] stagesY, string targetDeviceId = null)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
             int count = Math.Max(1, Math.Min(5, stagesX.Length));
@@ -2422,6 +2678,7 @@ namespace RazerBatteryTray
 
         public static bool SetRazerDpi(int dpiX, int dpiY, string targetDeviceId = null)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             lock (hidLock)
@@ -2595,6 +2852,32 @@ namespace RazerBatteryTray
             return false;
         }
 
+        private static byte EncodePollingRateByte(int hz, bool useClassic)
+        {
+            if (useClassic)
+            {
+                switch (hz)
+                {
+                    case 1000: return 0x01;
+                    case 500:  return 0x02;
+                    case 250:  return 0x04;
+                    case 125:  return 0x08;
+                    default:   return 0x01;
+                }
+            }
+            switch (hz)
+            {
+                case 8000: return 0x01;
+                case 4000: return 0x02;
+                case 2000: return 0x04;
+                case 1000: return 0x08;
+                case 500:  return 0x10;
+                case 250:  return 0x20;
+                case 125:  return 0x40;
+                default:   return 0x02;
+            }
+        }
+
         public static bool SetRazerPollingRate(int hz, string targetDeviceId = null)
         {
             if (MainForm.DisableConfigSaveForTesting ||
@@ -2612,32 +2895,9 @@ namespace RazerBatteryTray
             }
 
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
-            bool useClassicPolling = string.Equals(normTargetId, "Razer:1532:0086", StringComparison.OrdinalIgnoreCase);
-
-            byte rateByte = useClassicPolling ? (byte)0x01 : (byte)0x02; // classic default 1000Hz, modern default 4000Hz
-            if (useClassicPolling)
-            {
-                switch (hz)
-                {
-                    case 1000: rateByte = 0x01; break;
-                    case 500:  rateByte = 0x02; break;
-                    case 250:  rateByte = 0x04; break;
-                    case 125:  rateByte = 0x08; break;
-                }
-            }
-            else
-            {
-                switch (hz)
-                {
-                    case 8000: rateByte = 0x01; break;
-                    case 4000: rateByte = 0x02; break;
-                    case 2000: rateByte = 0x04; break;
-                    case 1000: rateByte = 0x08; break;
-                    case 500:  rateByte = 0x10; break;
-                    case 250:  rateByte = 0x20; break;
-                    case 125:  rateByte = 0x40; break;
-                }
-            }
+            int targetPid = ExtractRazerPidFromDeviceId(normTargetId);
+            bool useClassicPolling = IsClassicPollingProtocolPid(targetPid);
+            byte rateByte = EncodePollingRateByte(hz, useClassicPolling);
 
             lock (hidLock)
             {
@@ -2645,7 +2905,12 @@ namespace RazerBatteryTray
                 if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
                     byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                    if (TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid, useClassicPolling))
+                    bool okCached = TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid, useClassicPolling);
+                    if (!okCached && hz <= 1000)
+                    {
+                        okCached = TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, EncodePollingRateByte(hz, !useClassicPolling), preferredTid, !useClassicPolling);
+                    }
+                    if (okCached)
                     {
                         st.PollingRate = hz;
                         st.LastUpdated = DateTime.Now;
@@ -2671,74 +2936,90 @@ namespace RazerBatteryTray
                     {
                         uint reqSize;
                         SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
-                        IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-                        Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        if (reqSize == 0)
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                            ifData.cbSize = Marshal.SizeOf(ifData);
+                            continue;
+                        }
+                        IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
+                        try
+                        {
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
 
-                            if (devicePath != null && devicePath.ToLower().Contains("vid_1532"))
+                            if (SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-                                if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+
+                                if (devicePath != null && devicePath.ToLower().Contains("vid_1532"))
                                 {
-                                    try
+                                    IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
                                     {
-                                        IntPtr preparsed;
-                                        if (HidD_GetPreparsedData(handle, out preparsed))
+                                        try
                                         {
-                                            HIDP_CAPS caps;
-                                            HidP_GetCaps(preparsed, out caps);
-                                            HidD_FreePreparsedData(preparsed);
-
-                                            if (caps.FeatureReportByteLength >= 90)
+                                            IntPtr preparsed;
+                                            if (HidD_GetPreparsedData(handle, out preparsed))
                                             {
-                                                int curPid = 0;
-                                                HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES();
-                                                attr.Size = Marshal.SizeOf(attr);
-                                                if (HidD_GetAttributes(handle, ref attr))
+                                                HIDP_CAPS caps;
+                                                HidP_GetCaps(preparsed, out caps);
+                                                HidD_FreePreparsedData(preparsed);
+
+                                                if (caps.FeatureReportByteLength >= 90)
                                                 {
-                                                    curPid = attr.ProductID;
-                                                }
-                                                int normPid = NormalizeRazerPid(curPid);
-                                                string curNormId = "Razer:1532:" + normPid.ToString("X4");
+                                                    int curPid = 0;
+                                                    HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES();
+                                                    attr.Size = Marshal.SizeOf(attr);
+                                                    if (HidD_GetAttributes(handle, ref attr))
+                                                    {
+                                                        curPid = attr.ProductID;
+                                                    }
+                                                    int normPid = NormalizeRazerPid(curPid);
+                                                    string curNormId = "Razer:1532:" + normPid.ToString("X4");
 
-                                                if (!string.IsNullOrEmpty(normTargetId) && !curNormId.Equals(normTargetId, StringComparison.OrdinalIgnoreCase))
-                                                {
-                                                    continue;
-                                                }
+                                                    if (!string.IsNullOrEmpty(normTargetId) && !curNormId.Equals(normTargetId, StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        continue;
+                                                    }
 
-                                                bool prepended = (caps.FeatureReportByteLength == 91);
-                                                st = GetOrCreateState(curNormId);
-                                                byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
-                                                bool curUseClassicPolling = string.Equals(curNormId, "Razer:1532:0086", StringComparison.OrdinalIgnoreCase);
-                                                if (TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, rateByte, preferredTid, curUseClassicPolling))
-                                                {
-                                                    st.DevicePath = devicePath;
-                                                    st.ReportLength = caps.FeatureReportByteLength;
-                                                    st.IsPrepended = prepended;
-                                                    st.PollingRate = hz;
-                                                    st.LastUpdated = DateTime.Now;
+                                                    bool prepended = (caps.FeatureReportByteLength == 91);
+                                                    st = GetOrCreateState(curNormId);
+                                                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                                                    bool curUseClassicPolling = IsClassicPollingProtocolPid(curPid);
+                                                    bool curOk = TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, EncodePollingRateByte(hz, curUseClassicPolling), preferredTid, curUseClassicPolling);
+                                                    if (!curOk && hz <= 1000)
+                                                    {
+                                                        curOk = TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, EncodePollingRateByte(hz, !curUseClassicPolling), preferredTid, !curUseClassicPolling);
+                                                    }
+                                                    if (curOk)
+                                                    {
+                                                        st.DevicePath = devicePath;
+                                                        st.ReportLength = caps.FeatureReportByteLength;
+                                                        st.IsPrepended = prepended;
+                                                        st.PollingRate = hz;
+                                                        st.LastUpdated = DateTime.Now;
 
-                                                    CachedPollingRate = hz;
-                                                    SaveHardwareCache();
+                                                        CachedPollingRate = hz;
+                                                        SaveHardwareCache();
 
-                                                    Marshal.FreeHGlobal(detailBuffer);
-                                                    return true;
+                                                        return true;
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        CloseHandle(handle);
+                                        finally
+                                        {
+                                            CloseHandle(handle);
+                                        }
                                     }
                                 }
                             }
                         }
-                        Marshal.FreeHGlobal(detailBuffer);
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                        }
+                        ifData.cbSize = Marshal.SizeOf(ifData);
                     }
                 }
                 finally
@@ -2765,7 +3046,6 @@ namespace RazerBatteryTray
 
         private static bool TrySetRazerPollingRateByHandle(IntPtr handle, int reportLength, bool prepended, byte rateByte, byte preferredTid = 0x1F, bool useClassicPolling = false)
         {
-            int offset = prepended ? 1 : 0;
             byte cmdId = useClassicPolling ? (byte)0x05 : (byte)0x40;
             byte dataSize = useClassicPolling ? (byte)0x01 : (byte)0x02;
             byte[] args = useClassicPolling ? new byte[] { rateByte } : new byte[] { 0x01, rateByte };
@@ -2774,21 +3054,10 @@ namespace RazerBatteryTray
             foreach (byte tid in tids)
             {
                 byte[] req = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, args);
-                if (HidD_SetFeature(handle, req, req.Length))
+                byte status;
+                if (SendAndReadRazerFeature(handle, req, reportLength, prepended, 0x00, cmdId, 4, out status) != null)
                 {
-                    for (int attempt = 0; attempt < 4; attempt++)
-                    {
-                        Thread.Sleep(15);
-                        byte[] resp = new byte[reportLength];
-                        if (prepended) resp[0] = 0x00;
-                        if (HidD_GetFeature(handle, resp, resp.Length) &&
-                            resp[offset + 0] == 0x02 &&
-                            resp[offset + 6] == 0x00 &&
-                            resp[offset + 7] == cmdId)
-                        {
-                            return true;
-                        }
-                    }
+                    return true;
                 }
             }
             return false;

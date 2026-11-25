@@ -2,8 +2,8 @@
 // 模块名称: ModernInputBox.cs
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
-//   现代化深色暗黑风输入框控件，内部宿主无边框原生 TextBox 并自绘制外层圆角背景、
-//   悬停微光边框与获得焦点时的常态发光绿色外圈（DpiScale 自适应）。
+//   现代化深色暗黑风圆角输入框控件，内部宿主无边框原生 TextBox 并自绘制外层抗锯齿圆角背景、
+//   自动继承父容器/RoundedCard 底色消除边角锯齿、悬停微光边框与聚焦发光外圈（DpiScale 自适应）。
 // 依赖关系: RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -22,17 +22,23 @@ namespace RazerBatteryTray
     public class ModernInputBox : Control
     {
         public float DpiScale = 1.0f;
+        public Color FillColor = Color.FromArgb(20, 23, 31);
+        public Color AccentBorderColor = Color.FromArgb(0, 230, 118);
+
         private TextBox innerBox;
         private bool isFocused = false;
         private bool isHovered = false;
+
+        public TextBox InnerTextBox { get { return innerBox; } }
 
         public override string Text
         {
             get { return innerBox != null ? innerBox.Text : base.Text; }
             set
             {
-                base.Text = value;
-                if (innerBox != null && innerBox.Text != value) innerBox.Text = value;
+                string safe = value ?? "";
+                base.Text = safe;
+                if (innerBox != null && innerBox.Text != safe) innerBox.Text = safe;
             }
         }
 
@@ -40,31 +46,86 @@ namespace RazerBatteryTray
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
             BackColor = Color.FromArgb(18, 19, 23);
-            ForeColor = Color.White;
+            ForeColor = Color.FromArgb(245, 250, 255);
+            Cursor = Cursors.IBeam;
             DoubleBuffered = true;
 
             innerBox = new TextBox();
             innerBox.BorderStyle = BorderStyle.None;
-            innerBox.BackColor = Color.FromArgb(28, 32, 44);
+            innerBox.BackColor = FillColor;
             innerBox.ForeColor = Color.FromArgb(245, 250, 255);
             innerBox.Font = new Font("Microsoft YaHei UI", 9.5F);
             innerBox.GotFocus += (s, e) => { isFocused = true; Invalidate(); };
             innerBox.LostFocus += (s, e) => { isFocused = false; Invalidate(); };
             innerBox.MouseEnter += (s, e) => { isHovered = true; Invalidate(); };
             innerBox.MouseLeave += (s, e) => { isHovered = false; Invalidate(); };
-            innerBox.TextChanged += (s, e) => { base.Text = innerBox.Text; };
+            innerBox.TextChanged += (s, e) => {
+                if (base.Text != innerBox.Text) base.Text = innerBox.Text;
+            };
             this.Controls.Add(innerBox);
+        }
+
+        public void SelectAll()
+        {
+            if (innerBox != null) innerBox.SelectAll();
+        }
+
+        public new bool Focus()
+        {
+            if (innerBox != null) return innerBox.Focus();
+            return base.Focus();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            if (innerBox != null && this.Font != null)
+            {
+                innerBox.Font = this.Font;
+                LayoutInnerBox();
+            }
+        }
+
+        protected override void OnForeColorChanged(EventArgs e)
+        {
+            base.OnForeColorChanged(e);
+            if (innerBox != null) innerBox.ForeColor = this.ForeColor;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (innerBox != null) innerBox.Focus();
         }
 
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            if (innerBox != null)
+            LayoutInnerBox();
+        }
+
+        private void LayoutInnerBox()
+        {
+            if (innerBox == null) return;
+            int padH = Math.Max(8, (int)(10 * DpiScale));
+            int prefH = innerBox.PreferredHeight;
+            if (prefH <= 0) prefH = Math.Max(14, (int)(18 * DpiScale));
+            int h = Math.Min(Math.Max(12, Height - 4), prefH);
+            int y = Math.Max(2, (Height - h) / 2);
+            innerBox.BackColor = FillColor;
+            innerBox.SetBounds(padH, y, Math.Max(10, Width - (padH * 2)), h);
+        }
+
+        private Color ResolveParentBackColor()
+        {
+            Control p = this.Parent;
+            while (p != null)
             {
-                int padH = (int)(10 * DpiScale);
-                int h = (int)(20 * DpiScale);
-                innerBox.SetBounds(padH, (Height - h) / 2, Width - (padH * 2), h);
+                if (p is RoundedCard) return ((RoundedCard)p).CardColor;
+                if (p.BackColor != Color.Transparent && p.BackColor.A == 255) return p.BackColor;
+                p = p.Parent;
             }
+            return Color.FromArgb(18, 19, 23);
         }
 
         protected override void OnMouseEnter(EventArgs e) { isHovered = true; Invalidate(); base.OnMouseEnter(e); }
@@ -74,15 +135,17 @@ namespace RazerBatteryTray
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(ResolveParentBackColor());
 
-            int r = (int)(6 * DpiScale);
+            int r = Math.Max(4, (int)(7 * DpiScale));
             Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            Color bg = Color.FromArgb(28, 32, 44);
-            Color border = isFocused ? Color.FromArgb(0, 230, 118) : (isHovered ? Color.FromArgb(80, 110, 150) : Color.FromArgb(50, 56, 72));
+            Color border = isFocused
+                ? AccentBorderColor
+                : (isHovered ? Color.FromArgb(84, 102, 134) : Color.FromArgb(52, 58, 76));
 
             using (var path = RoundedCard.GetRoundedRectangle(rect, r))
             {
-                using (var brush = new SolidBrush(bg)) g.FillPath(brush, path);
+                using (var brush = new SolidBrush(FillColor)) g.FillPath(brush, path);
                 using (var pen = new Pen(border, isFocused ? 1.5f : 1.0f)) g.DrawPath(pen, path);
             }
         }

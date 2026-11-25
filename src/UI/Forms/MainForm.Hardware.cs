@@ -71,6 +71,7 @@ namespace RazerBatteryTray
 
         private void PerformInstantDpiCalibration(MouseBatteryInfo cur)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return;
             if (cur == null || cur.Category != DeviceCategory.Mouse) return;
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -547,8 +548,13 @@ namespace RazerBatteryTray
 
         public void SetDpiFromUI(int dpi)
         {
+            SetDpiForDevice(dpi, null);
+        }
+
+        public void SetDpiForDevice(int dpi, MouseBatteryInfo explicitDev)
+        {
             if (dpi < 50 || dpi > 50000) return;
-            var curDev = selectedDevice ?? GetActiveMouseDevice();
+            var curDev = explicitDev ?? selectedDevice ?? GetActiveMouseDevice();
             if (curDev == null) return;
 
             int targetStage = -1;
@@ -627,7 +633,12 @@ namespace RazerBatteryTray
 
         public void SetPollingRateFromUI(int hz)
         {
-            var curDev = selectedDevice ?? GetActiveMouseDevice();
+            SetPollingRateForDevice(hz, null);
+        }
+
+        public void SetPollingRateForDevice(int hz, MouseBatteryInfo explicitDev)
+        {
+            var curDev = explicitDev ?? selectedDevice ?? GetActiveMouseDevice();
             if (curDev != null && curDev.SupportsPollingRateWrite == false) return;
 
             desktopPollingRate = hz;
@@ -1153,6 +1164,7 @@ namespace RazerBatteryTray
 
         private void RestoreDesktopSettingsSynchronous()
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return;
             try
             {
                 var curDev = selectedDevice ?? GetActiveMouseDevice();
@@ -1942,7 +1954,7 @@ namespace RazerBatteryTray
             if (primary != null)
             {
                 lastInfo = primary;
-                UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping);
+                UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping, primary.TrayAccentColor);
                 UpdateStatusDisplay();
             }
             UpdateTrayDeviceMenuItems();
@@ -2197,7 +2209,20 @@ namespace RazerBatteryTray
                     var match = devices.Find(d => string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
                         ?? devices.Find(d => !string.IsNullOrEmpty(selectedDevice.PhysicalUnitId) &&
                             string.Equals(d.PhysicalUnitId, selectedDevice.PhysicalUnitId, StringComparison.OrdinalIgnoreCase));
-                    selectedDevice = match ?? devices.Find(d => d.IsPrimary) ?? devices.Find(d => d.IsConnected) ?? devices[0];
+                    if (match != null)
+                    {
+                        selectedDevice = match;
+                    }
+                    else if (deviceSelectionPinnedByUser && !DeviceManager.IsDeviceHidden(selectedDevice.DeviceId))
+                    {
+                        var knownAll = DeviceManager.GetAllKnownDevicesForPriority(devices);
+                        var offlineMatch = knownAll.Find(d => string.Equals(d.DeviceId, selectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase));
+                        selectedDevice = offlineMatch ?? devices.Find(d => d.IsPrimary) ?? devices.Find(d => d.IsConnected) ?? devices[0];
+                    }
+                    else
+                    {
+                        selectedDevice = devices.Find(d => d.IsPrimary) ?? devices.Find(d => d.IsConnected) ?? devices[0];
+                    }
                 }
                 else
                 {
@@ -2220,15 +2245,34 @@ namespace RazerBatteryTray
                 }
 
                 var primary = GetPrimaryDevice();
+                long recentMouseActTicks = System.Threading.Interlocked.Read(ref lastTargetMouseActivityTicks);
+                bool recentlyMovedMouse = recentMouseActTicks > 0 &&
+                    (DateTime.UtcNow.Ticks - recentMouseActTicks) < TimeSpan.FromSeconds(2.5).Ticks;
+                if (recentlyMovedMouse && !string.IsNullOrEmpty(lastWakeMouseDeviceId))
+                {
+                    for (int i = 0; i < devices.Count; i++)
+                    {
+                        var dmDev = devices[i];
+                        if (dmDev != null && dmDev.Category == DeviceCategory.Mouse && dmDev.IsSleeping && dmDev.IsDonglePresent &&
+                            (string.Equals(dmDev.DeviceId, lastWakeMouseDeviceId, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(RazerDeviceHelper.NormalizeRazerDeviceId(dmDev.DeviceId), RazerDeviceHelper.NormalizeRazerDeviceId(lastWakeMouseDeviceId), StringComparison.OrdinalIgnoreCase)))
+                        {
+                            // 用户 2.5s 内刚通过 WM_INPUT 移动该鼠标触发即时唤醒：忽略固件尚未刷新的陈旧休眠缓存，防止托盘重新变黄
+                            dmDev.IsSleeping = false;
+                        }
+                    }
+                }
                 lastInfo = primary;
 
                 UpdateDeviceTabsUI();
                 UpdateUI(selectedDevice, showTipIfManual);
                 UpdatePrimaryPinButton(selectedDevice);
 
-                UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping);
+                UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping, primary.TrayAccentColor);
                 UpdateStatusDisplay();
                 UpdateTrayDeviceMenuItems();
+                isMouseSleeping = HasAnySleepingMouse();
+                EnableMouseWakeDetector(ShouldMonitorMouseWakeInput());
                 if (selectedDevice != null)
                 {
                     PerformStartupDesktopCalibration(selectedDevice);
@@ -2596,6 +2640,7 @@ namespace RazerBatteryTray
 
             if (tileHeadsetAudio != null) tileHeadsetAudio.Visible = false;
             if (tileRapooDpi != null) tileRapooDpi.Visible = false;
+            if (btnDpiManage != null) btnDpiManage.Visible = false;
             if (btnRateManage != null) btnRateManage.Visible = false;
             if (btnGamepadVibrate != null) btnGamepadVibrate.Visible = false;
             if (btnGamepadJoyCpl != null) btnGamepadJoyCpl.Visible = false;
@@ -3355,6 +3400,47 @@ namespace RazerBatteryTray
                 RelayoutPerformanceControls();
                 SetGameRateControlsVisibility(isOptExpanded);
 
+                if (!info.IsConnected)
+                {
+                    bool hasAnyDpi = (dpiStageList != null && dpiStageList.Count > 0);
+                    bool hasAnyRate = (pollingRateValues != null && pollingRateValues.Length > 0);
+                    if (!hasAnyDpi && !hasAnyRate)
+                    {
+                        HideAllAutoGameControls();
+                        if (lblDpiTitle != null) lblDpiTitle.Visible = false;
+                        if (btnDpiManage != null) btnDpiManage.Visible = false;
+                        if (lblRateTitle != null) lblRateTitle.Visible = false;
+                        if (btnRateManage != null) btnRateManage.Visible = false;
+                        if (chkAutoGameOpt != null) chkAutoGameOpt.Visible = false;
+                        if (btnManageGames != null) btnManageGames.Visible = false;
+                        if (lblLiveRateBadge != null) lblLiveRateBadge.Visible = false;
+
+                        AdjustPerformanceCardHeight((int)(120 * dpiScale));
+                        if (tileRapooDpi != null)
+                        {
+                            tileRapooDpi.Visible = true;
+                            tileRapooDpi.Size = new Size(secW, (int)(64 * dpiScale));
+                            tileRapooDpi.Location = new Point((int)(16 * dpiScale), (int)(36 * dpiScale));
+                            tileRapooDpi.AccentColor = brandAccent;
+                            tileRapooDpi.Title = "无线鼠标 · 离线状态";
+                            tileRapooDpi.Badge = "OFFLINE";
+                            tileRapooDpi.ValueText = "离线";
+                            tileRapooDpi.UnitText = "";
+                            tileRapooDpi.Footnote = "接入鼠标或接收器后将自动读取板载 DPI 与回报率档位";
+                            tileRapooDpi.Invalidate();
+                        }
+                        if (dpiMenu != null) dpiMenu.Visible = false;
+                        if (rateMenu != null) rateMenu.Visible = false;
+                        return;
+                    }
+                    else if (!hasAnyDpi)
+                    {
+                        if (lblDpiTitle != null) lblDpiTitle.Visible = false;
+                        if (btnDpiManage != null) btnDpiManage.Visible = false;
+                        if (chkAutoGameDpi != null) chkAutoGameDpi.Visible = false;
+                    }
+                }
+
                 if (isRapooMouse && info.PollingRate > 0 && (!isGamingActive || !autoGameRateEnabled))
                 {
                     desktopPollingRate = info.PollingRate;
@@ -3519,9 +3605,9 @@ namespace RazerBatteryTray
 
             if (!info.IsConnected)
             {
-                isMouseSleeping = false;
-                // 离线鼠标卡片仍保留原始输入监听：重开机后移动鼠标可立即复核上线
-                EnableMouseWakeDetector(info.Category == DeviceCategory.Mouse);
+                isMouseSleeping = HasAnySleepingMouse();
+                // 离线鼠标卡片或主托盘休眠鼠标仍保留原始输入监听：重开机或移动唤醒时可立即恢复状态
+                EnableMouseWakeDetector(info.Category == DeviceCategory.Mouse || ShouldMonitorMouseWakeInput());
                 lblDeviceName.Text = info.DisplayName;
 
                 string battDisplay = (info.BatteryPercent > 0 ? info.BatteryPercent.ToString() : "--") + "%";
@@ -3534,7 +3620,9 @@ namespace RazerBatteryTray
 
                 barBattery.StopFlow(info.BatteryPercent > 0 ? info.BatteryPercent : 0, Color.FromArgb(70, 80, 100));
 
-                lblUpdateTime.Text = "最后同步: " + info.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss") + " · 离线待命中";
+                lblUpdateTime.Text = (info.LastUpdated != DateTime.MinValue)
+                    ? ("最后同步: " + info.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss") + " · 离线待命中")
+                    : "尚未记录同步时间 · 离线待命中";
 
                 UpdatePerformanceSection(info, brandAccent);
 
@@ -3548,8 +3636,8 @@ namespace RazerBatteryTray
 
             if (info.Category == DeviceCategory.Keyboard)
             {
-                isMouseSleeping = false;
-                EnableMouseWakeDetector(false);
+                isMouseSleeping = HasAnySleepingMouse();
+                EnableMouseWakeDetector(ShouldMonitorMouseWakeInput());
                 if (updateTimer != null) updateTimer.Interval = userSelectedInterval;
 
                 lblDeviceName.Text = info.DisplayName;
@@ -3576,7 +3664,11 @@ namespace RazerBatteryTray
                     if (info.IsPrimary)
                     {
                         UpdateStatusDisplay();
-                        UpdateTrayIcon(info.BatteryPercent, false, true, true, brandAccent);
+                        UpdateTrayIcon(info.BatteryPercent, false, true, true, info.TrayAccentColor);
+                    }
+                    else if (multiTrayEnabled)
+                    {
+                        RefreshMultiTrayHost();
                     }
                     return;
                 }
@@ -3717,7 +3809,11 @@ namespace RazerBatteryTray
                 if (info.IsPrimary)
                 {
                     UpdateStatusDisplay();
-                    UpdateTrayIcon(info.BatteryPercent, kbCharging, true, false, brandAccent);
+                    UpdateTrayIcon(info.BatteryPercent, kbCharging, true, false, info.TrayAccentColor);
+                }
+                else if (multiTrayEnabled)
+                {
+                    RefreshMultiTrayHost();
                 }
                 return;
             }
@@ -3784,7 +3880,11 @@ namespace RazerBatteryTray
                 if (info.IsPrimary)
                 {
                     UpdateStatusDisplay();
-                    UpdateTrayIcon(info.BatteryPercent, false, true, true);
+                    UpdateTrayIcon(info.BatteryPercent, false, true, true, info.TrayAccentColor);
+                }
+                else if (multiTrayEnabled)
+                {
+                    RefreshMultiTrayHost();
                 }
 
                 if (showTipIfManual)
@@ -3796,12 +3896,12 @@ namespace RazerBatteryTray
             }
 
             // Normal awake state (Mouse / Gamepad / Headset / Generic)
-            isMouseSleeping = false;
-            EnableMouseWakeDetector(false);
+            isMouseSleeping = HasAnySleepingMouse();
+            EnableMouseWakeDetector(ShouldMonitorMouseWakeInput());
             if (updateTimer != null) updateTimer.Interval = userSelectedInterval;
 
             Color accentColor;
-            if (info.BatteryPercent > 20 || info.IsCharging)
+            if (!IsEffectiveLowBatteryUiColorEnabled() || info.BatteryPercent > 20 || info.IsCharging)
                 accentColor = brandAccent;
             else if (info.BatteryPercent > 10)
                 accentColor = Color.FromArgb(255, 214, 0);
@@ -3876,9 +3976,9 @@ namespace RazerBatteryTray
             if (info.IsPrimary)
             {
                 UpdateStatusDisplay();
-                UpdateTrayIcon(info.BatteryPercent, info.IsCharging, true, false);
+                UpdateTrayIcon(info.BatteryPercent, info.IsCharging, true, false, info.TrayAccentColor);
 
-                if (lowBatteryAlertEnabled && !info.IsCharging)
+                if (IsEffectiveLowBatteryNotifyEnabled() && !info.IsCharging)
                 {
                     if (info.BatteryPercent <= 20)
                     {

@@ -32,6 +32,21 @@ namespace RazerBatteryTray
         public string Transport { get; set; }
         public bool IsCustom { get; set; }
 
+        // 双色个性化：主界面主题色 (CustomThemeColorHex) 与状态栏托盘色 (CustomTrayColorHex) 独立持久化，默认联动
+        public string CustomThemeColorHex { get; set; }
+        public string CustomTrayColorHex { get; set; }
+        private bool linkTrayColorToTheme = true;
+        public bool LinkTrayColorToTheme
+        {
+            get { return linkTrayColorToTheme; }
+            set { linkTrayColorToTheme = value; }
+        }
+
+        public static string FormatColorHex(Color c)
+        {
+            return string.Format("#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B);
+        }
+
         private DeviceCapabilities capabilities;
         public DeviceCapabilities Capabilities
         {
@@ -133,7 +148,7 @@ namespace RazerBatteryTray
                 }
             }
 
-        public Color BrandColor
+        public Color DefaultBrandColor
         {
             get
             {
@@ -184,6 +199,38 @@ namespace RazerBatteryTray
                 if (Brand == "Zaopin" || Brand == "皂品") return Color.FromArgb(255, 145, 0);
                 if (Brand == "Razer" || Brand == "雷蛇") return Color.FromArgb(0, 230, 118);
                 return Color.FromArgb(0, 230, 118);
+            }
+        }
+
+        public Color BrandColor
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(CustomThemeColorHex))
+                {
+                    Color userTheme;
+                    if (DeviceCapabilities.TryParseHexColor(CustomThemeColorHex, out userTheme))
+                    {
+                        return userTheme;
+                    }
+                }
+                return DefaultBrandColor;
+            }
+        }
+
+        public Color TrayAccentColor
+        {
+            get
+            {
+                if (!linkTrayColorToTheme && !string.IsNullOrEmpty(CustomTrayColorHex))
+                {
+                    Color userTray;
+                    if (DeviceCapabilities.TryParseHexColor(CustomTrayColorHex, out userTray))
+                    {
+                        return userTray;
+                    }
+                }
+                return BrandColor;
             }
         }
 

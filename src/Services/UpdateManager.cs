@@ -450,21 +450,6 @@ namespace RazerBatteryTray
             });
         }
 
-        public static string BuildSelfReplaceCommand(int pid, string targetExePath, string updateFilePath)
-        {
-            string safeTarget = targetExePath.Replace("'", "''");
-            string safeUpdate = updateFilePath.Replace("'", "''");
-
-            return string.Format(
-                "-NoProfile -WindowStyle Hidden -Command \"" +
-                "try {{ Wait-Process -Id {0} -Timeout 10; }} catch {{}} " +
-                "Start-Sleep -Milliseconds 400; " +
-                "Move-Item -LiteralPath '{1}' -Destination '{2}' -Force; " +
-                "Start-Process -FilePath '{2}';\"",
-                pid, safeUpdate, safeTarget
-            );
-        }
-
         public static bool LaunchSelfReplace(string updateFilePath)
         {
             try
@@ -474,9 +459,9 @@ namespace RazerBatteryTray
                 string exePath = Application.ExecutablePath;
                 string oldExe = exePath + ".old";
 
-                // 核心安全优化：优先采用 Windows 原生运行时重命名机制 (In-Process Native Rename)
+                // 核心安全策略：全程采用 Windows 原生运行时重命名机制 (In-Process Native Rename)
                 // 在 Windows NTFS 下，运行中的 exe 支持直接重命名（MoveFile），随后将新 exe 移入原路径并拉起。
-                // 全程为纯 C# 托管操作，不启动任何隐藏 powershell/cmd 脚本，彻底杜绝 AMSI 与 Dropper 杀软误报！
+                // 全程为纯 C# 托管操作，严禁包含或拉起隐藏 PowerShell/CMD 脚本，彻底杜绝 AMSI 与 Dropper 杀软误报。
                 try
                 {
                     if (File.Exists(oldExe))
@@ -492,22 +477,14 @@ namespace RazerBatteryTray
                 }
                 catch
                 {
-                    // 若受非 NTFS 文件系统等特殊环境限制，进入兼容降级分支
+                    // 仅当目录只读或非 NTFS 文件系统导致原位替换受限时，打开新版本所在目录引导手动替换
+                    try
+                    {
+                        Process.Start("explorer.exe", "/select,\"" + updateFilePath + "\"");
+                    }
+                    catch { }
+                    return false;
                 }
-
-                int currentPid = Process.GetCurrentProcess().Id;
-                string args = BuildSelfReplaceCommand(currentPid, exePath, updateFilePath);
-
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = "powershell.exe";
-                psi.Arguments = args;
-                psi.WindowStyle = ProcessWindowStyle.Hidden;
-                psi.CreateNoWindow = true;
-                psi.UseShellExecute = false;
-
-                Process.Start(psi);
-                Application.Exit();
-                return true;
             }
             catch
             {

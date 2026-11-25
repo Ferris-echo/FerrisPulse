@@ -25,5 +25,13 @@ namespace RazerBatteryTray
         public string Transport { get; set; }
         public int CachedBattery { get; set; }
         public DateTime LastSeen { get; set; }
+        public string ThemeColorHex { get; set; }
+        public string TrayColorHex { get; set; }
+        private bool linkTrayColorToTheme = true;
+        public bool LinkTrayColorToTheme
+        {
+            get { return linkTrayColorToTheme; }
+            set { linkTrayColorToTheme = value; }
+        }
     }
 }

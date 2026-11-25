@@ -813,6 +813,7 @@ namespace RazerBatteryTray
         /// <summary>切换当前生效的 DPI 档位（1 基）。</summary>
         public static bool SetDpiStage(int stage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stage < 1) stage = 1;
             if (stage > 6) stage = 6;
 
@@ -866,6 +867,7 @@ namespace RazerBatteryTray
         /// <summary>写入某一档的 DPI 值（stage 为 1 基）。</summary>
         public static bool SetDpi(int dpiX, int dpiY, int stage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (dpiX < 100) dpiX = 100;
             if (dpiX > 42000) dpiX = 42000;
             if (dpiY < 100) dpiY = dpiX;
@@ -926,6 +928,7 @@ namespace RazerBatteryTray
         /// </summary>
         public static bool SetDpiStages(int[] stagesX, int[] stagesY, int activeStage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
 
             lock (hidLock)
@@ -1000,6 +1003,7 @@ namespace RazerBatteryTray
         /// <summary>写入回报率（Hz）。</summary>
         public static bool SetPollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             int index = GetRateIndexForHz(hz);
 
             lock (hidLock)

@@ -690,6 +690,7 @@ namespace RazerBatteryTray
 
         public static bool SetMchoseDpiStage(int stage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stage < 1) stage = 1;
 
             // 新一代 4D 帧协议族优先（支持 6 档 DPI，档位号 1 基）。
@@ -740,6 +741,7 @@ namespace RazerBatteryTray
 
         public static bool SetMchoseDpi(int dpiX, int dpiY, int stage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             // 新一代 4D 帧协议族优先（支持 6 档 DPI，上限 42000）。
             try
             {
@@ -801,6 +803,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateMchoseHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length != stagesX.Length) stagesY = stagesX;
 
@@ -885,6 +888,7 @@ namespace RazerBatteryTray
 
         public static bool SetMchosePollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             // 新一代 4D 帧协议族优先（回报率随 0x0102 全量配置写）。
             try
             {

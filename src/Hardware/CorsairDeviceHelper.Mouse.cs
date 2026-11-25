@@ -510,6 +510,7 @@ namespace RazerBatteryTray
 
         public static bool SetMouseDpi(int dpiX, int dpiY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (dpiX <= 0) dpiX = dpiY;
             if (dpiY <= 0) dpiY = dpiX;
             if (dpiX < MinDpi) dpiX = MinDpi;
@@ -549,6 +550,7 @@ namespace RazerBatteryTray
 
         public static bool SetMousePollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             int code = HzToPollCode(hz);
             lock (mouseLock)
             {

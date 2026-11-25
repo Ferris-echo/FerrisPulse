@@ -3,7 +3,7 @@
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
 //   现代化设备托盘优先级拖拽排序控件，支持卡片流体跟随拖拽、物理弹簧阻尼回弹过渡动画、
-//   固定序号槽位渲染、微型矢量删除/隐藏设备按钮、平滑细滚动条与全矢量无极缩放。
+//   固定序号槽位渲染、双色主题色点个性化触发、微型矢量删除/隐藏设备按钮、平滑细滚动条与全矢量无极缩放。
 // 依赖关系: Models.PriorityItem, Hardware.DeviceManager, Theme.ModernThemeHelper, RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -35,8 +35,10 @@ namespace RazerBatteryTray
         private Timer animTimer;
         private int scrollY = 0;
         private int hoveredDeleteIndex = -1;
+        private int hoveredSwatchIndex = -1;
 
         public event Action OrderChanged;
+        public event Action<int> SwatchClicked;
 
         public PriorityReorderControl()
         {
@@ -176,6 +178,17 @@ namespace RazerBatteryTray
                             return;
                         }
 
+                        int swW = Math.Max(14, (int)(20 * DpiScale));
+                        int swX = delX - swW - (int)(6 * DpiScale);
+                        int swY = (int)y + (itemH - swW) / 2;
+                        Rectangle swRect = new Rectangle(swX, swY, swW, swW);
+                        if (swRect.Contains(e.Location))
+                        {
+                            var handler = SwatchClicked;
+                            if (handler != null) handler(i);
+                            return;
+                        }
+
                         isDragging = true;
                         settlingItem = null;
                         draggedIndex = i;
@@ -240,6 +253,7 @@ namespace RazerBatteryTray
             else
             {
                 int newHoverDel = -1;
+                int newHoverSw = -1;
                 int itemH = GetItemHeight();
                 int padX = (int)(8 * DpiScale);
                 int rankColW = (int)(26 * DpiScale);
@@ -249,6 +263,7 @@ namespace RazerBatteryTray
                 int cardW = Width - cardStartX - (int)(10 * DpiScale) - rightMargin;
                 int gripW = (int)(18 * DpiScale);
                 int delW = (int)(22 * DpiScale);
+                int swW = Math.Max(14, (int)(20 * DpiScale));
 
                 for (int i = 0; i < Items.Count; i++)
                 {
@@ -262,10 +277,19 @@ namespace RazerBatteryTray
                         newHoverDel = i;
                         break;
                     }
+                    int swX = delX - swW - (int)(6 * DpiScale);
+                    int swY = (int)y + (itemH - swW) / 2;
+                    Rectangle swRect = new Rectangle(swX, swY, swW, swW);
+                    if (swRect.Contains(e.Location))
+                    {
+                        newHoverSw = i;
+                        break;
+                    }
                 }
-                if (newHoverDel != hoveredDeleteIndex)
+                if (newHoverDel != hoveredDeleteIndex || newHoverSw != hoveredSwatchIndex)
                 {
                     hoveredDeleteIndex = newHoverDel;
+                    hoveredSwatchIndex = newHoverSw;
                     Invalidate();
                 }
             }
@@ -274,9 +298,10 @@ namespace RazerBatteryTray
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (hoveredDeleteIndex != -1)
+            if (hoveredDeleteIndex != -1 || hoveredSwatchIndex != -1)
             {
                 hoveredDeleteIndex = -1;
+                hoveredSwatchIndex = -1;
                 Invalidate();
             }
         }
@@ -350,20 +375,20 @@ namespace RazerBatteryTray
                 if (Items[i] == settlingItem) continue;
                 float cardY = Items[i].CurrentY;
                 if (cardY + itemH < scrollY || cardY > scrollY + Height) continue;
-                DrawCard(g, Items[i], cardStartX, (int)cardY, cardW, itemH, false, (hoveredDeleteIndex == i));
+                DrawCard(g, Items[i], cardStartX, (int)cardY, cardW, itemH, false, (hoveredDeleteIndex == i), (hoveredSwatchIndex == i));
             }
 
             // 3. Draw settling card on top layer with smooth easing into slot
             if (settlingItem != null)
             {
-                DrawCard(g, settlingItem, cardStartX, (int)settlingItem.CurrentY, cardW, itemH, true, false);
+                DrawCard(g, settlingItem, cardStartX, (int)settlingItem.CurrentY, cardW, itemH, true, false, false);
             }
 
             // 4. Draw dragged floating card on very top
             if (isDragging && draggedIndex >= 0 && draggedIndex < Items.Count)
             {
                 int floatY = dragCurrentY - dragOffsetY;
-                DrawCard(g, Items[draggedIndex], cardStartX, floatY, cardW, itemH, true, false);
+                DrawCard(g, Items[draggedIndex], cardStartX, floatY, cardW, itemH, true, false, false);
             }
 
             g.Restore(state);
@@ -431,7 +456,7 @@ namespace RazerBatteryTray
             }
         }
 
-        private void DrawCard(Graphics g, PriorityItem item, int x, int y, int w, int h, bool isElevated, bool isDelHovered)
+        private void DrawCard(Graphics g, PriorityItem item, int x, int y, int w, int h, bool isElevated, bool isDelHovered, bool isSwHovered)
         {
             int r = Math.Max(3, (int)(8 * DpiScale));
             Rectangle rect = new Rectangle(x, y, w, h);
@@ -507,7 +532,35 @@ namespace RazerBatteryTray
                 g.DrawLine(xPen, delX + delW - cPad, delY + cPad, delX + cPad, delY + delW - cPad);
             }
 
-            int lastRightX = delX;
+            // 3.5 Color Swatch Button to the left of Delete Button (dual-color ring if unlinked)
+            int swW = Math.Max(14, (int)(20 * DpiScale));
+            int swX = delX - swW - (int)(6 * DpiScale);
+            int swY = y + (h - swW) / 2;
+            if (isSwHovered)
+            {
+                using (var swHoverPath = RoundedCard.GetRoundedRectangle(new Rectangle(swX, swY, swW, swW), Math.Max(3, swW / 2)))
+                using (var swHoverBg = new SolidBrush(Color.FromArgb(40, 255, 255, 255)))
+                {
+                    g.FillPath(swHoverBg, swHoverPath);
+                }
+            }
+            int dotD = Math.Max(8, (int)(11 * DpiScale));
+            int dotX = swX + (swW - dotD) / 2;
+            int dotY = swY + (swW - dotD) / 2;
+            Color outerTrayCol = (!item.LinkTrayColorToTheme && !item.TrayAccentColor.IsEmpty) ? item.TrayAccentColor : item.AccentColor;
+            using (var innerBrush = new SolidBrush(item.AccentColor))
+            {
+                g.FillEllipse(innerBrush, dotX, dotY, dotD, dotD);
+            }
+            Color ringColor = (!item.LinkTrayColorToTheme && outerTrayCol.ToArgb() != item.AccentColor.ToArgb())
+                ? outerTrayCol
+                : Color.FromArgb(140, 255, 255, 255);
+            using (var ringPen = new Pen(ringColor, Math.Max(1.2f, 1.5f * DpiScale)))
+            {
+                g.DrawEllipse(ringPen, dotX, dotY, dotD, dotD);
+            }
+
+            int lastRightX = swX;
 
             // 4. Battery / Status Pill before Delete Button (三态：离线 / 待机 / 在线)
             string battStr;

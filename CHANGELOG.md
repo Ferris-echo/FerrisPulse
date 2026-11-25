@@ -4,6 +4,33 @@
 
 ---
 
+## 🚀 [v2.4.0] - 2026-11-25 (多设备独立托盘、双色个性化、老型号兼容修复与诊断重构)
+
+### 🔋 多设备独立状态栏托盘与休眠保位
+- **Win32 原生多托盘宿主**：新增 `MultiTrayIconHost` 与 `TraySlotPlanner`，支持同时在任务栏展示多个独立外设电量槽位（默认 3 个，可配置 2~16 个），基于静态确定性 `NIF_GUID` 防止重连或重启后缩回溢出区，支持独立槽位点击切换、右键菜单及任务栏重建自愈。
+- **休眠不丢位与记忆电量**：已连接但休眠且存在缓存电量的外设原位保留槽位并绘制琥珀色记忆电量，离线或无缓存设备显示断联图标；并在优先级窗口接入多托盘开关与槽位数量设置。
+
+### 🎨 单设备外观个性化与低电量分级策略
+- **双色独立定制与显示改名**：新增单设备外观个性化设置弹窗 `DevicePersonalizeDialog`，支持 `ModernInputBox` 圆角自定义名称、抗锯齿圆形调色盘、独立设置「主界面主题色」与「状态栏托盘色」，默认联动（联动开启时托盘色栏呈半透明遮罩但仍可直接点选，点击异色自动解除联动），并支持一键恢复品牌默认。
+- **低电量提醒分级配置**：新增 `LowBatteryAlertSettingsDialog`，支持独立开关「低电量系统通知」、「低电量主界面颜色提醒」与「低电量托盘图标变色提醒」；主界面低电量入口常态保持白色一体视觉，仅在鼠标悬停时高亮变色。
+- **控件设计语言统一**：翻新 `ModernInputBox`、`ModernCheckBox`、`PriorityReorderControl` 等自定义控件为统一的深色圆角卡片交互规范。
+
+### 🛠️ 老型号外设深度兼容修复
+- **雷蛇老型号鼠标与接收器（`RazerDeviceHelper`）**：改为多接口累计并在活跃端点间择优，修复仅挑首个空接口导致的失联；加入 `BUSY` 重试读取、修正 `successfulTid` 写回、兼容传统 `0x85/0x05` 与现代 `0xC0/0x40` 回报率协议，并补齐/修正 Viper Ultimate、DeathAdder V2 Pro/V2/V2 Mini、Basilisk Ultimate、Basilisk X HyperSpeed、Orochi V2 等老型号 PID 与接收器判定。
+- **雷蛇旋风黑鲨耳机（`RazerHeadsetHelper`）**：修复多端点竞争下的候选端点择优逻辑（`PickBetterHeadsetCandidate`），并接入驱动探测轨迹日志。
+- **罗技老型号（`LogitechDeviceHelper`）**：优化 20B 端点评分规则，并解除 `HID++ 1.0`（Register `0x0D`/`0x07`）回退分支被 `deviceOnline` 前置死锁的问题。
+
+### 🔍 一键硬件诊断快照与零幻觉 AI 适配重构
+- **一键只读硬件诊断快照**：新增 `HardwareDiagnosticService` 与 `DiagnosticReportDialog`（接入向导页与关于页），以 `0` 权限只读采集全机 HID 拓扑并自动剥离序列号/GUID 脱敏，缓存各驱动真实的探测跳过与失败轨迹（`Driver Trace`），采用纤细圆角暗黑滚动多色高亮呈现。
+- **未识别大厂设备向导透视**：在 `GenericHidHelper` 与添加向导中新增未接管大厂外设兜底扫描，方便快速发现老型号设备并导出指纹。
+- **零幻觉 AI 适配提示词重构 & 统一邮箱**：重写向导与文档 `docs/AI_DEVICE_ADAPTATION_GUIDE.md` 提示词，将硬件指纹与匹配的 `Driver Trace` 置顶，引入“缺口即停”及只读禁盲写 EEPROM 红线，内置经引擎验证的 FDAS v2.0 只读模板与可编译通过的 C# 5.0 模板，并统一反馈邮箱为 `ferris.echo@gmail.com`。
+
+### 🛡️ 防杀软误报、Per-Monitor V2 高分屏与测试基建
+- **高分屏与安全自替换**：新增 `app.manifest` 与 `PerMonitorV2` 高分屏感知（多屏缩放不发虚）；`UpdateManager` 移除隐藏 PowerShell 自替换分支改为纯原生 NTFS 重命名；`CsScriptDriverLoader` 改用 Windows 8.3 短路径引用自身，不再向 `%TEMP%` 复制自身 `.exe`。
+- **测试体系重构**：引入共享 `tools/TestHarness.ps1`，将零散测试整合为 15 组领域化高密度回归测试套件。
+
+---
+
 ## 🚀 [v2.3.2] - 2026-11-17 (全景外设扩容、迈从全系深耕、VXE星闪版与架构加固)
 
 ### 🖱️ 新增鼠标支持

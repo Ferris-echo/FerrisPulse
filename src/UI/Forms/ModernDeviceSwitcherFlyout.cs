@@ -292,7 +292,9 @@ namespace RazerBatteryTray
                 for (int i = 0; i < Devices.Count; i++)
                 {
                     var dev = Devices[i];
-                    bool isSel = (dev == SelectedDevice);
+                    bool isSel = (dev == SelectedDevice) ||
+                        (SelectedDevice != null && !string.IsNullOrEmpty(dev.DeviceId) &&
+                         string.Equals(dev.DeviceId, SelectedDevice.DeviceId, StringComparison.OrdinalIgnoreCase));
                     bool isHov = (i == hoveredCardIdx);
                     Rectangle cardRect = new Rectangle(pad, curY, cardW, cardH);
 

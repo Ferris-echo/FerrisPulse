@@ -597,6 +597,7 @@ namespace RazerBatteryTray
 
         public static bool SetYjxProfile(int rateHz, int stage, int dpiValue)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             lock (hidLock)
             {
                 IntPtr handle;
@@ -932,6 +933,7 @@ namespace RazerBatteryTray
 
         public static bool SetVgnDpiStage(int targetStage)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (targetStage < 1) return false;
             byte index = (byte)(targetStage - 1);
             return ExecuteVgnWriteBytes(0x04, new byte[] { index, (byte)((0x55 - index) & 0xFF) });
@@ -940,6 +942,7 @@ namespace RazerBatteryTray
         // 设置指定档位的 DPI 值（dpi 50-26000，50 步进；stageIndex 为 0-based 档位序号）
         public static bool SetVgnDpiValue(int dpi, int stageIndex)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (dpi < 50 || dpi > 26000) return false;
             if (stageIndex < 0 || stageIndex > 7) return false;
             int enc = dpi / 50 - 1;
@@ -969,6 +972,7 @@ namespace RazerBatteryTray
         // 切换回报率（hz 仅支持 125/250/500/1000/2000/4000，上限 4000Hz）
         public static bool SetVgnPollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             byte code = EncodeVgnPollingRate(hz);
             if (code == 0) return false;
             return ExecuteVgnWriteBytes(0x00, new byte[] { code, (byte)((0x55 - code) & 0xFF) });
@@ -1076,6 +1080,7 @@ namespace RazerBatteryTray
         // 优化：一次打开+握手，循环写全部档位与激活档，避免每档重新握手
         public static bool UpdateVgnHardwareStages(int activeStage, int[] stages)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stages == null || stages.Length == 0) return false;
 
             int writeCount = stages.Length;
