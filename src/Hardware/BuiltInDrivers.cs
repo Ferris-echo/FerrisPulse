@@ -120,6 +120,11 @@ namespace RazerBatteryTray
 
                 HardwareDriverRegistry.RegisterDriver(new KzziKeyboardDriver());
 
+                // CompX 公版 0x3554:0xFA09 键盘族（LEOBOG Hi98 Pro / MCHOSE G75 PRO / 未收录机型）。
+                // 该 PID 被多家国产厂商共用，品牌只能靠固件 0x05 子型号字节判定，
+                // 因此必须独立于 MCHOSE 驱动注册，避免再次被误标为迈从机型。
+                HardwareDriverRegistry.RegisterDriver(new CompxFa09KeyboardDriver());
+
                 HardwareDriverRegistry.RegisterDriver(new SinoWealthDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new AsusDeviceDriver());
