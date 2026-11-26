@@ -430,7 +430,7 @@ namespace RazerBatteryTray
                             Math.Sin(2.0 * Math.PI * (freq * 4.18) * t) * 0.05 +
                             Math.Sin(2.0 * Math.PI * (freq * 1.002) * t) * 0.02) * env;
 
-                short sample = (short)(s * 2800);
+                short sample = (short)(s * 9600);
                 pcm[i] = sample;
             }
 
@@ -505,7 +505,7 @@ namespace RazerBatteryTray
                         {
                             double f = freqs[n];
                             int nSamples = (int)(sampleRate * durations[n]);
-                            double decayRate = (n == 0) ? 12.0 : 6.5;
+                            double decayRate = (n == 0) ? 10.0 : 5.0;
                             for (int i = 0; i < nSamples; i++)
                             {
                                 double t = (double)i / sampleRate;
@@ -518,7 +518,7 @@ namespace RazerBatteryTray
                                 double s = (Math.Sin(2.0 * Math.PI * f * t) * 0.75 +
                                             Math.Sin(4.0 * Math.PI * f * t) * 0.20 +
                                             Math.Sin(6.0 * Math.PI * f * t) * 0.05) * env;
-                                short sample = (short)(s * 2500);
+                                short sample = (short)(s * 9600);
                                 bw.Write(sample);
                             }
                         }

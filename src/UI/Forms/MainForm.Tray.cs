@@ -20,6 +20,13 @@ namespace RazerBatteryTray
 {
     public partial class MainForm : Form
     {
+        private ToolStripMenuItem lightingMenu;
+        private int lastTrayClickTick = 0;
+        private int lastTrayDoubleClickTick = 0;
+        private Font trayDeviceItemFont;
+        private HashSet<ToolStripDropDown> configuredSubMenuDropDowns;
+        private bool pendingTrayMenuRefresh = false;
+
         private void ConfigureSubMenuDropDown(ToolStripDropDown dropDown)
         {
             if (dropDown == null) return;
@@ -30,6 +37,11 @@ namespace RazerBatteryTray
                 menu.ShowImageMargin = false;
                 menu.ShowCheckMargin = true;
             }
+            if (configuredSubMenuDropDowns == null)
+            {
+                configuredSubMenuDropDowns = new HashSet<ToolStripDropDown>();
+            }
+            if (!configuredSubMenuDropDowns.Add(dropDown)) return;
             dropDown.ItemClicked += (s, e) => {
                 lastClickedTrayItem = e.ClickedItem;
             };
@@ -65,6 +77,13 @@ namespace RazerBatteryTray
                     }
                 }
             };
+            contextMenu.Closed += (s, e) => {
+                if (pendingTrayMenuRefresh)
+                {
+                    pendingTrayMenuRefresh = false;
+                    UpdateTrayDeviceMenuItems();
+                }
+            };
 
             statusMenuItem = new ToolStripMenuItem("正在检测设备...");
             statusMenuItem.Tag = "Header";
@@ -88,7 +107,7 @@ namespace RazerBatteryTray
             {
                 int val = dpiStageValues[i];
                 var sub = new ToolStripMenuItem(val + " DPI", null, (s, e) => {
-                    SetDpiFromUI(val);
+                    SetDpiForDevice(val, ResolveTrayContextDevice());
                     foreach (ToolStripItem it in dpiMenu.DropDownItems)
                     {
                         var tmi = it as ToolStripMenuItem;
@@ -110,7 +129,7 @@ namespace RazerBatteryTray
             {
                 int val = pollingRateValues[i];
                 var sub = new ToolStripMenuItem(val + " Hz", null, (s, e) => {
-                    SetPollingRateFromUI(val);
+                    SetPollingRateForDevice(val, ResolveTrayContextDevice());
                     foreach (ToolStripItem it in rateMenu.DropDownItems)
                     {
                         var tmi = it as ToolStripMenuItem;
@@ -124,6 +143,113 @@ namespace RazerBatteryTray
                 rateMenu.DropDownItems.Add(sub);
             }
             contextMenu.Items.Add(rateMenu);
+
+            // Submenu: 灯光调节（巴蛇终极版 class=0x0F 扩展矩阵协议）
+            // 物理分区：左灯带4段8颗、右灯带4颗联动、滚轮、Logo
+            lightingMenu = new ToolStripMenuItem("灯光调节");
+            ConfigureSubMenuDropDown(lightingMenu.DropDown);
+            string[] presetNames = new string[] { "雷蛇绿", "经典红", "科技蓝", "赛博紫", "琥珀黄", "纯净白", "活力橙", "青色" };
+            Color[] presetColors = new Color[] {
+                Color.LimeGreen, Color.Red, Color.DodgerBlue, Color.MediumPurple,
+                Color.FromArgb(255, 180, 0), Color.White, Color.Orange, Color.Cyan
+            };
+
+            Action<ToolStripMenuItem, Action<Color>> fillColorMenu = (parent, apply) => {
+                for (int ci = 0; ci < presetColors.Length; ci++)
+                {
+                    Color picked = presetColors[ci];
+                    Action<Color> applier = apply;
+                    parent.DropDownItems.Add(new ToolStripMenuItem(presetNames[ci], null, (s2, e2) => {
+                        ThreadPool.QueueUserWorkItem(_ => { applier(picked); });
+                    }));
+                }
+                parent.DropDownItems.Add(new ToolStripSeparator());
+                parent.DropDownItems.Add(new ToolStripMenuItem("自定义颜色…", null, (s2, e2) => {
+                    contextMenu.Close();
+                    this.BeginInvoke(new Action(() => {
+                        using (ColorDialog dlg = new ColorDialog())
+                        {
+                            dlg.FullOpen = true;
+                            dlg.Color = LightingHelper.LastColor;
+                            if (dlg.ShowDialog() == DialogResult.OK)
+                            {
+                                Color chosen = dlg.Color;
+                                ThreadPool.QueueUserWorkItem(_ => { apply(chosen); });
+                            }
+                        }
+                    }));
+                }));
+            };
+
+            ToolStripMenuItem allAreaMenu = new ToolStripMenuItem("整只鼠标");
+            fillColorMenu(allAreaMenu, c => LightingHelper.SetAllColor(c));
+            lightingMenu.DropDownItems.Add(allAreaMenu);
+
+            ToolStripMenuItem leftStripMenu = new ToolStripMenuItem("左灯带 (整条)");
+            fillColorMenu(leftStripMenu, c => LightingHelper.SetLeftStripColor(c));
+            lightingMenu.DropDownItems.Add(leftStripMenu);
+
+            ToolStripMenuItem leftSegRoot = new ToolStripMenuItem("左灯带分段");
+            for (int si = 0; si < LightingHelper.LeftSegmentCount; si++)
+            {
+                int segIndex = si;
+                string segLabel = "第" + (si + 1) + "段";
+                if (si == 0) segLabel = segLabel + " (前/近滚轮)";
+                if (si == LightingHelper.LeftSegmentCount - 1) segLabel = segLabel + " (后/尾部)";
+                ToolStripMenuItem segMenu = new ToolStripMenuItem(segLabel);
+                fillColorMenu(segMenu, c => LightingHelper.SetLeftSegment(segIndex, LightingHelper.LeftSegmentCount, c));
+                leftSegRoot.DropDownItems.Add(segMenu);
+            }
+            lightingMenu.DropDownItems.Add(leftSegRoot);
+
+            ToolStripMenuItem rightStripMenu = new ToolStripMenuItem("右灯带");
+            fillColorMenu(rightStripMenu, c => LightingHelper.SetRightStripColor(c));
+            lightingMenu.DropDownItems.Add(rightStripMenu);
+
+            ToolStripMenuItem wheelMenu = new ToolStripMenuItem("滚轮灯");
+            fillColorMenu(wheelMenu, c => LightingHelper.SetWheelColor(c));
+            lightingMenu.DropDownItems.Add(wheelMenu);
+
+            ToolStripMenuItem logoMenu = new ToolStripMenuItem("三头蛇 Logo");
+            fillColorMenu(logoMenu, c => LightingHelper.SetLogoColor(c));
+            lightingMenu.DropDownItems.Add(logoMenu);
+
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("光谱循环", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetSpectrum(LightingHelper.ZoneAll); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("呼吸效果", null, (s, e) => {
+                Color c = LightingHelper.LastColor;
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetBreathing(LightingHelper.ZoneAll, c, 2); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("波浪效果", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetWave(LightingHelper.ZoneAll, 1); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("响应效果", null, (s, e) => {
+                Color c = LightingHelper.LastColor;
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetReactive(LightingHelper.ZoneAll, c, 2); });
+            }));
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            int[] brightSteps = new int[] { 0, 64, 128, 192, 255 };
+            string[] brightLabels = new string[] { "关闭 (0%)", "25%", "50%", "75%", "100%" };
+            ToolStripMenuItem brightRoot = new ToolStripMenuItem("全局亮度");
+            for (int bi = 0; bi < brightSteps.Length; bi++)
+            {
+                int bv = brightSteps[bi];
+                brightRoot.DropDownItems.Add(new ToolStripMenuItem(brightLabels[bi], null, (s, e) => {
+                    ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetBrightness(LightingHelper.ZoneAll, bv); });
+                }));
+            }
+            lightingMenu.DropDownItems.Add(brightRoot);
+            lightingMenu.DropDownItems.Add(new ToolStripSeparator());
+
+            lightingMenu.DropDownItems.Add(new ToolStripMenuItem("关闭全部灯光", null, (s, e) => {
+                ThreadPool.QueueUserWorkItem(_ => { LightingHelper.SetAllOff(); });
+            }));
+            lightingMenu.Visible = false;
+            contextMenu.Items.Add(lightingMenu);
 
             // Submenu: 全屏游戏自动切换 (回报率与 DPI)
             autoGameRateMenu = new ToolStripMenuItem("全屏游戏自动切换");
@@ -222,10 +348,12 @@ namespace RazerBatteryTray
 
             nuphySleepMenuItem = new ToolStripMenuItem("自动休眠: 已开启");
             nuphySleepMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newEn = !cur.SleepEnabled;
+                var dev = ResolveTrayContextDevice();
+                var act = GetDeviceToggleAction(dev, 0, "auto_sleep");
+                bool newEn = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "auto_sleep";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetAutoSleep(newEn);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newEn ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -241,10 +369,12 @@ namespace RazerBatteryTray
 
             nuphyWinLockMenuItem = new ToolStripMenuItem("Win键锁定: 已关闭");
             nuphyWinLockMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newLock = !cur.WinLock;
+                var dev = ResolveTrayContextDevice();
+                var act = GetDeviceToggleAction(dev, 1, "win_lock");
+                bool newLock = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "win_lock";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetWinLock(newLock);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newLock ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -266,8 +396,11 @@ namespace RazerBatteryTray
                 int bVal = brightPresets[i];
                 var sub = new ToolStripMenuItem(bVal == 0 ? "关闭背光 (0%)" : (bVal + "% 亮度"));
                 sub.Click += (s, e) => {
+                    var dev = ResolveTrayContextDevice();
+                    var sliderAct = GetDeviceSliderAction(dev, "backlight_brightness");
+                    string actId = sliderAct != null ? sliderAct.ActionId : "backlight_brightness";
                     ThreadPool.QueueUserWorkItem(_ => {
-                        NuphyDeviceHelper.SetBacklightBrightness(bVal);
+                        HardwareCommandBus.ExecuteCustomAction(dev, actId, bVal);
                         try
                         {
                             this.BeginInvoke(new Action(() => {
@@ -286,10 +419,12 @@ namespace RazerBatteryTray
 
             nuphySidelightMenuItem = new ToolStripMenuItem("前置灯带: 已开启");
             nuphySidelightMenuItem.Click += (s, e) => {
-                var cur = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
-                bool newSide = !(cur.SidelightEnabled && cur.SidelightBrightness > 0);
+                var dev = ResolveTrayContextDevice();
+                var act = GetDeviceToggleAction(dev, 3, "sidelight_toggle");
+                bool newSide = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
+                string actId = act != null ? act.ActionId : "sidelight_toggle";
                 ThreadPool.QueueUserWorkItem(_ => {
-                    NuphyDeviceHelper.SetSidelightEnabled(newSide);
+                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newSide ? 1 : 0);
                     try
                     {
                         this.BeginInvoke(new Action(() => {
@@ -356,6 +491,12 @@ namespace RazerBatteryTray
             styleMenu.DropDownItems.AddRange(new ToolStripItem[] { styleCapsuleItem, styleNumItem, stylePureNumItem });
             contextMenu.Items.Add(styleMenu);
 
+            multiTrayMenuItem = new ToolStripMenuItem("状态栏多设备独立图标", null, (s, e) => {
+                SetMultiTrayEnabled(!multiTrayEnabled, true);
+            });
+            multiTrayMenuItem.Checked = multiTrayEnabled;
+            contextMenu.Items.Add(multiTrayMenuItem);
+
             osdStyleMenu = new ToolStripMenuItem("DPI 浮窗样式");
             ConfigureSubMenuDropDown(osdStyleMenu.DropDown);
             osdStyleCapsuleItem = new ToolStripMenuItem("居中电竞胶囊", null, (s, e) => {
@@ -411,7 +552,7 @@ namespace RazerBatteryTray
             prioMenuItem = new ToolStripMenuItem("设备优先级管理 (拖拽排序)...", null, (s, e) => OpenPriorityManager());
             contextMenu.Items.Add(prioMenuItem);
 
-            addDevMenuItem = new ToolStripMenuItem("手动添加新设备向导...", null, (s, e) => OpenAddDeviceWizard());
+            addDevMenuItem = new ToolStripMenuItem("外设接入与自定义配置向导...", null, (s, e) => OpenAddDeviceWizard());
             contextMenu.Items.Add(addDevMenuItem);
 
             createDesktopLnkItem = new ToolStripMenuItem("创建桌面快捷方式", null, (s, e) => {
@@ -441,7 +582,14 @@ namespace RazerBatteryTray
                 item.Padding = new Padding(6, 4, 12, 4);
             }
 
-            contextMenu.Opening += (s, e) => UpdateTrayDeviceMenuItems();
+            contextMenu.Opening += (s, e) => {
+                if (!isSlotContextOpening)
+                {
+                    trayContextDeviceId = null;
+                }
+                isSlotContextOpening = false;
+                UpdateTrayDeviceMenuItems();
+            };
 
             UpdateManager.OnPendingUpdateChanged -= OnPendingUpdateChangedHandler;
             UpdateManager.OnPendingUpdateChanged += OnPendingUpdateChangedHandler;
@@ -458,16 +606,47 @@ namespace RazerBatteryTray
             {
                 UpdateTrayIcon(-1, false, false);
             }
-            trayIcon.Visible = true;
+            trayIcon.Visible = !multiTrayEnabled && !HardwareCommandBus.IsHardwareSandboxActive;
+
+            if (multiTrayHost != null)
+            {
+                try { multiTrayHost.Dispose(); } catch { }
+                multiTrayHost = null;
+            }
+            multiTrayHost = new MultiTrayIconHost();
+            multiTrayHost.SlotClicked += (slotIdx, devId) => OnMultiTraySlotClicked(slotIdx, devId);
+            multiTrayHost.SlotDoubleClicked += (slotIdx, devId) => OnMultiTraySlotDoubleClicked(slotIdx, devId);
+            multiTrayHost.SlotContextMenuRequested += (slotIdx, devId, pt) => OnMultiTraySlotContextMenu(slotIdx, devId, pt);
+
+            trayIcon.DoubleClick += (s, e) => {
+                var me = e as MouseEventArgs;
+                if (me != null && me.Button != MouseButtons.Left) return;
+                lastTrayDoubleClickTick = Environment.TickCount;
+                ShowWindow();
+            };
 
             trayIcon.Click += (s, e) => {
                 var me = e as MouseEventArgs;
                 if (me != null && me.Button == MouseButtons.Left)
                 {
+                    int now = Environment.TickCount;
+                    // 1. 若刚刚触发过双击（在 Windows 双击时间窗内），忽略伴随的 Click 冗余事件，防止将刚弹出的窗口立即隐藏
+                    int doubleClickThreshold = Math.Max(400, SystemInformation.DoubleClickTime + 100);
+                    if (unchecked(now - lastTrayDoubleClickTick) >= 0 && unchecked(now - lastTrayDoubleClickTick) < doubleClickThreshold)
+                    {
+                        return;
+                    }
+
+                    // 2. 毫秒级高频点击防抖保护（200ms 冷却）：防止用户极速连点引发 Handle 状态机反复重构与闪烁
+                    if (unchecked(now - lastTrayClickTick) >= 0 && unchecked(now - lastTrayClickTick) < 200)
+                    {
+                        return;
+                    }
+                    lastTrayClickTick = now;
+
                     ToggleWindow();
                 }
             };
-            trayIcon.DoubleClick += (s, e) => ShowWindow();
         }
 
 
@@ -485,16 +664,215 @@ namespace RazerBatteryTray
                     trayIcon = null;
                 }
                 InitializeTray();
-                if (lastInfo != null)
+                if (multiTrayEnabled)
                 {
-                    UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.BrandColor);
+                    if (multiTrayHost != null) multiTrayHost.RecreateAll();
+                    RefreshMultiTrayHost();
+                }
+                else if (lastInfo != null)
+                {
+                    UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
                 }
             }
             catch { }
         }
+
+        public MouseBatteryInfo ResolveTrayContextDevice()
+        {
+            if (!string.IsNullOrEmpty(trayContextDeviceId))
+            {
+                if (activeDevices != null)
+                {
+                    for (int i = 0; i < activeDevices.Count; i++)
+                    {
+                        var d = activeDevices[i];
+                        if (d != null && string.Equals(d.DeviceId, trayContextDeviceId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return d;
+                        }
+                    }
+                }
+                if (selectedDevice != null && string.Equals(selectedDevice.DeviceId, trayContextDeviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return selectedDevice;
+                }
+                if (lastInfo != null && string.Equals(lastInfo.DeviceId, trayContextDeviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return lastInfo;
+                }
+            }
+            return GetPrimaryDevice();
+        }
+
+        public void PrepareContextMenuForDeviceId(string deviceId)
+        {
+            trayContextDeviceId = deviceId;
+            isSlotContextOpening = true;
+            UpdateTrayDeviceMenuItems();
+        }
+
+        public void SetMultiTrayEnabled(bool enabled, bool saveConfig = true)
+        {
+            multiTrayEnabled = enabled;
+            if (saveConfig)
+            {
+                ConfigManager.SetMultiTrayEnabled(enabled);
+            }
+            if (multiTrayMenuItem != null)
+            {
+                multiTrayMenuItem.Checked = enabled;
+            }
+            if (enabled)
+            {
+                if (trayIcon != null) trayIcon.Visible = false;
+                RefreshMultiTrayHost();
+            }
+            else
+            {
+                if (multiTrayHost != null) multiTrayHost.HideAll();
+                if (trayIcon != null)
+                {
+                    trayIcon.Visible = !HardwareCommandBus.IsHardwareSandboxActive;
+                }
+                if (lastInfo != null)
+                {
+                    UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+                }
+                else
+                {
+                    UpdateTrayIcon(-1, false, false);
+                }
+            }
+        }
+
+        private void RefreshMultiTrayHost()
+        {
+            if (!multiTrayEnabled || multiTrayHost == null) return;
+            var prioList = DeviceManager.GetPriorityList();
+            bool lowFirst = DeviceManager.IsTrayLowBatteryFirstEnabled();
+            var plans = TraySlotPlanner.PlanSlots(
+                activeDevices,
+                prioList,
+                lowFirst,
+                multiTrayMaxCount,
+                id => DeviceManager.IsDeviceHidden(id));
+
+            int iconSize = GetTrayIconSize();
+            bool allowLowBatteryTrayColor = IsEffectiveLowBatteryTrayColorEnabled();
+            if (plans != null)
+            {
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    if (plans[i] != null)
+                    {
+                        plans[i].TrayStyle = trayStyle;
+                        plans[i].AllowLowBatteryTrayColor = allowLowBatteryTrayColor;
+                    }
+                }
+            }
+            multiTrayHost.SyncSlots(plans, delegate(TraySlotPlanItem slot)
+            {
+                using (Bitmap bmp = DrawTrayBitmapWithOptions(slot.Percent, slot.IsCharging, slot.VisualConnected, trayStyle, iconSize, slot.IsSleeping, slot.AccentColor, allowLowBatteryTrayColor))
+                {
+                    IntPtr hIcon = bmp.GetHicon();
+                    try
+                    {
+                        using (Icon tempIcon = Icon.FromHandle(hIcon))
+                        {
+                            return (Icon)tempIcon.Clone();
+                        }
+                    }
+                    finally
+                    {
+                        DestroyIcon(hIcon);
+                    }
+                }
+            });
+        }
+
+        private MouseBatteryInfo FindActiveDeviceById(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return null;
+            if (activeDevices != null)
+            {
+                for (int i = 0; i < activeDevices.Count; i++)
+                {
+                    var d = activeDevices[i];
+                    if (d != null && string.Equals(d.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return d;
+                    }
+                }
+            }
+            if (selectedDevice != null && string.Equals(selectedDevice.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return selectedDevice;
+            }
+            if (lastInfo != null && string.Equals(lastInfo.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return lastInfo;
+            }
+            return null;
+        }
+
+        private void OnMultiTraySlotClicked(int slotIndex, string deviceId)
+        {
+            int now = Environment.TickCount;
+            int doubleClickThreshold = Math.Max(400, SystemInformation.DoubleClickTime + 100);
+            if (unchecked(now - lastTrayDoubleClickTick) >= 0 && unchecked(now - lastTrayDoubleClickTick) < doubleClickThreshold)
+            {
+                return;
+            }
+            if (unchecked(now - lastTrayClickTick) >= 0 && unchecked(now - lastTrayClickTick) < 200)
+            {
+                return;
+            }
+            lastTrayClickTick = now;
+
+            var targetDev = FindActiveDeviceById(deviceId);
+            if (targetDev != null)
+            {
+                bool sameSelected = this.Visible && selectedDevice != null &&
+                    string.Equals(selectedDevice.DeviceId, targetDev.DeviceId, StringComparison.OrdinalIgnoreCase);
+                if (sameSelected)
+                {
+                    ToggleWindow();
+                }
+                else
+                {
+                    ShowWindow(targetDev);
+                }
+                return;
+            }
+            ToggleWindow();
+        }
+
+        private void OnMultiTraySlotDoubleClicked(int slotIndex, string deviceId)
+        {
+            lastTrayDoubleClickTick = Environment.TickCount;
+            ShowWindow(FindActiveDeviceById(deviceId));
+        }
+
+        private void OnMultiTraySlotContextMenu(int slotIndex, string deviceId, Point pt)
+        {
+            PrepareContextMenuForDeviceId(string.IsNullOrEmpty(deviceId) ? null : deviceId);
+            NativeMethods.SetForegroundWindow(this.Handle);
+            if (contextMenu != null)
+            {
+                contextMenu.Show(pt);
+            }
+        }
+
         private void UpdateTrayDeviceMenuItems()
         {
             if (contextMenu == null) return;
+            // 右键菜单正在展开时严禁移除/重建菜单项，否则移动鼠标或轮询刷新会引起整个右键菜单剧烈闪烁
+            if (contextMenu.Visible)
+            {
+                pendingTrayMenuRefresh = true;
+                return;
+            }
+            pendingTrayMenuRefresh = false;
 
             foreach (var item in dynamicDeviceMenuItems)
             {
@@ -505,7 +883,7 @@ namespace RazerBatteryTray
             }
             dynamicDeviceMenuItems.Clear();
 
-            var primary = GetPrimaryDevice();
+            var primary = ResolveTrayContextDevice();
             var onlineDevices = new List<MouseBatteryInfo>();
             if (activeDevices != null)
             {
@@ -531,7 +909,10 @@ namespace RazerBatteryTray
             {
                 if (statusMenuItem != null)
                 {
-                    statusMenuItem.Visible = false;
+                    string summary = DeviceManager.BuildTrayBatterySummary(onlineDevices);
+                    statusMenuItem.Visible = true;
+                    statusMenuItem.Text = string.IsNullOrEmpty(summary) ? "在线设备" : summary;
+                    statusMenuItem.ForeColor = Color.FromArgb(200, 212, 230);
                 }
 
                 int insertIdx = contextMenu.Items.IndexOf(deviceMenuSep);
@@ -549,18 +930,35 @@ namespace RazerBatteryTray
                         {
                             battStr = "供电中";
                         }
+                        else if (dev.IsSleeping)
+                        {
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (休眠)" : "休眠";
+                        }
                         else if (dev.IsCharging || (dev.Brand == "NuPhy" && dev.BatteryPercent >= 100))
                         {
-                            battStr = "充电中";
+                            battStr = dev.BatteryPercent >= 0 ? dev.BatteryPercent + "% (充电中)" : "充电中";
                         }
                         else
                         {
-                            battStr = dev.BatteryPercent > 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
+                            battStr = dev.BatteryPercent >= 0 ? (dev.BatteryPercent.ToString() + "%") : "--";
                         }
                     }
                     else
                     {
-                        if (dev.IsCharging)
+                        bool isWiredNoBatt = dev.BatteryPercent < 0 &&
+                                             !dev.IsCharging &&
+                                             !dev.IsSleeping &&
+                                             !dev.IsDonglePresent &&
+                                             dev.Transport != null &&
+                                             (dev.Transport.IndexOf("有线", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                              dev.Transport.IndexOf("USB", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                             dev.Transport.IndexOf("无线", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                             dev.Transport.IndexOf("2.4G", StringComparison.OrdinalIgnoreCase) < 0;
+                        if (isWiredNoBatt)
+                        {
+                            battStr = "供电中";
+                        }
+                        else if (dev.IsCharging)
                         {
                             battStr = string.Format("{0}% (充电中)", dev.BatteryPercent > 0 ? dev.BatteryPercent : 0);
                         }
@@ -574,10 +972,14 @@ namespace RazerBatteryTray
                         }
                     }
 
+                    if (trayDeviceItemFont == null)
+                    {
+                        trayDeviceItemFont = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    }
                     string itemText = dev.DisplayName + "\t" + battStr;
                     var mi = new ToolStripMenuItem(itemText);
                     mi.Checked = false;
-                    mi.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
+                    mi.Font = trayDeviceItemFont;
                     mi.ForeColor = dev.BrandColor;
                     mi.Padding = new Padding(6, 4, 12, 4);
 
@@ -594,43 +996,66 @@ namespace RazerBatteryTray
             // Context-sensitive controls based on primary tray device
             if (primary != null && primary.IsConnected)
             {
-                if (primary.Brand == "NuPhy" || primary.Category == DeviceCategory.Keyboard)
+                HardwareDriverRegistry.EnsureCapabilitiesInitialized(primary);
+                var drv = HardwareDriverRegistry.FindDriverForDevice(primary);
+                if (drv != null) drv.PopulateCapabilities(primary);
+
+                bool hasCustomActions = (primary.Capabilities != null && primary.Capabilities.CustomActions != null && primary.Capabilities.CustomActions.Count > 0);
+                if (hasCustomActions || primary.Category == DeviceCategory.Keyboard)
                 {
-                    // Primary is NuPhy keyboard: Show NuPhy controls, hide Mouse DPI/Rate
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
+                    if (lightingMenu != null) lightingMenu.Visible = false;
 
-                    var curSettings = NuphyDeviceHelper.CachedHardwareSettings ?? new NuphyDeviceHelper.NuphyHardwareSettings();
+                    var actSleep = GetDeviceToggleAction(primary, 0, "auto_sleep");
+                    var actWin = GetDeviceToggleAction(primary, 1, "win_lock");
+                    var actSide = GetDeviceToggleAction(primary, 3, "sidelight_toggle");
+                    var actBright = GetDeviceSliderAction(primary, "backlight_brightness");
 
                     if (nuphySleepMenuItem != null)
                     {
-                        nuphySleepMenuItem.Visible = true;
-                        nuphySleepMenuItem.Text = curSettings.SleepEnabled ? "自动休眠: 已开启" : "自动休眠: 已关闭 (常亮)";
+                        nuphySleepMenuItem.Visible = (actSleep != null);
+                        if (actSleep != null)
+                        {
+                            bool en = actSleep.BoolValue || actSleep.IntValue != 0;
+                            nuphySleepMenuItem.Text = en ? (actSleep.Title + ": 已开启") : (actSleep.Title + ": 已关闭 (常亮)");
+                        }
                     }
                     if (nuphyWinLockMenuItem != null)
                     {
-                        nuphyWinLockMenuItem.Visible = true;
-                        nuphyWinLockMenuItem.Text = curSettings.WinLock ? "Win键锁定: 已开启" : "Win键锁定: 已关闭";
+                        nuphyWinLockMenuItem.Visible = (actWin != null);
+                        if (actWin != null)
+                        {
+                            bool en = actWin.BoolValue || actWin.IntValue != 0;
+                            nuphyWinLockMenuItem.Text = en ? (actWin.Title + ": 已开启") : (actWin.Title + ": 已关闭");
+                        }
                     }
                     if (nuphyBacklightMenu != null)
                     {
-                        nuphyBacklightMenu.Visible = true;
-                        ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
-                        for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
+                        nuphyBacklightMenu.Visible = (actBright != null);
+                        if (actBright != null)
                         {
-                            var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
-                            if (sub != null && sub.Tag is int)
+                            ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
+                            for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
                             {
-                                sub.Checked = ((int)sub.Tag == curSettings.BacklightBrightness);
+                                var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
+                                if (sub != null && sub.Tag is int)
+                                {
+                                    sub.Checked = ((int)sub.Tag == actBright.IntValue);
+                                }
                             }
                         }
                     }
                     if (nuphySidelightMenuItem != null)
                     {
-                        nuphySidelightMenuItem.Visible = true;
-                        nuphySidelightMenuItem.Text = (curSettings.SidelightEnabled && curSettings.SidelightBrightness > 0) ? "前置灯带: 已开启" : "前置灯带: 已关闭";
+                        nuphySidelightMenuItem.Visible = (actSide != null);
+                        if (actSide != null)
+                        {
+                            bool en = actSide.BoolValue || actSide.IntValue != 0;
+                            nuphySidelightMenuItem.Text = en ? (actSide.Title + ": 已开启") : (actSide.Title + ": 已关闭");
+                        }
                     }
-                    if (nuphyTraySep != null) nuphyTraySep.Visible = true;
+                    if (nuphyTraySep != null) nuphyTraySep.Visible = hasCustomActions;
                 }
                 else if (primary.Category == DeviceCategory.Mouse)
                 {
@@ -646,13 +1071,27 @@ namespace RazerBatteryTray
                         dpiMenu.Visible = true;
                         dpiMenu.DropDownItems.Clear();
                         ConfigureSubMenuDropDown(dpiMenu.DropDown);
-                        if (dpiStageValues != null)
+                        // 档位表优先取设备上报的真实档位；dpiStageValues 只是全局缺省预设
+                        // （400/800/1600/3000/6400），直接拿它建菜单会出现
+                        // 「托盘里的档位和鼠标实际档位对不上」——非 Razer 的六档机型尤其明显。
+                        int[] trayStages = (primary.DpiStages != null && primary.DpiStages.Length > 0)
+                            ? primary.DpiStages
+                            : dpiStageValues;
+                        if (trayStages != null)
                         {
-                            for (int i = 0; i < dpiStageValues.Length; i++)
+                            // 同步全局档位表：SetDpiFromUI 是按值反查档位号的，
+                            // 不同步会把「点第 2 档」变成「改写当前档的值」。
+                            dpiStageValues = trayStages;
+                            int activeStage = primary.DpiStage; // 1 基
+                            for (int i = 0; i < trayStages.Length; i++)
                             {
-                                int val = dpiStageValues[i];
-                                var sub = new ToolStripMenuItem(val + " DPI", null, (s, e) => {
-                                    SetDpiFromUI(val);
+                                int val = trayStages[i];
+                                int stageNo = i + 1;
+                                string itemText = trayStages.Length > 1
+                                    ? string.Format("档位 {0} · {1} DPI", stageNo, val)
+                                    : string.Format("{0} DPI", val);
+                                var sub = new ToolStripMenuItem(itemText, null, (s, e) => {
+                                    SetDpiForDevice(val, ResolveTrayContextDevice());
                                     foreach (ToolStripItem it in dpiMenu.DropDownItems)
                                     {
                                         var tmi = it as ToolStripMenuItem;
@@ -663,7 +1102,9 @@ namespace RazerBatteryTray
                                     }
                                 });
                                 sub.Tag = val;
-                                sub.Checked = (primary.Dpi == val);
+                                sub.Checked = (activeStage > 0 && activeStage <= trayStages.Length)
+                                    ? (stageNo == activeStage)
+                                    : (primary.Dpi == val);
                                 dpiMenu.DropDownItems.Add(sub);
                             }
                         }
@@ -672,14 +1113,60 @@ namespace RazerBatteryTray
                     if (rateMenu != null)
                     {
                         rateMenu.Visible = true;
+                        rateMenu.DropDownItems.Clear();
                         ConfigureSubMenuDropDown(rateMenu.DropDown);
-                        for (int k = 0; k < rateMenu.DropDownItems.Count; k++)
+                        // 同理：回报率按设备能力重建，避免出现设备根本不支持的档位。
+                        int[] trayRates = primary.SupportedPollingRates;
+                        if (trayRates == null || trayRates.Length == 0)
                         {
-                            var sub = rateMenu.DropDownItems[k] as ToolStripMenuItem;
-                            if (sub != null && sub.Tag is int)
+                            trayRates = (primary.Capabilities != null) ? primary.Capabilities.SupportedPollingRates : null;
+                        }
+                        if (trayRates == null || trayRates.Length == 0) trayRates = pollingRateValues;
+                        if (trayRates != null)
+                        {
+                            for (int i = 0; i < trayRates.Length; i++)
                             {
-                                sub.Checked = ((int)sub.Tag == primary.PollingRate);
+                                int val = trayRates[i];
+                                var sub = new ToolStripMenuItem(val + " Hz", null, (s, e) => {
+                                    SetPollingRateForDevice(val, ResolveTrayContextDevice());
+                                    foreach (ToolStripItem it in rateMenu.DropDownItems)
+                                    {
+                                        var tmi = it as ToolStripMenuItem;
+                                        if (tmi != null && tmi.Tag is int)
+                                        {
+                                            tmi.Checked = ((int)tmi.Tag == val);
+                                        }
+                                    }
+                                });
+                                sub.Tag = val;
+                                sub.Checked = (val == primary.PollingRate);
+                                rateMenu.DropDownItems.Add(sub);
                             }
+                        }
+                    }
+
+                    // 仅当当前外设为巴蛇终极版（有线 0086 / 接收器 0088）时展示「灯光调节」子菜单
+                    bool isBasiliskUltimate = false;
+                    if (primary.DeviceId != null)
+                    {
+                        if (primary.DeviceId.IndexOf("0086", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            primary.DeviceId.IndexOf("0088", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            isBasiliskUltimate = true;
+                        }
+                    }
+                    if (!isBasiliskUltimate && !string.IsNullOrEmpty(primary.DeviceName) &&
+                        primary.DeviceName.IndexOf("Basilisk Ultimate", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        isBasiliskUltimate = true;
+                    }
+
+                    if (lightingMenu != null)
+                    {
+                        lightingMenu.Visible = isBasiliskUltimate;
+                        if (isBasiliskUltimate)
+                        {
+                            ConfigureSubMenuDropDown(lightingMenu.DropDown);
                         }
                     }
                 }
@@ -688,6 +1175,7 @@ namespace RazerBatteryTray
                     // Other device (Headset, Gamepad)
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
+                    if (lightingMenu != null) lightingMenu.Visible = false;
                     if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
                     if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
                     if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
@@ -700,11 +1188,18 @@ namespace RazerBatteryTray
                 // No connected primary device
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
+                if (lightingMenu != null) lightingMenu.Visible = false;
                 if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
                 if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
                 if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
                 if (nuphySidelightMenuItem != null) nuphySidelightMenuItem.Visible = false;
                 if (nuphyTraySep != null) nuphyTraySep.Visible = false;
+            }
+
+            // 在菜单显示前同步收敛布局，消除 Opening -> Opened 之间因 AutoSize 晚算导致底部「退出程序」跳动闪烁
+            if (contextMenu != null)
+            {
+                contextMenu.PerformLayout();
             }
         }
 
@@ -727,11 +1222,36 @@ namespace RazerBatteryTray
             }
         }
 
+        private void UpdateTrayCombinedSummary(string fallback)
+        {
+            if (multiTrayEnabled)
+            {
+                RefreshMultiTrayHost();
+                return;
+            }
+            if (trayIcon == null) return;
+            string summary = DeviceManager.BuildTrayBatterySummary(activeDevices);
+            if (string.IsNullOrEmpty(summary)) summary = fallback;
+            if (string.IsNullOrEmpty(summary)) summary = "FerrisPulse · 灵脉";
+            if (summary.Length > 63) summary = summary.Substring(0, 63);
+            try
+            {
+                trayIcon.Text = summary;
+            }
+            catch { }
+        }
+
         private void UpdateTrayIcon(int percent, bool isCharging, bool isConnected, bool isSleeping = false, Color? brandColor = null)
         {
+            if (multiTrayEnabled)
+            {
+                if (trayIcon != null && trayIcon.Visible) trayIcon.Visible = false;
+                RefreshMultiTrayHost();
+                return;
+            }
             int iconSize = GetTrayIconSize();
-            Color bCol = brandColor ?? ((lastInfo != null) ? lastInfo.BrandColor : Color.FromArgb(0, 230, 118));
-            using (Bitmap bmp = DrawTrayBitmap(percent, isCharging, isConnected, trayStyle, iconSize, isSleeping, bCol))
+            Color bCol = brandColor ?? ((lastInfo != null) ? lastInfo.TrayAccentColor : Color.FromArgb(0, 230, 118));
+            using (Bitmap bmp = DrawTrayBitmapWithOptions(percent, isCharging, isConnected, trayStyle, iconSize, isSleeping, bCol, IsEffectiveLowBatteryTrayColorEnabled()))
             {
                 IntPtr hIcon = bmp.GetHicon();
                 try
@@ -811,17 +1331,22 @@ namespace RazerBatteryTray
 
         private static Bitmap DrawTrayBitmap(int percent, bool isCharging, bool isConnected, int style, int iconSize, bool isSleeping = false, Color? brandColor = null)
         {
+            return DrawTrayBitmapWithOptions(percent, isCharging, isConnected, style, iconSize, isSleeping, brandColor, false);
+        }
+
+        internal static Bitmap DrawTrayBitmapWithOptions(int percent, bool isCharging, bool isConnected, int style, int iconSize, bool isSleeping, Color? brandColor, bool enableLowBatteryColor)
+        {
             if (iconSize >= 24)
             {
-                return DrawTrayBitmap24(percent, isCharging, isConnected, style, isSleeping, brandColor);
+                return DrawTrayBitmap24(percent, isCharging, isConnected, style, isSleeping, brandColor, enableLowBatteryColor);
             }
             else
             {
-                return DrawTrayBitmap16(percent, isCharging, isConnected, style, isSleeping, brandColor);
+                return DrawTrayBitmap16(percent, isCharging, isConnected, style, isSleeping, brandColor, enableLowBatteryColor);
             }
         }
 
-        private static Bitmap DrawTrayBitmap24(int percent, bool isCharging, bool isConnected, int style, bool isSleeping = false, Color? brandColor = null)
+        private static Bitmap DrawTrayBitmap24(int percent, bool isCharging, bool isConnected, int style, bool isSleeping = false, Color? brandColor = null, bool enableLowBatteryColor = false)
         {
             Bitmap bmp = new Bitmap(24, 24);
             using (Graphics g = Graphics.FromImage(bmp))
@@ -879,7 +1404,7 @@ namespace RazerBatteryTray
                 Color brandAccent = brandColor.HasValue ? brandColor.Value : Color.FromArgb(0, 230, 118);
                 Color accentColor = isSleeping ? Color.FromArgb(255, 183, 77) :
                                     (percent < 0 ? brandAccent :
-                                    ((percent > 20 || isCharging) ? brandAccent :
+                                    ((!enableLowBatteryColor || percent > 20 || isCharging) ? brandAccent :
                                     ((percent > 10) ? Color.FromArgb(255, 214, 0) : Color.FromArgb(255, 50, 65))));
 
                 if (style == 2) // 极简纯数字
@@ -942,7 +1467,7 @@ namespace RazerBatteryTray
             return bmp;
         }
 
-        private static Bitmap DrawTrayBitmap16(int percent, bool isCharging, bool isConnected, int style, bool isSleeping = false, Color? brandColor = null)
+        private static Bitmap DrawTrayBitmap16(int percent, bool isCharging, bool isConnected, int style, bool isSleeping = false, Color? brandColor = null, bool enableLowBatteryColor = false)
         {
             Bitmap bmp = new Bitmap(16, 16);
             using (Graphics g = Graphics.FromImage(bmp))
@@ -1000,7 +1525,7 @@ namespace RazerBatteryTray
                 Color brandAccent = brandColor.HasValue ? brandColor.Value : Color.FromArgb(0, 230, 118);
                 Color accentColor = isSleeping ? Color.FromArgb(255, 183, 77) :
                                     (percent < 0 ? brandAccent :
-                                    ((percent > 20 || isCharging) ? brandAccent :
+                                    ((!enableLowBatteryColor || percent > 20 || isCharging) ? brandAccent :
                                     ((percent > 10) ? Color.FromArgb(255, 214, 0) : Color.FromArgb(255, 50, 65))));
 
                 if (style == 2) // 极简纯数字
@@ -1572,7 +2097,7 @@ namespace RazerBatteryTray
             if (pending != null && UpdateManager.IsNewerVersion(pending.LatestVersion, UpdateManager.CurrentVersion))
             {
                 // 0ms 秒开：直接从内存缓存打开更新弹窗，弹窗内 SWR 后台静默并发复检
-                UpdateNoticeForm.ShowUpdateDialog(this, pending, UpdateManager.CurrentVersion);
+                UpdateNoticeForm.ShowUpdateDialog(this, pending, UpdateManager.CurrentVersion, this.dpiScale);
             }
             else
             {
@@ -1588,6 +2113,11 @@ namespace RazerBatteryTray
             {
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
+            }
+            if (multiTrayHost != null)
+            {
+                try { multiTrayHost.HideAll(); multiTrayHost.Dispose(); } catch { }
+                multiTrayHost = null;
             }
             if (osdForm != null && !osdForm.IsDisposed)
             {

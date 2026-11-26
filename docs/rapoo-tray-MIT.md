@@ -1,6 +1,6 @@
 ﻿# rapoo-tray 移植许可
 
-FerrisPulse 的 RapooProtocol.cs 与 RapooDeviceHelper.Status.cs 参考/移植了 `E:\code\C++\rapoo-tray` 的 `src/rapoo_protocol.cpp`、`src/rapoo_protocol.h` 与端点识别逻辑。下面保留原项目的完整 MIT 许可。
+FerrisPulse 的 RapooProtocol.cs 与 RapooDeviceHelper.Status.cs 参考/移植了 `rapoo-tray` 的 `src/rapoo_protocol.cpp`、`src/rapoo_protocol.h` 与端点识别逻辑。下面保留原项目的完整 MIT 许可。
 
 ```text
 MIT License

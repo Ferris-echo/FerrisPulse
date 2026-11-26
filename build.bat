@@ -12,7 +12,7 @@ echo Compiling FerrisPulse (Open-Source Clean Raw Binary)...
 echo Compiler: %CSC%
 echo =======================================================
 
-"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:FerrisPulse.exe /recurse:src\*.cs
+"%CSC%" /target:winexe /optimize+ /codepage:65001 /win32icon:app.ico /win32manifest:app.manifest /resource:release-notes.json,FerrisPulse.release-notes.json /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:FerrisPulse.exe /recurse:src\*.cs
 
 if %ERRORLEVEL% neq 0 (
     echo [FAILED] Compilation failed with error code: %ERRORLEVEL%

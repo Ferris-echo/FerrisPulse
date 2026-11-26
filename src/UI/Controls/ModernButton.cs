@@ -3,7 +3,7 @@
 // 所属区域: UI/Controls (基础原子控件层)
 // 核心职责:
 //   现代化自绘制按钮，具备鼠标悬停、按下三态动态着色、抗锯齿圆角背景以及可选的
-//   矢量 8 齿齿轮图标绘制能力（设置按钮）。
+//   矢量 8 齿齿轮、信息圆环或几何交叉关闭按钮绘制能力（无字符基线偏差）。
 // 依赖关系: RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -32,6 +32,7 @@ namespace RazerBatteryTray
         public int CornerRadius { get; set; }
         public bool IsGearButton { get; set; }
         public bool IsInfoButton { get; set; }
+        public bool IsCloseButton { get; set; }
         public Color TextColor
         {
             get { return this.ForeColor; }
@@ -76,7 +77,8 @@ namespace RazerBatteryTray
                     g.FillPath(brush, path);
                 }
 
-                if (BorderColor != Color.Transparent)
+                bool skipBorderOnActiveClose = IsCloseButton && (isHovered || isPressed);
+                if (BorderColor != Color.Transparent && !skipBorderOnActiveClose)
                 {
                     using (Pen pen = new Pen(BorderColor, 1f))
                     {
@@ -94,6 +96,11 @@ namespace RazerBatteryTray
             {
                 Color iconColor = isPressed ? Color.FromArgb(200, 205, 215) : (isHovered ? Color.White : ForeColor);
                 DrawInfoIcon(g, rect, iconColor);
+            }
+            else if (IsCloseButton)
+            {
+                Color iconColor = (isPressed || isHovered) ? Color.White : ForeColor;
+                DrawCloseIcon(g, rect, iconColor);
             }
             else if (!string.IsNullOrEmpty(Text))
             {
@@ -169,6 +176,23 @@ namespace RazerBatteryTray
                 {
                     g.FillPath(brush, stemPath);
                 }
+            }
+        }
+
+        private void DrawCloseIcon(Graphics g, Rectangle bounds, Color color)
+        {
+            float cx = bounds.X + bounds.Width / 2.0f;
+            float cy = bounds.Y + bounds.Height / 2.0f;
+            float dim = Math.Min(bounds.Width, bounds.Height);
+            float half = Math.Max(3.6f, dim * 0.175f);
+            float stroke = Math.Max(1.25f, dim * 0.052f);
+
+            using (Pen pen = new Pen(color, stroke))
+            {
+                pen.StartCap = LineCap.Round;
+                pen.EndCap = LineCap.Round;
+                g.DrawLine(pen, cx - half, cy - half, cx + half, cy + half);
+                g.DrawLine(pen, cx + half, cy - half, cx - half, cy + half);
             }
         }
     }

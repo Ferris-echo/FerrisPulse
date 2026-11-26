@@ -2,7 +2,8 @@
 // 模块名称: RazerHeadsetHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   雷蛇无线耳机 (BlackShark V2 Pro 2.4, 1532:0555) 私有 64 字节 HID 协议实现。
+//   雷蛇无线耳机 (BlackShark V2 Pro 2.4, 1532:0555 / Kraken V4, 1532:056C) 私有 64 字节 HID 协议实现。
+//   支持多 0xFF00 端点聚合择优（真读数优先于离线占位），并输出未适配耳机 PID 诊断轨迹。
 //   该机型没有 Feature Report (HidP_GetCaps.FeatureReportByteLength = 0)，所以既有的
 //   90 字节 Feature 报文链路 (RazerDeviceHelper) 完全无法识别它，必须走中断 OUT 端点。
 //
@@ -40,6 +41,7 @@ namespace RazerBatteryTray
         // ==================== 设备标识 ====================
         public const int VidRazer = 0x1532;
         public const int PidBlackSharkV2Pro = 0x0555;
+        public const int PidKrakenV4 = 0x056C;
 
         private const ushort UsagePageVendor = 0xFF00;
 
@@ -218,11 +220,38 @@ namespace RazerBatteryTray
             return reply[15];
         }
 
+        /// <summary>Kraken V4 2.4G read-only query; never use the 9-byte Feature channel.</summary>
+        public static byte[] BuildKrakenFrame(byte cmd)
+        {
+            if (cmd != CmdGetBattery && cmd != CmdGetCharging && cmd != CmdGetConnection)
+                throw new ArgumentOutOfRangeException("cmd");
+            byte[] frame = new byte[ReportSize];
+            frame[0] = ReportId;
+            frame[2] = 0x60;
+            frame[6] = 0x04;
+            frame[9] = 0x80;
+            frame[10] = cmd;
+            return frame;
+        }
+
+        /// <summary>Reject unrelated notifications, failure, missing data and out-of-range values.</summary>
+        public static int ParseKrakenReplyValue(byte[] reply, byte cmd)
+        {
+            if (reply == null || reply.Length != ReportSize) return -1;
+            if (reply[0] != ReportId || reply[1] != 0x02 || reply[2] != 0x60) return -1;
+            if (reply[6] != 0x05 || reply[7] != 0 || reply[9] != 0x80) return -1;
+            if (reply[10] != cmd || reply[11] != 1 || reply[12] != 1) return -1;
+            int value = reply[13];
+            if (cmd == CmdGetBattery) return value <= 100 ? value : -1;
+            if (cmd == CmdGetCharging || cmd == CmdGetConnection) return value <= 1 ? value : -1;
+            return -1;
+        }
+
         public static bool IsRazerHeadset(string identifier)
         {
             if (string.IsNullOrEmpty(identifier)) return false;
             string lower = identifier.ToLowerInvariant();
-            if (lower.Contains("vid_1532&pid_0555") || lower.Contains("1532:0555") || lower.Contains("blackshark"))
+            if (lower.Contains("vid_1532&pid_0555") || lower.Contains("1532:0555") || lower.Contains("blackshark") || lower.Contains("vid_1532&pid_056c") || lower.Contains("1532:056c"))
             {
                 return true;
             }
@@ -231,6 +260,7 @@ namespace RazerBatteryTray
 
         public static string GetHeadsetModelName(int pid, string productString)
         {
+            if (pid == PidKrakenV4) return "Razer Kraken V4";
             if (!string.IsNullOrEmpty(productString))
             {
                 string cleaned = productString.Trim();
@@ -250,9 +280,23 @@ namespace RazerBatteryTray
 
         #region 设备枚举与查询
 
+        public static MouseBatteryInfo PickBetterHeadsetCandidate(MouseBatteryInfo existing, MouseBatteryInfo candidate)
+        {
+            if (existing == null) return candidate;
+            if (candidate == null) return existing;
+            if (candidate.IsConnected && !existing.IsConnected) return candidate;
+            if (!candidate.IsConnected && existing.IsConnected) return existing;
+            if (candidate.BatteryPercent >= 0 && existing.BatteryPercent < 0) return candidate;
+            if (candidate.BatteryPercent < 0 && existing.BatteryPercent >= 0) return existing;
+            if (!candidate.IsSleeping && existing.IsSleeping) return candidate;
+            return existing;
+        }
+
         public static List<MouseBatteryInfo> QueryAllRazerHeadsets()
         {
             List<MouseBatteryInfo> list = new List<MouseBatteryInfo>();
+            Dictionary<string, MouseBatteryInfo> bestById = new Dictionary<string, MouseBatteryInfo>(StringComparer.OrdinalIgnoreCase);
+            List<string> idOrder = new List<string>();
 
             lock (hidLock)
             {
@@ -275,7 +319,18 @@ namespace RazerBatteryTray
                         seenPaths.Add(devicePath);
 
                         MouseBatteryInfo info = QuerySingleDevice(devicePath);
-                        if (info != null) list.Add(info);
+                        if (info != null && !string.IsNullOrEmpty(info.DeviceId))
+                        {
+                            if (!bestById.ContainsKey(info.DeviceId))
+                            {
+                                bestById[info.DeviceId] = info;
+                                idOrder.Add(info.DeviceId);
+                            }
+                            else
+                            {
+                                bestById[info.DeviceId] = PickBetterHeadsetCandidate(bestById[info.DeviceId], info);
+                            }
+                        }
                     }
                 }
                 finally
@@ -284,6 +339,10 @@ namespace RazerBatteryTray
                 }
             }
 
+            for (int i = 0; i < idOrder.Count; i++)
+            {
+                list.Add(bestById[idOrder[i]]);
+            }
             return list;
         }
 
@@ -293,9 +352,40 @@ namespace RazerBatteryTray
             HIDP_CAPS caps;
             if (!ReadInterfaceIdentity(devicePath, out attr, out caps)) return null;
             if (attr.VendorID != VidRazer) return null;
-            if (attr.ProductID != PidBlackSharkV2Pro) return null;
-            if (caps.UsagePage != UsagePageVendor) return null;
-            if (caps.OutputReportByteLength < ReportSize) return null;
+
+            string vidPidKey = string.Format("1532:{0:X4}", attr.ProductID);
+            if (attr.ProductID != PidBlackSharkV2Pro && attr.ProductID != PidKrakenV4)
+            {
+                if (attr.ProductID >= 0x0500 && attr.ProductID <= 0x05FF &&
+                    (caps.UsagePage >= 0xFF00 || caps.FeatureReportByteLength > 0))
+                {
+                    HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("SKIPPED: PID 未适配 UP=0x{0:X4} U=0x{1:X4} In={2} Out={3} Feat={4}", caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength, caps.FeatureReportByteLength));
+                }
+                return null;
+            }
+
+            bool isKraken = attr.ProductID == PidKrakenV4;
+            if (isKraken)
+            {
+                if (caps.UsagePage != 0xFF14 || caps.Usage != 1 ||
+                    caps.InputReportByteLength != ReportSize || caps.OutputReportByteLength != ReportSize)
+                {
+                    if (caps.UsagePage >= 0xFF00)
+                    {
+                        HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("SKIPPED: Kraken 端点不匹配 UP=0x{0:X4} U=0x{1:X4} In={2} Out={3}", caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength));
+                    }
+                    return null;
+                }
+            }
+            else if (caps.UsagePage != UsagePageVendor)
+            {
+                return null;
+            }
+            if (caps.OutputReportByteLength < ReportSize)
+            {
+                HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("SKIPPED: Out={0} < {1} (UP=0x{2:X4} Feat={3})", caps.OutputReportByteLength, ReportSize, caps.UsagePage, caps.FeatureReportByteLength));
+                return null;
+            }
 
             string deviceId = string.Format("RazerHeadset:{0:X4}:{1:X4}", VidRazer, attr.ProductID);
 
@@ -312,6 +402,7 @@ namespace RazerBatteryTray
             IntPtr handle = OpenDevice(devicePath, true);
             if (handle == IntPtr.Zero || handle == new IntPtr(-1))
             {
+                HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("OPEN_FAIL: Win32Error={0} UP=0x{1:X4} ({2})", Marshal.GetLastWin32Error(), caps.UsagePage, HardwareDiagnosticService.SanitizeDevicePath(devicePath)));
                 return null;
             }
 
@@ -324,21 +415,24 @@ namespace RazerBatteryTray
 
                 try
                 {
-                    int battery = QueryValue(handle, evt, CmdGetBattery);
-                    int charging = QueryValue(handle, evt, CmdGetCharging);
-                    int connection = QueryValue(handle, evt, CmdGetConnection);
+                    int battery = QueryValue(handle, evt, CmdGetBattery, isKraken);
+                    int charging = QueryValue(handle, evt, CmdGetCharging, isKraken);
+                    int connection = QueryValue(handle, evt, CmdGetConnection, isKraken);
                     dev.LastUpdated = DateTime.Now;
 
-                    if (battery >= 0 && battery <= 100)
+                    if (battery >= 0 && battery <= 100 && (!isKraken || (connection == 1 && charging >= 0)))
                     {
                         dev.IsConnected = connection != 0;
                         dev.IsSleeping = connection == 0;
                         dev.BatteryPercent = battery;
+                        dev.ExactBatteryPercent = battery;
                         dev.IsCharging = charging > 0;
                         SaveCache(deviceId, battery, charging);
+                        HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("OK batt={0}% chg={1} conn={2} UP=0x{3:X4}", battery, charging, connection, caps.UsagePage));
                     }
                     else
                     {
+                        HardwareDiagnosticService.RecordDriverTrace("RazerHeadset", vidPidKey, string.Format("NO_REPLY batt={0} chg={1} conn={2} UP=0x{3:X4}", battery, charging, connection, caps.UsagePage));
                         // 耳机休眠 / 关机: 接收器仍在, 回退最后已知电量
                         dev.IsConnected = false;
                         dev.IsSleeping = true;
@@ -347,7 +441,7 @@ namespace RazerBatteryTray
                         if (LoadCache(deviceId, out cachedBattery, out cachedCharge))
                         {
                             dev.BatteryPercent = cachedBattery;
-                            dev.IsCharging = cachedCharge > 0;
+                            dev.IsCharging = !isKraken && cachedCharge > 0;
                         }
                         else
                         {
@@ -368,16 +462,16 @@ namespace RazerBatteryTray
             return dev;
         }
 
-        private static int QueryValue(IntPtr handle, IntPtr evt, byte cmd)
+        private static int QueryValue(IntPtr handle, IntPtr evt, byte cmd, bool isKraken)
         {
-            byte[] tx = BuildFrame(cmd);
+            byte[] tx = isKraken ? BuildKrakenFrame(cmd) : BuildFrame(cmd);
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 if (!SendFrame(handle, evt, tx)) continue;
-                byte[] rx = ReadReply(handle, evt, cmd);
+                byte[] rx = ReadReply(handle, evt, cmd, isKraken);
                 if (rx != null)
                 {
-                    int value = ParseReplyValue(rx, cmd);
+                    int value = isKraken ? ParseKrakenReplyValue(rx, cmd) : ParseReplyValue(rx, cmd);
                     if (value >= 0) return value;
                 }
             }
@@ -461,55 +555,68 @@ namespace RazerBatteryTray
 
         private static bool SendFrame(IntPtr handle, IntPtr evt, byte[] tx)
         {
-            ResetEvent(evt);
-            OVERLAPPED ov = new OVERLAPPED();
-            ov.hEvent = evt;
-            uint written = 0;
-            bool ok = WriteFile(handle, tx, (uint)tx.Length, out written, ref ov);
-
-            if (!ok)
-            {
-                if (Marshal.GetLastWin32Error() != ERROR_IO_PENDING) return false;
-                if (WaitForSingleObject(evt, SendTimeoutMs) != WAIT_OBJECT_0)
-                {
-                    CancelIo(handle);
-                    return false;
-                }
-                if (!GetOverlappedResult(handle, ref ov, out written, false)) return false;
-            }
-            return written > 0;
-        }
-
-        private static byte[] ReadReply(IntPtr handle, IntPtr evt, byte cmd)
-        {
-            byte[] buffer = new byte[ReportSize];
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(ReadWindowMs);
-
-            while (DateTime.UtcNow < deadline)
+            GCHandle pinned = GCHandle.Alloc(tx, GCHandleType.Pinned);
+            try
             {
                 ResetEvent(evt);
                 OVERLAPPED ov = new OVERLAPPED();
                 ov.hEvent = evt;
-                uint read = 0;
-                bool ok = ReadFile(handle, buffer, (uint)buffer.Length, out read, ref ov);
+                uint written = 0;
+                bool ok = WriteFile(handle, tx, (uint)tx.Length, out written, ref ov);
 
                 if (!ok)
                 {
-                    if (Marshal.GetLastWin32Error() != ERROR_IO_PENDING) return null;
-                    if (WaitForSingleObject(evt, ReadChunkMs) != WAIT_OBJECT_0)
+                    if (Marshal.GetLastWin32Error() != ERROR_IO_PENDING) return false;
+                    if (WaitForSingleObject(evt, SendTimeoutMs) != WAIT_OBJECT_0)
                     {
                         CancelIo(handle);
-                        continue;
+                        GetOverlappedResult(handle, ref ov, out written, true);
+                        return false;
                     }
-                    if (!GetOverlappedResult(handle, ref ov, out read, false)) continue;
+                    if (!GetOverlappedResult(handle, ref ov, out written, false)) return false;
                 }
-
-                if (read >= 16 && buffer[2] == OutMagicP && buffer[3] == InMagicI && buffer[12] == cmd)
-                {
-                    return (byte[])buffer.Clone();
-                }
+                return written == tx.Length;
             }
-            return null;
+            finally { pinned.Free(); }
+        }
+
+        private static byte[] ReadReply(IntPtr handle, IntPtr evt, byte cmd, bool isKraken)
+        {
+            byte[] buffer = new byte[ReportSize];
+            GCHandle pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(ReadWindowMs);
+
+                while (DateTime.UtcNow < deadline)
+                {
+                    ResetEvent(evt);
+                    OVERLAPPED ov = new OVERLAPPED();
+                    ov.hEvent = evt;
+                    uint read = 0;
+                    bool ok = ReadFile(handle, buffer, (uint)buffer.Length, out read, ref ov);
+
+                    if (!ok)
+                    {
+                        if (Marshal.GetLastWin32Error() != ERROR_IO_PENDING) return null;
+                        if (WaitForSingleObject(evt, ReadChunkMs) != WAIT_OBJECT_0)
+                        {
+                            CancelIo(handle);
+                            GetOverlappedResult(handle, ref ov, out read, true);
+                            continue;
+                        }
+                        if (!GetOverlappedResult(handle, ref ov, out read, false)) continue;
+                    }
+
+                    if ((isKraken && read == ReportSize && ParseKrakenReplyValue(buffer, cmd) >= 0) ||
+                        (!isKraken && read >= 16 && buffer[2] == OutMagicP && buffer[3] == InMagicI && buffer[12] == cmd))
+                    {
+                        return (byte[])buffer.Clone();
+                    }
+                }
+                return null;
+            }
+            finally { pinned.Free(); }
         }
 
         #endregion

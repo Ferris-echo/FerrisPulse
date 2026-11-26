@@ -17,6 +17,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
     [string]$Title = "",
+    [string]$Body = "",
     [string[]]$Changelog = @()
 )
 
@@ -131,26 +132,32 @@ if (-not (Test-Path $zipPath)) {
 
 # 7. Git 提交、打 Tag 并双推
 Write-Host "`n[6/7] 提交 Git 代码与 Tag，同步推送到 GitHub & Gitee..." -ForegroundColor Yellow
-git add src/Properties/AssemblyInfo.cs version.json tools/build_release_zip.ps1 tools/publish_release.ps1 .gitignore CHANGELOG.md
+git add -A
 $gitDiff = git status --porcelain
 if ($gitDiff) {
     git commit -m "chore(release): bump version to $tag"
 }
 $existingTag = git tag -l $tag
-if (-not $existingTag) {
-    git tag -a $tag -m "Release $tag"
+if ($existingTag) {
+    git tag -d $tag
 }
-git push origin main --tags
-git push gitee main --tags
+git tag -a $tag -m "Release $tag"
+git push origin main
+git push gitee main
+git push origin $tag --force
+git push gitee $tag --force
 
 # 8. 双平台发布 Release
 Write-Host "`n[7/7] 调用双平台 API 创建 Release 并上传二进制资产..." -ForegroundColor Yellow
 
-$releaseBody = ""
+$releaseBody = if ($Body) { $Body } else { "" }
+if (-not $releaseBody) {
 if ($Changelog.Count -gt 0) {
     $releaseBody = "### 🌟 更新日志`n`n" + (($Changelog | ForEach-Object { "* " + $_ }) -join "`n")
 } else {
     $releaseBody = "### 🌟 FerrisPulse $tag 正式版`n`n* 本次更新包含最新稳定性与功能优化。"
+}
+
 }
 
 # 8.1 GitHub Release 创建与资产上传
@@ -213,36 +220,27 @@ try {
     }
 } catch { }
 
-if (-not $giteeReleaseId) {
-    $giteeCreateUri = "https://gitee.com/api/v5/repos/$giteeRepo/releases"
-    $giteeParams = @{
-        access_token = $giteeToken
-        tag_name = $tag
-        name = $Title
-        body = $releaseBody
-        target_commitish = "main"
-    }
-    $newGiteeRel = Invoke-RestMethod -Uri $giteeCreateUri -Method Post -Body $giteeParams -UserAgent "FerrisPulse-Release"
-    $giteeReleaseId = $newGiteeRel.id
-    Write-Host "  -> [Gitee] Release 创建成功 (ID: $giteeReleaseId)" -ForegroundColor Green
-} else {
-    Write-Host "  -> [Gitee] Release 已存在 (ID: $giteeReleaseId)" -ForegroundColor DarkGray
+if ($giteeReleaseId) {
+    Write-Host "  -> [Gitee] 检测到旧 Release (ID: $giteeReleaseId)，彻底清理以杜绝旧附件缓存..." -ForegroundColor DarkGray
+    try {
+        Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId?access_token=$giteeToken" -Method Delete -UserAgent "FerrisPulse-Release" | Out-Null
+    } catch { }
+    $giteeReleaseId = $null
 }
 
-if ($giteeReleaseId) {
-    # 检查并删除 Gitee 已存在的同名资产
-    try {
-        $giteeRelInfo = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId?access_token=$giteeToken" -UserAgent "FerrisPulse-Release"
-        foreach ($ga in $giteeRelInfo.assets) {
-            if ($ga.name -eq "FerrisPulse.exe" -or $ga.name -eq "FerrisPulse_${tag}_Portable.zip") {
-                Write-Host "  -> [Gitee] 删除旧版本资产: $($ga.name)..." -ForegroundColor DarkGray
-                try {
-                    Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId/attach_files/$($ga.id)?access_token=$giteeToken" -Method Delete -UserAgent "FerrisPulse-Release" | Out-Null
-                } catch { }
-            }
-        }
-    } catch { }
+$giteeCreateUri = "https://gitee.com/api/v5/repos/$giteeRepo/releases"
+$giteeParams = @{
+    access_token = $giteeToken
+    tag_name = $tag
+    name = $Title
+    body = $releaseBody
+    target_commitish = "main"
+}
+$newGiteeRel = Invoke-RestMethod -Uri $giteeCreateUri -Method Post -Body $giteeParams -UserAgent "FerrisPulse-Release"
+$giteeReleaseId = $newGiteeRel.id
+Write-Host "  -> [Gitee] 纯净 Release 创建成功 (ID: $giteeReleaseId)" -ForegroundColor Green
 
+if ($giteeReleaseId) {
     Write-Host "  -> [Gitee] 上传 FerrisPulse.exe..." -ForegroundColor Cyan
     & curl.exe -s -X POST "https://gitee.com/api/v5/repos/$giteeRepo/releases/$giteeReleaseId/attach_files" -F "access_token=$giteeToken" -F "file=@$exePath" | Out-Null
     

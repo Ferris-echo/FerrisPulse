@@ -1,4 +1,4 @@
-# FerrisPulse · 灵脉 (RazerBatteryTray) 项目交接文档
+﻿# FerrisPulse · 灵脉 (RazerBatteryTray) 项目交接文档
 
 > **交接日期**: 2026-10-21  
 > **项目架构**: Windows Forms / Win32 原生通信 / GDI+ 自绘  

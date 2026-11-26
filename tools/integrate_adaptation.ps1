@@ -62,8 +62,8 @@ try {
 
 # 2. 字段完整性与契约校验
 Write-Step "2/5 正在校验 FDAS 规范版本与设备指纹完整性"
-if ($adapter.fdasVersion -ne '1.0') {
-    Write-Err "不支持的 FDAS 规范版本: $($adapter.fdasVersion)（当前仅支持 1.0）"
+if ($adapter.fdasVersion -ne '1.0' -and $adapter.fdasVersion -ne '2.0') {
+    Write-Err "不支持的 FDAS 规范版本: $($adapter.fdasVersion)（当前仅支持 1.0 / 2.0）"
     exit 1
 }
 

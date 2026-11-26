@@ -3,7 +3,7 @@
 // 所属区域: UI/Controls (基础原子控件层)
 // 核心职责:
 //   现代化胶囊型状态药丸标签，用于展示连接/充电状态（如 "2.4G 无线"、"⚡ 充电" 等），
-//   具备根据文本宽度自适应伸缩、抗锯齿半透明药丸背景与边缘勾边。
+//   具备根据文本宽度与控件高度自适应等比伸缩、抗锯齿半透明药丸背景与边缘勾边。
 // 依赖关系: RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -24,25 +24,57 @@ namespace RazerBatteryTray
     {
         private string statusText = "检测中...";
         private Color statusColor = Color.FromArgb(0, 230, 118);
+        private bool isRecalculating = false;
+        private int lastMeasuredHeight = -1;
+
+        private void RecalcWidth()
+        {
+            if (isRecalculating) return;
+            isRecalculating = true;
+            try
+            {
+                float ratio = Math.Max(0.45f, Height > 0 ? Height / 32.0f : 1.0f);
+                int minW = Math.Max(40, (int)Math.Round(74 * ratio));
+                int hPad = Math.Max(12, (int)Math.Round(24 * ratio));
+                var sz = TextRenderer.MeasureText(this.statusText ?? "", Font);
+                int targetW = Math.Max(minW, sz.Width + hPad);
+                if (this.Width != targetW)
+                {
+                    this.Width = targetW;
+                }
+                lastMeasuredHeight = this.Height;
+            }
+            catch
+            {
+            }
+            finally
+            {
+                isRecalculating = false;
+            }
+        }
 
         public void SetStatus(string text, Color color)
         {
             this.statusText = text ?? "";
             this.Text = this.statusText;
             this.statusColor = color;
-            try
-            {
-                using (var g = CreateGraphics())
-                {
-                    var sz = TextRenderer.MeasureText(g, this.statusText, Font);
-                    this.Width = Math.Max(78, sz.Width + 28);
-                }
-            }
-            catch
-            {
-                this.Width = 78;
-            }
+            RecalcWidth();
             Invalidate();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            RecalcWidth();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (!isRecalculating && this.Height != lastMeasuredHeight)
+            {
+                RecalcWidth();
+            }
         }
 
         public bool IsHardwareBadge { get; set; }
@@ -61,8 +93,9 @@ namespace RazerBatteryTray
             Color parentBg = (Parent is RoundedCard) ? ((RoundedCard)Parent).CardColor : (Parent != null ? Parent.BackColor : Color.FromArgb(25, 27, 34));
             g.Clear(parentBg);
 
-            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            int cornerRadius = 6;
+            float ratio = Math.Max(0.45f, Height > 0 ? Height / 32.0f : 1.0f);
+            Rectangle rect = new Rectangle(0, 0, Math.Max(4, Width - 1), Math.Max(4, Height - 1));
+            int cornerRadius = Math.Max(3, (int)Math.Round(6 * ratio));
 
             if (IsHardwareBadge)
             {
@@ -92,7 +125,7 @@ namespace RazerBatteryTray
                 }
 
                 // 4. 左侧微型发光微晶指示灯 (Micro Glow Dot)
-                int dotX = 10;
+                int dotX = Math.Max(5, (int)Math.Round(10 * ratio));
                 int dotY = Height / 2;
                 int dotRadius = 2;
 
@@ -106,9 +139,10 @@ namespace RazerBatteryTray
                 }
 
                 // 5. 纯净抗锯齿文字排印 (向右避开微晶指示灯)
-                Rectangle textRect = new Rectangle(dotX + 6, 0, Width - dotX - 10, Height);
+                int textLeft = dotX + Math.Max(4, (int)Math.Round(6 * ratio));
+                Rectangle textRect = new Rectangle(textLeft, 0, Math.Max(4, Width - textLeft - 4), Height);
                 TextRenderer.DrawText(g, statusText, Font, textRect, Color.FromArgb(238, 244, 255),
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }
             else
             {
@@ -127,7 +161,7 @@ namespace RazerBatteryTray
                 }
 
                 TextRenderer.DrawText(g, statusText, Font, rect, statusColor,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }
         }
     }

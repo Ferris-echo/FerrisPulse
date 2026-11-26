@@ -56,7 +56,29 @@ namespace RazerBatteryTray
 
         private static UpdateInfo _pendingUpdate = null;
         private static readonly object _pendingLock = new object();
+        private static bool _hasCompletedCheck = false;
+        private static bool _lastCheckSucceeded = false;
         public static event Action OnPendingUpdateChanged;
+
+        public static bool HasCompletedCheck
+        {
+            get { lock (_pendingLock) { return _hasCompletedCheck; } }
+            private set { lock (_pendingLock) { _hasCompletedCheck = value; } }
+        }
+
+        public static bool LastCheckSucceeded
+        {
+            get { lock (_pendingLock) { return _lastCheckSucceeded; } }
+            private set { lock (_pendingLock) { _lastCheckSucceeded = value; } }
+        }
+
+        public static void NotifyUpdateStateChanged()
+        {
+            if (OnPendingUpdateChanged != null)
+            {
+                try { OnPendingUpdateChanged(); } catch { }
+            }
+        }
 
         public static UpdateInfo PendingUpdate
         {
@@ -241,9 +263,18 @@ namespace RazerBatteryTray
                                             UpdateInfo info = ParseVersionJson(json);
                                             if (info != null && !string.IsNullOrEmpty(info.LatestVersion))
                                             {
-                                                // 若发现有比当前版本更新的候选，立即采纳并回调
+                                                // 若发现有比当前版本更新的候选，立即采纳并挂载历史发布记录以支持跨版本汇总日志
                                                 if (IsNewerVersion(info.LatestVersion, CurrentVersion))
                                                 {
+                                                    try
+                                                    {
+                                                        List<ReleaseNoteEntry> remoteHist = ReleaseNotesService.FetchRemoteReleaseNotesSync(3500);
+                                                        info.ReleaseHistory = ReleaseNotesService.MergeReleaseNotes(remoteHist, ReleaseNotesService.LoadEmbeddedReleaseNotes());
+                                                    }
+                                                    catch { }
+
+                                                    HasCompletedCheck = true;
+                                                    LastCheckSucceeded = true;
                                                     PendingUpdate = info;
                                                     if (callback != null)
                                                     {
@@ -278,6 +309,8 @@ namespace RazerBatteryTray
                 // 所有端点探测完毕：如果获得了有效响应（虽然不比本地新），返回该最新已知信息
                 if (bestInfo != null)
                 {
+                    HasCompletedCheck = true;
+                    LastCheckSucceeded = true;
                     if (IsNewerVersion(bestInfo.LatestVersion, CurrentVersion))
                     {
                         PendingUpdate = bestInfo;
@@ -285,6 +318,7 @@ namespace RazerBatteryTray
                     else
                     {
                         ClearPendingUpdate();
+                        NotifyUpdateStateChanged();
                     }
 
                     if (callback != null)
@@ -294,6 +328,10 @@ namespace RazerBatteryTray
                     return;
                 }
 
+                HasCompletedCheck = true;
+                LastCheckSucceeded = false;
+                NotifyUpdateStateChanged();
+
                 if (callback != null)
                 {
                     callback(false, null, lastError);
@@ -302,6 +340,11 @@ namespace RazerBatteryTray
         }
 
         public static void DownloadFileAsync(string url, string targetPath, Action<long, long, double> progressCallback, Action<bool, string> completedCallback)
+        {
+            DownloadFileAsync(url, targetPath, null, progressCallback, completedCallback);
+        }
+
+        public static void DownloadFileAsync(string url, string targetPath, string expectedSha256, Action<long, long, double> progressCallback, Action<bool, string> completedCallback)
         {
             ThreadPool.QueueUserWorkItem(delegate(object state)
             {
@@ -404,6 +447,15 @@ namespace RazerBatteryTray
                             fs.Close();
                             fs = null;
 
+                            // 校验可信可执行文件头 (PE MZ)、最小有效体积以及预期 SHA256 哈希；异常时自愈切换下一个备用镜像源
+                            string validationErr;
+                            if (!ReleaseNotesService.ValidateDownloadedExecutable(targetPath, expectedSha256, out validationErr))
+                            {
+                                lastError = string.IsNullOrEmpty(validationErr) ? "更新包校验失败 (已尝试自愈切换备用镜像源)" : validationErr;
+                                try { File.Delete(targetPath); } catch { }
+                                continue;
+                            }
+
                             if (completedCallback != null)
                             {
                                 completedCallback(true, null);
@@ -433,21 +485,6 @@ namespace RazerBatteryTray
             });
         }
 
-        public static string BuildSelfReplaceCommand(int pid, string targetExePath, string updateFilePath)
-        {
-            string safeTarget = targetExePath.Replace("'", "''");
-            string safeUpdate = updateFilePath.Replace("'", "''");
-
-            return string.Format(
-                "-NoProfile -WindowStyle Hidden -Command \"" +
-                "try {{ Wait-Process -Id {0} -Timeout 10; }} catch {{}} " +
-                "Start-Sleep -Milliseconds 400; " +
-                "Move-Item -LiteralPath '{1}' -Destination '{2}' -Force; " +
-                "Start-Process -FilePath '{2}';\"",
-                pid, safeUpdate, safeTarget
-            );
-        }
-
         public static bool LaunchSelfReplace(string updateFilePath)
         {
             try
@@ -457,9 +494,9 @@ namespace RazerBatteryTray
                 string exePath = Application.ExecutablePath;
                 string oldExe = exePath + ".old";
 
-                // 核心安全优化：优先采用 Windows 原生运行时重命名机制 (In-Process Native Rename)
+                // 核心安全策略：全程采用 Windows 原生运行时重命名机制 (In-Process Native Rename)
                 // 在 Windows NTFS 下，运行中的 exe 支持直接重命名（MoveFile），随后将新 exe 移入原路径并拉起。
-                // 全程为纯 C# 托管操作，不启动任何隐藏 powershell/cmd 脚本，彻底杜绝 AMSI 与 Dropper 杀软误报！
+                // 全程为纯 C# 托管操作，严禁包含或拉起隐藏 PowerShell/CMD 脚本，彻底杜绝 AMSI 与 Dropper 杀软误报。
                 try
                 {
                     if (File.Exists(oldExe))
@@ -475,22 +512,14 @@ namespace RazerBatteryTray
                 }
                 catch
                 {
-                    // 若受非 NTFS 文件系统等特殊环境限制，进入兼容降级分支
+                    // 仅当目录只读或非 NTFS 文件系统导致原位替换受限时，打开新版本所在目录引导手动替换
+                    try
+                    {
+                        Process.Start("explorer.exe", "/select,\"" + updateFilePath + "\"");
+                    }
+                    catch { }
+                    return false;
                 }
-
-                int currentPid = Process.GetCurrentProcess().Id;
-                string args = BuildSelfReplaceCommand(currentPid, exePath, updateFilePath);
-
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = "powershell.exe";
-                psi.Arguments = args;
-                psi.WindowStyle = ProcessWindowStyle.Hidden;
-                psi.CreateNoWindow = true;
-                psi.UseShellExecute = false;
-
-                Process.Start(psi);
-                Application.Exit();
-                return true;
             }
             catch
             {

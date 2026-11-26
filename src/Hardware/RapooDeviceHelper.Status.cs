@@ -1,4 +1,4 @@
-﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 // 模块: 雷柏 VT3 状态输入、采样缓存与可取消 Win32 重叠 I/O。
 // C# 5.0 / .NET 4.0; UTF-8 BOM; 无第三方依赖。
 // 报文布局参考 rapoo-tray (MIT, Copyright (c) 2026 Iris)。
@@ -16,9 +16,11 @@ namespace RazerBatteryTray
         public static DateTime StatusLastUpdated = DateTime.MinValue;
         public static string LastStatusReportHex = "";
         public static string LastStatusError = "";
+#pragma warning disable 0169, 0414, 0649
         private static string activeRapooGroup;
         private static int activeRapooModelPid;
         private static RapooEndpointSet activeRapooEndpoints;
+#pragma warning restore 0169, 0414, 0649
         private static StatusSession statusSession;
 
         private sealed class StatusSession
@@ -76,12 +78,8 @@ namespace RazerBatteryTray
             }
         }
 
-        // No HID access and no waiting behind a long control-register operation.
         public static MouseBatteryInfo TryGetStatusSnapshot()
         {
-            // Tolerate a brief lock held by the DPI polling thread so that a
-            // telemetry frame arriving during a short control read still reaches
-            // the UI. A hard TryEnter would silently drop the status update.
             if (!Monitor.TryEnter(hidLock, 150)) return null;
             try
             {
@@ -93,6 +91,7 @@ namespace RazerBatteryTray
             }
             finally { Monitor.Exit(hidLock); }
         }
+
         private static void StopStatusReader()
         {
             // Do not join while holding hidLock: the worker may be publishing a frame.
@@ -162,28 +161,11 @@ namespace RazerBatteryTray
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(CacheRegistryKey, false))
                 {
-                    if (key == null) return;
-                    if ((key.GetValue("BatterySource") as string) != "HidStatus07") return;
+                    if (key == null || !string.Equals(key.GetValue("PhysicalGroup") as string, group, StringComparison.OrdinalIgnoreCase) ||
+                        (key.GetValue("BatterySource") as string) != "HidStatus07") return;
                     int battery = Convert.ToInt32(key.GetValue("BatteryPercent", -1));
                     DateTime sampled;
-                    if (battery < 0 || battery > 100 ||
-                        !DateTime.TryParse(key.GetValue("LastUpdated") as string, out sampled)) return;
-
-                    string cachedGroup = key.GetValue("PhysicalGroup") as string;
-                    // 1. 精确匹配当前物理连接组（同模式同设备）：直接使用
-                    if (string.Equals(cachedGroup, group, StringComparison.OrdinalIgnoreCase))
-                    {
-                        CachedBatteryPercent = battery;
-                        CachedLastUpdated = sampled;
-                        return;
-                    }
-
-                    // 2. 跨模式兜底：同一只雷柏鼠标切换连接方式（有线 / 2.4G / 蓝牙）后，
-                    //    PhysicalGroup 中的 PID 与实例 ID 会变化，但电量在短时间内不会剧变。
-                    //    VT3 没有电量寄存器，电量只能被动等待 0x07 状态广播帧，
-                    //    若鼠标休眠或状态帧未到，电量会一直显示 --%。
-                    //    因此当缓存电量在 24 小时内有效时，沿用至新状态帧到达再覆盖。
-                    if ((DateTime.Now - sampled).TotalHours <= 24)
+                    if (battery >= 0 && battery <= 100 && DateTime.TryParse(key.GetValue("LastUpdated") as string, out sampled))
                     {
                         CachedBatteryPercent = battery;
                         CachedLastUpdated = sampled;

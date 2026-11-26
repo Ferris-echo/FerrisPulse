@@ -141,7 +141,6 @@ namespace RazerBatteryTray
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(13, 16, 23);
             this.ForeColor = Color.White;
-            try { ModernThemeHelper.ApplyModernWin11Theme(this.Handle); } catch { }
 
             int clientW = S(420);
             int clientH = S(530);
@@ -149,9 +148,9 @@ namespace RazerBatteryTray
 
             int pad = S(16);
 
-            // 1. Title Header
+            // 1. Title Header (由 AttachModernChrome 自动提升为自绘标题栏)
             Label lblTitle = new Label();
-            lblTitle.Text = deviceName + " · 回报率档位配置";
+            lblTitle.Text = "回报率档位配置";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(245, 248, 252);
             lblTitle.Location = new Point(pad, S(12));
@@ -159,11 +158,12 @@ namespace RazerBatteryTray
             lblTitle.BackColor = Color.Transparent;
             this.Controls.Add(lblTitle);
 
-            // 2. Subtitle Note
+            // 2. Subtitle Note (设备名称置于副标题避免大标题截断)
             Label lblSub = new Label();
-            lblSub.Text = "选择需要在主面板快捷切换的回报率档位 (最多勾选 5 档)";
+            lblSub.Text = deviceName + " · 选择主面板快捷切换档位 (最多 5 档)";
             lblSub.Font = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular);
             lblSub.ForeColor = Color.FromArgb(120, 135, 155);
+            lblSub.AutoEllipsis = true;
             lblSub.Location = new Point(pad, S(36));
             lblSub.Size = new Size(clientW - pad * 2, S(18));
             lblSub.BackColor = Color.Transparent;
@@ -243,21 +243,23 @@ namespace RazerBatteryTray
             this.Controls.Add(lblError);
             RefreshItemRowStates();
 
-            // 6. Action Buttons
-            int btnH = S(32);
-            int actionW = S(85);
+            // 6. Action Buttons (Right-aligned, matching unified design language)
+            int btnH = S(34);
+            int btnCancelW = S(88);
+            int btnSaveW = S(110);
+            int gap = S(12);
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
-            btnCancel.Font = new Font("Microsoft YaHei UI", 8.8F);
-            btnCancel.BackColor = Color.FromArgb(24, 30, 42);
-            btnCancel.HoverColor = Color.FromArgb(34, 42, 60);
-            btnCancel.PressedColor = Color.FromArgb(18, 24, 34);
-            btnCancel.ForeColor = Color.FromArgb(180, 190, 205);
-            btnCancel.BorderColor = Color.FromArgb(50, 62, 85);
+            btnCancel.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            btnCancel.NormalColor = Color.FromArgb(24, 30, 40);
+            btnCancel.HoverColor = Color.FromArgb(34, 42, 56);
+            btnCancel.PressedColor = Color.FromArgb(18, 22, 30);
+            btnCancel.BorderColor = Color.FromArgb(42, 52, 70);
+            btnCancel.TextColor = Color.FromArgb(200, 210, 225);
             btnCancel.CornerRadius = S(6);
-            btnCancel.Size = new Size(actionW, btnH);
-            btnCancel.Location = new Point(clientW - pad - (actionW + S(15)) - actionW - S(10), S(480));
+            btnCancel.Size = new Size(btnCancelW, btnH);
+            btnCancel.Location = new Point(clientW - pad - btnSaveW - gap - btnCancelW, S(480));
             btnCancel.Click += (s, e) => {
                 this.DialogResult = DialogResult.Cancel;
                 this.Close();
@@ -267,16 +269,18 @@ namespace RazerBatteryTray
             btnSave = new ModernButton();
             btnSave.Text = "保存并应用";
             btnSave.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
-            btnSave.BackColor = Color.FromArgb(0, 160, 100);
-            btnSave.HoverColor = Color.FromArgb(0, 185, 118);
-            btnSave.PressedColor = Color.FromArgb(0, 135, 82);
-            btnSave.ForeColor = Color.White;
+            btnSave.NormalColor = Color.FromArgb(0, 200, 90);
+            btnSave.HoverColor = Color.FromArgb(0, 230, 115);
+            btnSave.PressedColor = Color.FromArgb(0, 160, 70);
+            btnSave.TextColor = Color.FromArgb(10, 24, 16);
             btnSave.BorderColor = Color.Transparent;
             btnSave.CornerRadius = S(6);
-            btnSave.Size = new Size(actionW + S(15), btnH);
-            btnSave.Location = new Point(clientW - pad - (actionW + S(15)), S(480));
+            btnSave.Size = new Size(btnSaveW, btnH);
+            btnSave.Location = new Point(clientW - pad - btnSaveW, S(480));
             btnSave.Click += (s, e) => SaveAndClose();
             this.Controls.Add(btnSave);
+
+            AttachModernChrome("回报率档位配置", lblTitle, 18, true, true);
         }
 
         private Button CreatePresetButton(string text, int x, int width, int[] rates)

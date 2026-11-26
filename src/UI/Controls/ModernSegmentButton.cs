@@ -57,8 +57,19 @@ namespace RazerBatteryTray
             Invalidate();
         }
 
-        protected override void OnMouseEnter(EventArgs e) { if (!Enabled) return; base.OnMouseEnter(e); isHovered = true; Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { if (!Enabled) return; base.OnMouseLeave(e); isHovered = false; Invalidate(); }
+        // 只读态（设备固件不支持某项写入，例如回报率）：
+        // 视觉上等同禁用（灰化、无 hover 高亮、无手型光标），但控件仍保持 Enabled=true，
+        // 这样才能继续收到鼠标消息、由原生 ToolTip 在悬停时弹出说明、移开即消失。
+        // 点击事件仍会派发，由业务层闸门拦截并给出提示，绝不下发硬件报文。
+        private bool isReadOnly = false;
+        public bool IsReadOnly
+        {
+            get { return isReadOnly; }
+            set { if (isReadOnly != value) { isReadOnly = value; Invalidate(); } }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { if (!Enabled || isReadOnly) return; base.OnMouseEnter(e); isHovered = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { if (!Enabled || isReadOnly) return; base.OnMouseLeave(e); isHovered = false; Invalidate(); }
 
         protected override void OnPaint(PaintEventArgs pevent)
         {
@@ -74,7 +85,7 @@ namespace RazerBatteryTray
             Color border;
             Color fg;
 
-            if (!Enabled)
+            if (!Enabled || isReadOnly)
             {
                 if (isSelected)
                 {
@@ -111,8 +122,10 @@ namespace RazerBatteryTray
                 fg = isHovered ? Color.White : Color.FromArgb(180, 188, 205);
             }
 
-            Rectangle rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rect, 6))
+            float ratio = Math.Max(0.55f, Height > 0 ? Height / 28.0f : 1.0f);
+            int cornerR = Math.Max(3, (int)Math.Round(6 * ratio));
+            Rectangle rect = new Rectangle(0, 0, Math.Max(4, Width - 1), Math.Max(4, Height - 1));
+            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(rect, cornerR))
             {
                 using (SolidBrush brush = new SolidBrush(bg))
                 {
@@ -129,13 +142,13 @@ namespace RazerBatteryTray
             Font tempFont = null;
             try
             {
-                int safeW = Math.Max(10, Width - 6);
+                int safeW = Math.Max(8, Width - 4);
                 Size sz = TextRenderer.MeasureText(g, Text, drawFont, new Size(int.MaxValue, int.MaxValue),
                     TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
-                if (sz.Width > safeW && drawFont.Size > 5.2f)
+                if (sz.Width > safeW && drawFont.Size > 4.0f)
                 {
                     float targetSize = drawFont.Size * ((float)safeW / (float)sz.Width);
-                    if (targetSize < 5.2f) targetSize = 5.2f;
+                    if (targetSize < 4.0f) targetSize = 4.0f;
                     tempFont = new Font(drawFont.FontFamily, targetSize, drawFont.Style);
                     drawFont = tempFont;
                 }

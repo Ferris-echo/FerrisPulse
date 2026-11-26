@@ -9,6 +9,8 @@
 *.pdb
 *.obj
 *.raw.exe
+*.exe.old
+*.old
 FerrisPulse.exe
 *.zip
 *.7z

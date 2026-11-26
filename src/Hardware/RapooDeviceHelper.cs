@@ -1,9 +1,9 @@
-﻿﻿// ============================================================================
+﻿// ============================================================================
 // 模块名称: RapooDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   雷柏 (Rapoo) 2.4G/有线双模无线鼠标 HID 报文协议通讯实现 (支持全量设备库识别、DPI、XY 独立档位及 125~8000Hz 动态回报率配置、
-//   VT3 0x07 实时状态线程、同物理接口端点隔离、真实电量/充电采样与双 DPI 输出)
+//   雷柏 (Rapoo) 2.4G/有线双模无线鼠标 HID 报文协议通讯实现 (支持全量设备库识别、33B EEPROM + 非阻塞 19B 老型号自动回退、Report 0x07 实时遥测电量/DPI双通道监听、DPI、XY 独立档位及 125~8000Hz 动态回报率配置、
+//   智能接收器与有线模式探测、EEPROM 写入静默避让保护与双 DPI 极速轮询输出)
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -79,6 +79,8 @@ namespace RazerBatteryTray
         {
             return DateTime.Now < eepromQuietUntil;
         }
+
+
 
         public static void LoadHardwareCache()
         {
@@ -483,7 +485,6 @@ namespace RazerBatteryTray
             {
                 StopStatusReader();
                 CloseRapooHandles();
-                lastEnumTime = DateTime.MinValue;
             }
         }
 
@@ -659,6 +660,199 @@ namespace RazerBatteryTray
 
         #endregion
 
+        public static bool TryParseLegacy19ByteReport(
+            byte[] buf,
+            int length,
+            out int battery,
+            out bool isCharging,
+            out int dpi,
+            out int stage,
+            out int pid,
+            out int totalStages)
+        {
+            battery = -1;
+            isCharging = false;
+            dpi = 0;
+            stage = 0;
+            pid = 0;
+            totalStages = 5;
+
+            if (buf == null || length < 18 || buf.Length < 18) return false;
+            if (buf[0] != 0x07) return false;
+
+            int parsedBattery = buf[8];
+            if (parsedBattery < 0 || parsedBattery > 100) return false;
+
+            dpi = buf[3] | (buf[4] << 8);
+            stage = buf[7];
+            battery = parsedBattery;
+            isCharging = (buf[9] != 0);
+            pid = buf[13] | (buf[14] << 8);
+            totalStages = buf[17] > 0 ? buf[17] : 5;
+            return true;
+        }
+
+        private static MouseBatteryInfo QueryLegacy19ByteRapooDevice()
+        {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return null;
+            try
+            {
+                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(0x24AE, 0);
+                if (descriptors == null || descriptors.Count == 0) return null;
+
+                bool foundLegacyEndpoint = false;
+                int fallbackPid = 0;
+                string fallbackProductName = "";
+
+                for (int i = 0; i < descriptors.Count; i++)
+                {
+                    HidDeviceDescriptor ep = descriptors[i];
+                    if (ep == null || string.IsNullOrEmpty(ep.DevicePath)) continue;
+                    if (ep.ProductId == 0x1851 || ep.ProductId == 0x1870) continue;
+                    if (HardwareDriverRegistry.IsExternallyOwnedPath(ep.DevicePath)) continue;
+                    if (ep.UsagePage < 0xFF00 || ep.InputReportLength != 19) continue;
+
+                    foundLegacyEndpoint = true;
+                    if (fallbackPid == 0 && ep.ProductId > 0) fallbackPid = ep.ProductId;
+                    if (string.IsNullOrEmpty(fallbackProductName) && !string.IsNullOrEmpty(ep.ProductString))
+                    {
+                        fallbackProductName = ep.ProductString;
+                    }
+
+                    IntPtr handle = HidTransport.Open(ep.DevicePath);
+                    if (!HidTransport.IsValidHandle(handle)) continue;
+
+                    try
+                    {
+                        byte[] query = new byte[19];
+                        query[0] = 0x07;
+                        query[1] = 0x10;
+                        query[2] = 0x02;
+                        int sum = 0;
+                        for (int b = 0; b < 18; b++) sum += query[b];
+                        query[18] = (byte)(sum & 0xFF);
+
+                        if (!RazerDeviceHelper.HidD_SetOutputReport(handle, query, 19)) continue;
+
+                        for (int attempt = 0; attempt < 2; attempt++)
+                        {
+                            byte[] buf;
+                            if (!HidTransport.ReadReport(handle, 19, 300, out buf)) continue;
+
+                            int battery;
+                            bool isCharging;
+                            int dpi;
+                            int stage;
+                            int pid;
+                            int totalStages;
+                            if (TryParseLegacy19ByteReport(buf, buf.Length, out battery, out isCharging, out dpi, out stage, out pid, out totalStages))
+                            {
+                                int effPid = pid > 0 ? pid : (ep.ProductId > 0 ? ep.ProductId : 0x4613);
+                                string name = GetModelName(effPid);
+                                if (string.IsNullOrEmpty(name))
+                                {
+                                    name = !string.IsNullOrEmpty(ep.ProductString) ? ep.ProductString : CachedDeviceName;
+                                }
+
+                                string prodLower = (ep.ProductString ?? "").ToLowerInvariant();
+                                bool isReceiver = prodLower.Contains("receiver") || prodLower.Contains("dongle") ||
+                                    (ep.ProductId >= 0x1000 && ep.ProductId < 0x4000);
+                                string transport = isReceiver ? "2.4G 无线" : "USB 有线";
+                                if (transport == "2.4G 无线" && name.EndsWith(" (有线)"))
+                                {
+                                    name = name.Substring(0, name.Length - 5).Trim();
+                                }
+
+                                int[] stages = new int[] { 400, 800, 1200, 1600, 3200 };
+                                if (battery > 0) CachedBatteryPercent = battery;
+                                CachedIsCharging = isCharging;
+                                if (!string.IsNullOrEmpty(name)) CachedDeviceName = name;
+                                if (dpi > 0)
+                                {
+                                    CachedDpi = dpi;
+                                    CachedDpiY = dpi;
+                                }
+                                if (stage > 0) CachedDpiStage = stage;
+                                CachedDpiStageCount = totalStages;
+                                CachedDpiStages = stages;
+                                CachedLastUpdated = DateTime.Now;
+                                SaveHardwareCache();
+
+                                string devIdStr = "Rapoo:24AE:" + effPid.ToString("X4");
+                                return new MouseBatteryInfo
+                                {
+                                    DeviceId = devIdStr,
+                                    HardwareFingerprint = "HID:24AE:" + effPid.ToString("X4"),
+                                    Brand = "Rapoo",
+                                    DeviceName = name,
+                                    IsConnected = true,
+                                    IsSleeping = false,
+                                    IsDonglePresent = true,
+                                    Transport = transport,
+                                    BatteryPercent = battery,
+                                    ExactBatteryPercent = battery,
+                                    IsCharging = isCharging,
+                                    LastUpdated = DateTime.Now,
+                                    Dpi = dpi > 0 ? dpi : CachedDpi,
+                                    DpiY = dpi > 0 ? dpi : CachedDpi,
+                                    DpiStage = stage > 0 ? stage : CachedDpiStage,
+                                    DpiStageCount = totalStages,
+                                    DpiStages = stages,
+                                    DpiStagesY = stages,
+                                    PollingRate = CachedPollingRate > 0 ? CachedPollingRate : 1000,
+                                    SupportedPollingRates = GetSupportedPollingRatesForModel(effPid, name)
+                                };
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        HidTransport.Close(handle);
+                    }
+                }
+
+                if (foundLegacyEndpoint)
+                {
+                    int effPid = fallbackPid > 0 ? fallbackPid : 0x4613;
+                    string name = GetModelName(effPid);
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        name = !string.IsNullOrEmpty(fallbackProductName) ? fallbackProductName : CachedDeviceName;
+                    }
+                    if (name.EndsWith(" (有线)") && effPid < 0x4000)
+                    {
+                        name = name.Substring(0, name.Length - 5).Trim();
+                    }
+                    int cachedBatt = CachedBatteryPercent > 0 ? CachedBatteryPercent : -1;
+                    return new MouseBatteryInfo
+                    {
+                        DeviceId = "Rapoo:24AE:" + effPid.ToString("X4"),
+                        HardwareFingerprint = "HID:24AE:" + effPid.ToString("X4"),
+                        Brand = "Rapoo",
+                        DeviceName = name,
+                        IsConnected = true,
+                        IsSleeping = true,
+                        IsDonglePresent = true,
+                        Transport = "2.4G 无线",
+                        BatteryPercent = cachedBatt,
+                        ExactBatteryPercent = cachedBatt,
+                        IsCharging = false,
+                        LastUpdated = CachedLastUpdated != DateTime.MinValue ? CachedLastUpdated : DateTime.Now,
+                        Dpi = CachedDpi > 0 ? CachedDpi : 1600,
+                        DpiY = CachedDpiY > 0 ? CachedDpiY : (CachedDpi > 0 ? CachedDpi : 1600),
+                        DpiStage = CachedDpiStage > 0 ? CachedDpiStage : 1,
+                        DpiStageCount = CachedDpiStageCount > 0 ? CachedDpiStageCount : 5,
+                        DpiStages = (CachedDpiStages != null && CachedDpiStages.Length > 0) ? CachedDpiStages : new int[] { 400, 800, 1200, 1600, 3200 },
+                        DpiStagesY = (CachedDpiStagesY != null && CachedDpiStagesY.Length > 0) ? CachedDpiStagesY : new int[] { 400, 800, 1200, 1600, 3200 },
+                        PollingRate = CachedPollingRate > 0 ? CachedPollingRate : 1000,
+                        SupportedPollingRates = GetSupportedPollingRatesForModel(effPid, name)
+                    };
+                }
+            }
+            catch { }
+            return null;
+        }
+
         public static MouseBatteryInfo QueryRapooDeviceInfo()
         {
             lock (hidLock)
@@ -671,8 +865,7 @@ namespace RazerBatteryTray
                 bool online;
                 if (physicalPid == 0x14FF || physicalPid == 0x1500 || physicalPid == 0x1501)
                 {
-                    // Preserve the paired mouse's identity behind a generic receiver.
-                    if (activeRapooModelPid != 0) modelPid = activeRapooModelPid;
+                    return QueryLegacy19ByteRapooDevice();
                 }
 
                 // 缓存有效快速路径：不发送任何控制命令，直接用缓存与状态帧构建结果。
@@ -869,7 +1062,7 @@ namespace RazerBatteryTray
                 case 500:  return 0x02;
                 case 250:  return 0x04;
                 case 125:  return 0x08;
-                default:   return 0x01;
+                default:   return 0;
             }
         }
 
@@ -913,8 +1106,9 @@ namespace RazerBatteryTray
 
         public static bool SetRapooPollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (hz != 125 && hz != 250 && hz != 500 && hz != 1000 && hz != 2000 && hz != 4000 && hz != 8000) return false;
-            lock (hidLock)
+            try
             {
                 // rapoo-tray uses only bank 08 / address 80 for polling rate.
                 // Do not write speculative per-rate performance registers.
@@ -924,21 +1118,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return true;
             }
-        }
-
-        public static bool SetRapooDpiStage(int targetStage)
-        {
-            lock (hidLock)
-            {
-                string expectedGroup = activeRapooGroup;
-                if (targetStage < 1 || targetStage > CachedDpiStageCount || targetStage > CachedDpiStages.Length ||
-                    targetStage > CachedDpiStagesY.Length) return false;
-                if (!WriteRegisterForGroup(expectedGroup, BANKS_SYSTEM, ADDR_CURRENT_DPI, new byte[] { (byte)(targetStage - 1) })) return false;
-                if (!ApplyConfirmedRapooDpiStage(expectedGroup, targetStage)) return false;
-                SetEepromQuietPeriod(350);
-                SaveHardwareCache();
-                return true;
-            }
+            catch { return false; }
         }
 
         private static bool ApplyConfirmedRapooDpiStage(string expectedGroup, int targetStage)
@@ -955,6 +1135,24 @@ namespace RazerBatteryTray
             return true;
         }
 
+        public static bool SetRapooDpiStage(int targetStage)
+        {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
+            if (targetStage < 1 || targetStage > 6 || CachedDpiStageCount == 0 || (CachedDpiStages != null && targetStage > CachedDpiStages.Length)) return false;
+            try
+            {
+                string expectedGroup = activeRapooGroup;
+                if (targetStage < 1 || targetStage > CachedDpiStageCount || targetStage > CachedDpiStages.Length ||
+                    targetStage > CachedDpiStagesY.Length) return false;
+                if (!WriteRegisterForGroup(expectedGroup, BANKS_SYSTEM, ADDR_CURRENT_DPI, new byte[] { (byte)(targetStage - 1) })) return false;
+                if (!ApplyConfirmedRapooDpiStage(expectedGroup, targetStage)) return false;
+                SetEepromQuietPeriod(350);
+                SaveHardwareCache();
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static bool SetRapooDpi(int dpi)
         {
             return SetRapooXyDpi(dpi, dpi, CachedDpiStage > 0 ? CachedDpiStage : 1);
@@ -962,16 +1160,19 @@ namespace RazerBatteryTray
 
         public static bool SetRapooXyDpi(int dpiX, int dpiY, int stageIndex)
         {
-            lock (hidLock)
+            if (dpiX < 50 || dpiX > 65535 || dpiY < 50 || dpiY > 65535 || stageIndex < 1 || stageIndex > 6) return false;
+            if (CachedDpiStages == null || CachedDpiStages.Length == 0)
             {
-                if (dpiX < 50 || dpiX > 65535 || dpiY < 50 || dpiY > 65535 ||
-                    stageIndex < 1 || stageIndex > CachedDpiStages.Length || CachedDpiStagesY.Length != CachedDpiStages.Length) return false;
-                int[] newStagesX = (int[])CachedDpiStages.Clone();
-                int[] newStagesY = (int[])CachedDpiStagesY.Clone();
-                newStagesX[stageIndex - 1] = dpiX;
-                newStagesY[stageIndex - 1] = dpiY;
-                return UpdateRapooHardwareStages(stageIndex, newStagesX, newStagesY);
+                CachedDpiStages = new int[] { 400, 800, 1200, 1600, 3200 };
             }
+            if (CachedDpiStagesY == null || CachedDpiStagesY.Length != CachedDpiStages.Length)
+                CachedDpiStagesY = (int[])CachedDpiStages.Clone();
+            int idx = Math.Max(0, Math.Min(stageIndex - 1, CachedDpiStages.Length - 1));
+            int[] newStagesX = (int[])CachedDpiStages.Clone();
+            int[] newStagesY = (int[])CachedDpiStagesY.Clone();
+            newStagesX[idx] = dpiX;
+            newStagesY[idx] = dpiY;
+            return UpdateRapooHardwareStages(idx + 1, newStagesX, newStagesY);
         }
 
         public static bool UpdateRapooHardwareStages(int activeStage, int[] stages)
@@ -981,8 +1182,11 @@ namespace RazerBatteryTray
 
         public static bool UpdateRapooHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
-            if (!RapooProtocol.IsValidDpiConfiguration(activeStage, stagesX, stagesY)) return false;
-            lock (hidLock)
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
+            if (stagesX == null || stagesX.Length == 0) return false;
+            if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
+
+            try
             {
                 string expectedGroup = activeRapooGroup;
                 int count = stagesX.Length;
@@ -1014,6 +1218,7 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return true;
             }
+            catch { return false; }
         }
 
         #endregion

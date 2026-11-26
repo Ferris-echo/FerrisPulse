@@ -1,0 +1,180 @@
+{
+  "releases": [
+    {
+      "version": "2.4.1",
+      "releaseDate": "2026-11-26",
+      "summary": "全新界面与交互升级、历史版本切换与多项 Bug 修复",
+      "sha256": "85db50ab9d3390213967b1a0f32b97174c8c25a882c09bc75bf20a7cf4622251",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.1/FerrisPulse.exe",
+      "changelog": [
+        "一、 全新界面与交互设计升级",
+        "全页面统一一体化大标题栏与圆角关闭按钮，精简各界面冗余提示文案并修正主界面排版对齐，回报率与 DPI 定制弹窗优化长设备名展示，视觉更克制高级",
+        "「设备优先级与多托盘管理」交互全面革新：拖拽排序新增轨道平滑分离动效，多设备独立图标数量调整移至同行右侧平滑展开；超过 5 台设备时的自定义数量直接融入统一胶囊队列，支持点击居中键入与滚轮步进调节",
+        "新增「更新日志」历史版本中心，支持随时查阅历代版本说明，并可一键切换或回退至任意历史稳定版本",
+        "二、 问题修复与硬件兼容增强",
+        "修复纯有线雷蛇鼠标误报电量或误判休眠、雷柏部分老型号无法读电、部分兼容固件电量解析异常及蓝牙串口误识别等 Bug",
+        "修复自定义数量编辑引发的异常及部分场景下“添加设备”页无法打开的问题，修复配置向导内同时存在内置与扩展包驱动时重复显示同一外设的 Bug，并自动清理已被原生驱动接管的旧自定义残留"
+      ]
+    },
+    {
+      "version": "2.4.0",
+      "releaseDate": "2026-11-25",
+      "summary": "多设备状态栏、个性化定制与老设备兼容修复",
+      "sha256": "779b88c73bc2bea01b84cfb6cddf4bcd3220c6ff5c64da95eb4d33afa20669d7",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.0/FerrisPulse.exe",
+      "changelog": [
+        "一、 状态栏支持同时显示多个设备",
+        "任务栏可同时展示多个外设的独立电量图标（默认 3 个，可自由调整数量），点击对应图标可直接切换设备",
+        "外设进入休眠后，状态栏会保留原位置并显示休眠前电量，唤醒或重启软件不再乱跳",
+        "二、 个性化名称与颜色定制",
+        "支持给每台外设单独改名，并自定义主界面主题色与任务栏图标颜色，随时可一键恢复默认",
+        "低电量提醒新增分级开关，可分别控制是否弹窗提醒、主界面是否变红以及任务栏图标是否变红",
+        "三、 兼容修复与体验优化",
+        "修复多款老型号雷蛇鼠标（毒蝰终极版、炼狱蝰蛇 V2 系列、巴塞利斯蛇终极版等）、旋风黑鲨耳机及部分罗技设备的电量与回报率兼容问题",
+        "新增一键导出外设诊断报告功能，遇到设备未识别时更方便反馈排查",
+        "优化高分屏文字与界面清晰度，提升运行稳定性并减少杀毒软件误报"
+      ]
+    },
+    {
+      "version": "2.3.2",
+      "releaseDate": "2026-11-17",
+      "summary": "大波外设新品适配与三模连接优化",
+      "sha256": "e5763119b34223aa72f5560573f0af172070ed76dbef1dc9a1f4c54fdf033b47",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.2/FerrisPulse.exe",
+      "changelog": [
+        "一、 新增多款鼠标、键盘、耳机与手柄支持",
+        "无线鼠标：新增迈从 K7 V2 Ultra+/G7、VXE 蜻蜓 R1 星闪版、ATK A9 Ultimate、罗技 GPW2/Keychron M6、雷柏 VT 系列/MT760、海盗船 M75 AIR、XM2we、LEOBOG GM5 PRO 等",
+        "机械键盘：新增华硕 ROG 夜魔 96 HE、迈从 K99 V3/G98V2、VGN V108/N75 PRO/V98 Pro V2、ATK A87 PRO、KZZI K75、PMO WAVE75 等",
+        "耳机与手柄：新增 ROG DELTA II、海盗船 HS80 MAX、HyperX Cloud III S、迈从 V9 Turbo+，以及 PS5 DualSense 接收器、北通 BTP-KP20D 与蓝牙 Xbox 手柄",
+        "二、 多模切换与稳定性优化",
+        "同一设备在有线、蓝牙与无线接收器之间切换时自动折叠重复条目，任务栏同步显示鼠标、键盘与耳机电量",
+        "修复切设备或退出游戏后桌面档位被意外重置的问题，并修复迈从键盘充电电量偏高与部分设备显示闪烁"
+      ]
+    },
+    {
+      "version": "2.3.1",
+      "releaseDate": "2026-11-12",
+      "summary": "细节问题修复与稳定性提升",
+      "sha256": "5ab012e485e99a6d15444702dc671125fc8caac804ef36b62744b58e0da0dadf",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.1/FerrisPulse.exe",
+      "changelog": [
+        "修复 2.3.0 版本反馈的已知问题，提升日常使用稳定性"
+      ]
+    },
+    {
+      "version": "2.3.0",
+      "releaseDate": "2026-11-08",
+      "summary": "单游戏专属策略、宽屏游戏控制台与自由缩放",
+      "sha256": "95a7b8a24aee14ef20d074547811217caaba8c87fd1b6f7d7e381d661d444923",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.3.0/FerrisPulse.exe",
+      "changelog": [
+        "一、 游戏与窗口体验升级",
+        "支持为不同游戏单独设置专属的 DPI 档位与回报率，启动对应游戏时自动切换，退出后自动恢复",
+        "游戏管理界面升级为宽屏双栏布局，自动保存游戏图标与常用名称",
+        "二、 状态栏排序与界面自由缩放",
+        "新增低电量设备优先显示开关（电量低于或等于 30% 时自动置顶提醒）",
+        "主界面支持鼠标拖拽边缘自由调整大小，适配不同分辨率与屏幕缩放比例",
+        "三、 问题修复与新设备适配",
+        "过滤网易 UU 远程等工具产生的虚拟键鼠，修复重启后档位还原与调节 DPI 偶发卡顿问题，改善更新日志滚动残影",
+        "新增支持瓦尔基里 VK M3、罗技 G304/G502X/GPW、雷蛇巴蛇终极版/毒蝰 V2 Pro、雷柏 VT3 系列、索尼 INZONE 系列与飞智 APEX 6 等外设"
+      ]
+    },
+    {
+      "version": "2.2.0",
+      "releaseDate": "2026-10-21",
+      "summary": "扩展设备向导、XY 轴独立比例与 9 项体验修复",
+      "sha256": "fce70db23f851e3706248139e1e3c13d767645d07baab4fff40b3072410cf676",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.2.0/FerrisPulse.exe",
+      "changelog": [
+        "一、 扩展更多外设与便捷调整",
+        "添加设备向导新增极客扩展引导与常用工具推荐，方便玩家自行扩展未收录的新设备",
+        "DPI 设置新增 1:1、4:3、16:10 等常用比例快速联动与 CS2 压枪预设，主界面直观展示双轴灵敏度",
+        "新增支持雷蛇巴塞利斯蛇 V3 专业版 35K",
+        "二、 体验与稳定性修复",
+        "修复游戏优化激活时桌面档位高亮错位、回报率管理保存不同步及达 5 档上限后的状态提示问题",
+        "优化全屏游戏悬浮提示卡片排版，避免被后台刷新遮挡覆盖"
+      ]
+    },
+    {
+      "version": "2.1.1",
+      "releaseDate": "2026-10-20",
+      "summary": "XY 轴独立调节、低回报率档位与 Apple 耳机支持",
+      "sha256": "9faa250549b54ebbbe7bc10309237bafea8d8a0918ce4e8ca513576217e4bfa4",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.1.1/FerrisPulse.exe",
+      "changelog": [
+        "一、 功能与手感升级",
+        "支持鼠标 X/Y 轴灵敏度分开调节，并在游戏自动优化中加入 DPI 自动切换，进出游戏秒级切档",
+        "新增 125Hz、250Hz、500Hz 等低回报率省电档位，满足日常办公续航与特定游戏手感需求",
+        "优化从托盘点击呼出主界面的原生展开动画，原位弹出并消除白框闪烁",
+        "二、 外设支持与修复",
+        "深入集成罗技、雷柏、瓦尔基里调节，新增 AirPods 全系与 Beats 耳机电量显示，并支持 HyperX 飓风三耳机与瓦尔基里机械键盘电量读取"
+      ]
+    },
+    {
+      "version": "2.1.0",
+      "releaseDate": "2026-10-19",
+      "summary": "游戏 DPI 联动、品牌调节融入与耳机生态扩展",
+      "sha256": "5d7f083a134f61bdea6a2ca22b25ef091bad8ff4465209d54f62bfc48017b28a",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.1.0/FerrisPulse.exe",
+      "changelog": [
+        "新增鼠标 X/Y 轴灵敏度分开调节与比例联动，支持全屏游戏自动切换 DPI 与低回报率省电档位",
+        "深度支持罗技、雷柏、瓦尔基里外设免后台直接调档，新增 Apple/Beats 系列与 HyperX 飓风三耳机支持并修复瓦尔基里键盘电量读取"
+      ]
+    },
+    {
+      "version": "2.0.4",
+      "releaseDate": "2026-10-18",
+      "summary": "瓦尔基里全系原生支持与 XY 轴灵敏度调校",
+      "sha256": "3f1c83ee42999fcb91bab60d612609559455548f0b902f95484c84def7fa7af5",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.0.4/FerrisPulse.exe",
+      "changelog": [
+        "全面支持瓦尔基里全系机械键盘与电竞鼠标的双模电量读取、8K 回报率与物理档位调节",
+        "新增雷蛇与瓦尔基里鼠标 X/Y 轴独立灵敏度调节与悬浮提示显示"
+      ]
+    },
+    {
+      "version": "2.0.3",
+      "releaseDate": "2026-10-18",
+      "summary": "纯数字极简托盘与高分屏比例优化",
+      "sha256": "34ec3a10b23f5d926b9b0a4fcd58813232a8d5a8ddce05d42f1f101209c4743d",
+      "downloadUrl": "https://github.com/Ferris-echo/FerrisPulse/releases/download/v2.0.3/FerrisPulse.exe",
+      "changelog": [
+        "新增“纯数字极简”托盘电量图标样式，重绘断连图标并支持右键随时切换",
+        "优化后台轮询避免切档与拖拽时卡顿，改进高分屏缩放下的界面展示比例"
+      ]
+    },
+    {
+      "version": "2.0.2",
+      "releaseDate": "2026-10-17",
+      "summary": "顺滑折叠动效、防误报改进与快捷方式调整",
+      "sha256": "8fd8f5539db43240ca99603623ac5854acac84d5ca9479d8ea59b4b581790354",
+      "downloadUrl": "https://github.com/Ferris-echo/FerrisPulse/releases/download/v2.0.2/FerrisPulse.exe",
+      "changelog": [
+        "优化全屏游戏回报率折叠面板展开动效，消除撕裂与残影，精修托盘断连图标显示",
+        "优化更新替换流程以降低杀软误报，取消启动时自动建桌面快捷方式，改为由托盘菜单手动创建"
+      ]
+    },
+    {
+      "version": "2.0.1",
+      "releaseDate": "2026-10-17",
+      "summary": "毒蝰 V3 极速版支持与双平台更新分发",
+      "sha256": "4544954002ba7f25dcd027e7fe89e78c45624625a81c4cfcba1f9ea6406c4c5d",
+      "downloadUrl": "https://github.com/Ferris-echo/FerrisPulse/releases/download/v2.0.1/FerrisPulse.exe",
+      "changelog": [
+        "修复启动时自动生成桌面图标的问题，新增雷蛇毒蝰 V3 Pro 竞技版无线与有线双模识别",
+        "正式接入 GitHub 与 Gitee 双平台发布和国内镜像加速，在线检查更新更快更稳"
+      ]
+    },
+    {
+      "version": "2.0.0",
+      "releaseDate": "2026-10-12",
+      "summary": "多品牌外设、全屏游戏调度与在线热更新发布",
+      "sha256": "",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.0.0/FerrisPulse.exe",
+      "changelog": [
+        "扩展支持罗技、雷柏、NuPhy 及多款无线外设与蓝牙耳机电量显示",
+        "支持全屏游戏自动切换高回报率、内置按键无冲测速仪与一键在线更新，带来暗黑界面与三大托盘图标风格"
+      ]
+    }
+  ]
+}

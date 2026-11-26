@@ -112,7 +112,7 @@ namespace RazerBatteryTray
         {
             TextBox tb = new TextBox();
             tb.Text = initialVal.ToString();
-            tb.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+            DpiScaleHelper.SetControlBaseFont(tb, "Segoe UI", 9.5F, FontStyle.Bold, DpiScale);
             tb.BackColor = Color.FromArgb(10, 13, 19);
             tb.ForeColor = Color.FromArgb(245, 248, 255);
             tb.BorderStyle = BorderStyle.None;
@@ -358,7 +358,7 @@ namespace RazerBatteryTray
                     }
                 }
             }
-            using (Font f = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold))
+            using (Font f = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Bold, DpiScale))
             {
                 TextRenderer.DrawText(g, string.Format("第 {0} 档", StageNumber), f, rectBadge, badgeFg,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -373,7 +373,7 @@ namespace RazerBatteryTray
                     using (SolidBrush b = new SolidBrush(Color.FromArgb(20, 36, 50))) { g.FillPath(b, path); }
                     using (Pen p = new Pen(Color.FromArgb(35, 75, 110), 1f)) { g.DrawPath(p, path); }
                 }
-                using (Font f = new Font("Segoe UI", 8.2F, FontStyle.Bold))
+                using (Font f = DpiScaleHelper.CreateScaledFont("Segoe UI", 8.2F, FontStyle.Bold, DpiScale))
                 {
                     TextRenderer.DrawText(g, "X", f, rectLabelX, Color.FromArgb(56, 189, 248),
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -393,7 +393,7 @@ namespace RazerBatteryTray
                     using (SolidBrush b = new SolidBrush(Color.FromArgb(48, 40, 16))) { g.FillPath(b, path); }
                     using (Pen p = new Pen(Color.FromArgb(100, 85, 30), 1f)) { g.DrawPath(p, path); }
                 }
-                using (Font f = new Font("Segoe UI", 8.2F, FontStyle.Bold))
+                using (Font f = DpiScaleHelper.CreateScaledFont("Segoe UI", 8.2F, FontStyle.Bold, DpiScale))
                 {
                     TextRenderer.DrawText(g, "Y", f, rectLabelY, Color.FromArgb(250, 204, 21),
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -425,7 +425,7 @@ namespace RazerBatteryTray
 
             // DPI Unit label
             Color unitColor = IsActive ? Color.FromArgb(140, 180, 160) : Color.FromArgb(120, 136, 160);
-            using (Font f = new Font("Segoe UI", 8F, FontStyle.Bold))
+            using (Font f = DpiScaleHelper.CreateScaledFont("Segoe UI", 8F, FontStyle.Bold, DpiScale))
             {
                 TextRenderer.DrawText(g, "DPI", f, rectUnit, unitColor,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -441,7 +441,7 @@ namespace RazerBatteryTray
                         g.FillPath(b, path);
                     }
                 }
-                using (Font f = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold))
+                using (Font f = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Bold, DpiScale))
                 {
                     TextRenderer.DrawText(g, "✓ 生效中", f, rectActiveBtn, Color.FromArgb(10, 24, 16),
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
@@ -464,7 +464,7 @@ namespace RazerBatteryTray
                         g.DrawPath(p, path);
                     }
                 }
-                using (Font f = new Font("Microsoft YaHei UI", 7.8F, FontStyle.Regular))
+                using (Font f = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.8F, FontStyle.Regular, DpiScale))
                 {
                     TextRenderer.DrawText(g, "设为激活", f, rectActiveBtn, btnFg,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);

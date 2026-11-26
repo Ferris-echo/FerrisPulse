@@ -2,7 +2,9 @@
 // 模块名称: ModernCheckBox.cs
 // 所属区域: UI/Controls (基础原子控件层)
 // 核心职责:
-//   现代化深色暗黑风复选框，具备鼠标平滑高亮悬停、圆角方框及矢量平滑对勾绘制。
+//   现代化深色暗黑风复选框，具备鼠标平滑高亮悬停、圆角方框及矢量平滑对勾绘制，
+//   勾选框与文本间距跟随控件字体高度等比无极缩放，彻底杜绝高行高下勾选框过度膨胀遮挡文字。
+//   可选支持「左框总开关 + 右文字悬浮链接点击」双区交互模式 (TextActsAsActionLink / TextLinkClicked)。
 // 依赖关系: RoundedCard
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -23,8 +25,15 @@ namespace RazerBatteryTray
     {
         private bool isChecked = false;
         private bool isHovered = false;
+        private bool isTextHovered = false;
+        private int lastMouseDownX = -1;
 
         public event EventHandler CheckedChanged;
+        public event EventHandler TextLinkClicked;
+
+        public bool TextActsAsActionLink { get; set; }
+        public Color TextLinkColor { get; set; }
+        public Color TextLinkHoverColor { get; set; }
 
         public bool Checked
         {
@@ -43,12 +52,67 @@ namespace RazerBatteryTray
         public ModernCheckBox()
         {
             Cursor = Cursors.Hand;
+            TextLinkColor = Color.FromArgb(220, 226, 238);
+            TextLinkHoverColor = Color.FromArgb(95, 195, 255);
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
-        protected override void OnMouseEnter(EventArgs e) { if (!Enabled) return; base.OnMouseEnter(e); isHovered = true; Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { if (!Enabled) return; base.OnMouseLeave(e); isHovered = false; Invalidate(); }
-        protected override void OnClick(EventArgs e) { if (!Enabled) return; Checked = !Checked; base.OnClick(e); }
+        private int GetTextStartX()
+        {
+            float ratio = Math.Max(0.45f, Font != null ? Font.Height / 15.5f : (Height > 0 ? Height / 24.0f : 1.0f));
+            int boxSize = Math.Max(8, (int)Math.Round(14 * ratio));
+            if (Height > 4 && boxSize > Height - 2) boxSize = Height - 2;
+            return 1 + boxSize + Math.Max(3, (int)Math.Round(5 * ratio));
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            if (!Enabled) return;
+            base.OnMouseEnter(e);
+            isHovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!Enabled) return;
+            bool nowTextHover = TextActsAsActionLink && e.X >= GetTextStartX() - 2;
+            if (nowTextHover != isTextHovered)
+            {
+                isTextHovered = nowTextHover;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            if (!Enabled) return;
+            base.OnMouseLeave(e);
+            isHovered = false;
+            isTextHovered = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left) lastMouseDownX = e.X;
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            if (!Enabled) return;
+            if (TextActsAsActionLink && lastMouseDownX >= GetTextStartX() - 2)
+            {
+                lastMouseDownX = -1;
+                if (TextLinkClicked != null) TextLinkClicked(this, EventArgs.Empty);
+                return;
+            }
+            lastMouseDownX = -1;
+            Checked = !Checked;
+            base.OnClick(e);
+        }
 
         protected override void OnPaint(PaintEventArgs pevent)
         {
@@ -60,7 +124,9 @@ namespace RazerBatteryTray
             Color parentBg = (Parent is RoundedCard) ? ((RoundedCard)Parent).CardColor : (Parent != null ? Parent.BackColor : Color.FromArgb(25, 27, 34));
             g.Clear(parentBg);
 
-            int boxSize = 16;
+            float ratio = Math.Max(0.45f, Font != null ? Font.Height / 15.5f : (Height > 0 ? Height / 24.0f : 1.0f));
+            int boxSize = Math.Max(8, (int)Math.Round(14 * ratio));
+            if (Height > 4 && boxSize > Height - 2) boxSize = Height - 2;
             int boxY = (Height - boxSize) / 2;
             Rectangle boxRect = new Rectangle(1, boxY, boxSize, boxSize);
 
@@ -76,12 +142,21 @@ namespace RazerBatteryTray
             }
             else
             {
-                boxBg = isChecked ? (isHovered ? Color.FromArgb(0, 230, 118) : Color.FromArgb(0, 200, 83)) : (isHovered ? Color.FromArgb(38, 42, 54) : Color.FromArgb(28, 30, 38));
-                boxBorder = isChecked ? Color.FromArgb(0, 230, 118) : (isHovered ? Color.FromArgb(90, 98, 120) : Color.FromArgb(58, 63, 78));
-                textCol = isHovered ? Color.White : (ForeColor != Control.DefaultForeColor && ForeColor != Color.Empty ? ForeColor : Color.FromArgb(220, 226, 238));
+                bool boxHover = isHovered && (!TextActsAsActionLink || !isTextHovered);
+                boxBg = isChecked ? (boxHover ? Color.FromArgb(0, 230, 118) : Color.FromArgb(0, 200, 83)) : (boxHover ? Color.FromArgb(38, 42, 54) : Color.FromArgb(28, 30, 38));
+                boxBorder = isChecked ? Color.FromArgb(0, 230, 118) : (boxHover ? Color.FromArgb(90, 98, 120) : Color.FromArgb(58, 63, 78));
+                if (TextActsAsActionLink)
+                {
+                    textCol = isTextHovered ? TextLinkHoverColor : TextLinkColor;
+                }
+                else
+                {
+                    textCol = isHovered ? Color.White : (ForeColor != Control.DefaultForeColor && ForeColor != Color.Empty ? ForeColor : Color.FromArgb(220, 226, 238));
+                }
             }
 
-            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(boxRect, 4))
+            int cornerR = Math.Max(2, (int)Math.Round(3.5f * ratio));
+            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(boxRect, cornerR))
             {
                 using (SolidBrush brush = new SolidBrush(boxBg))
                 {
@@ -95,25 +170,26 @@ namespace RazerBatteryTray
 
             if (isChecked)
             {
+                float bScale = boxSize / 16.0f;
                 Color checkPenColor = !Enabled ? Color.FromArgb(70, 120, 85) : Color.FromArgb(10, 24, 15);
-                using (Pen checkPen = new Pen(checkPenColor, 2.0f))
+                using (Pen checkPen = new Pen(checkPenColor, Math.Max(1.1f, 2.0f * bScale)))
                 {
                     checkPen.StartCap = LineCap.Round;
                     checkPen.EndCap = LineCap.Round;
                     PointF[] checkPoints = new PointF[]
                     {
-                        new PointF(boxRect.Left + 3.5f, boxRect.Top + 8.5f),
-                        new PointF(boxRect.Left + 6.5f, boxRect.Top + 11.5f),
-                        new PointF(boxRect.Left + 12.5f, boxRect.Top + 4.5f)
+                        new PointF(boxRect.Left + 3.5f * bScale, boxRect.Top + 8.5f * bScale),
+                        new PointF(boxRect.Left + 6.5f * bScale, boxRect.Top + 11.5f * bScale),
+                        new PointF(boxRect.Left + 12.5f * bScale, boxRect.Top + 4.5f * bScale)
                     };
                     g.DrawLines(checkPen, checkPoints);
                 }
             }
 
-            int textX = boxRect.Right + 8;
-            Rectangle textRect = new Rectangle(textX, 0, Width - textX, Height);
+            int textX = boxRect.Right + Math.Max(3, (int)Math.Round(5 * ratio));
+            Rectangle textRect = new Rectangle(textX, 0, Math.Max(4, Width - textX), Height);
             TextRenderer.DrawText(g, Text, Font, textRect, textCol,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
         }
     }
 }

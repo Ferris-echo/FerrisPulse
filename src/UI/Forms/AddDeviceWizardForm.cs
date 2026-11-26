@@ -2,7 +2,9 @@
 // 模块名称: AddDeviceWizardForm.cs
 // 所属区域: UI/Forms (业务对话框层)
 // 核心职责:
-//   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
+//   新外设即插即用添加向导窗口，包含全系统 HID 原始设备嗅探探测、未适配大厂外设兜底展示、
+//   一键硬件诊断快照导出、实时读写报文连通性校验、自定义设备别名与品类归类（DPI 自适应）。
+//   扫描与后台轮询共享端点归属锁；脚本先查询一次，再由内置扫描跳过已接管端点。
 // 依赖关系: Controls.*, Hardware.DeviceManager, Core.ConfigManager, Models.CustomDeviceConfig
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -31,6 +33,7 @@ namespace RazerBatteryTray
         private ModernDarkDropdown cmbCategory;
         private Label lblTestStatus;
         private ModernButton btnScan;
+        private ModernButton btnDiagnostic;
         private ModernButton btnSave;
         private ModernButton btnCancel;
         private ModernButton btnCopyPrompt;
@@ -120,21 +123,39 @@ namespace RazerBatteryTray
 
             int pad = (int)(16 * dpiScale);
 
-            // Header Radar Badge
-            radarBadge = new WizardRadarBadge();
-            radarBadge.DpiScale = dpiScale;
-            radarBadge.Size = new Size((int)(24 * dpiScale), (int)(24 * dpiScale));
-            radarBadge.Location = new Point(pad, (int)(13 * dpiScale));
-            this.Controls.Add(radarBadge);
-
-            // Row 1: Title on left, Scan button on right
+            // Row 1 (promoted to Integrated Hero Header by AttachModernChrome):
             var lblTitle = new Label();
             lblTitle.Text = "添加与配置外设向导";
-            lblTitle.Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold);
+            lblTitle.Font = new Font("Microsoft YaHei UI", 11.2F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(240, 245, 255);
-            lblTitle.Location = new Point(pad + (int)(28 * dpiScale), (int)(15 * dpiScale));
+            lblTitle.Location = new Point(pad, (int)(12 * dpiScale));
             lblTitle.AutoSize = true;
             this.Controls.Add(lblTitle);
+            this.Tag = lblTitle;
+
+            // Row 2 (becomes y = 54 after +42 shift): Full-width clear subtitle (zero truncation)
+            var lblSub = new Label();
+            lblSub.Text = "主流外设即插即用（无需手动添加），用于冷门适配或修改别名：";
+            lblSub.Font = new Font("Microsoft YaHei UI", 8.5F);
+            lblSub.ForeColor = Color.FromArgb(145, 155, 175);
+            lblSub.Location = new Point(pad, (int)(12 * dpiScale));
+            lblSub.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(20 * dpiScale));
+            this.Controls.Add(lblSub);
+
+            // Row 3 (becomes y = 76..104 after +42 shift): Radar Badge + Section Title on left, Scan button on right
+            radarBadge = new WizardRadarBadge();
+            radarBadge.DpiScale = dpiScale;
+            radarBadge.Size = new Size((int)(22 * dpiScale), (int)(22 * dpiScale));
+            radarBadge.Location = new Point(pad, (int)(37 * dpiScale));
+            this.Controls.Add(radarBadge);
+
+            var lblScanSection = new Label();
+            lblScanSection.Text = "周边外设扫描列表";
+            lblScanSection.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblScanSection.ForeColor = Color.FromArgb(156, 168, 192);
+            lblScanSection.Location = new Point(pad + (int)(26 * dpiScale), (int)(40 * dpiScale));
+            lblScanSection.AutoSize = true;
+            this.Controls.Add(lblScanSection);
 
             btnScan = new ModernButton();
             btnScan.Text = "🔄 重新扫描";
@@ -145,19 +166,10 @@ namespace RazerBatteryTray
             btnScan.BorderColor = Color.FromArgb(60, 68, 88);
             btnScan.TextColor = Color.FromArgb(220, 230, 250);
             int scanW = (int)(100 * dpiScale);
-            btnScan.Location = new Point(this.ClientSize.Width - pad - scanW, (int)(12 * dpiScale));
+            btnScan.Location = new Point(this.ClientSize.Width - pad - scanW, (int)(34 * dpiScale));
             btnScan.Size = new Size(scanW, (int)(28 * dpiScale));
             btnScan.Click += (s, e) => PerformScanAsync();
             this.Controls.Add(btnScan);
-
-            // Row 2: Subtitle
-            var lblSub = new Label();
-            lblSub.Text = "自动扫描当前在线外设，支持修改昵称与设备分类：";
-            lblSub.Font = new Font("Microsoft YaHei UI", 8.5F);
-            lblSub.ForeColor = Color.FromArgb(145, 155, 175);
-            lblSub.Location = new Point(pad, (int)(46 * dpiScale));
-            lblSub.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(20 * dpiScale));
-            this.Controls.Add(lblSub);
 
             // Scanning Laser Beam Animation Bar
             beamControl = new ScanningBeamControl();
@@ -174,7 +186,7 @@ namespace RazerBatteryTray
             lstDevices.Font = new Font("Microsoft YaHei UI", 9.2F);
             lstDevices.DrawMode = DrawMode.OwnerDrawFixed;
             lstDevices.ItemHeight = (int)(52 * dpiScale);
-            lstDevices.Location = new Point(pad, (int)(72 * dpiScale));
+            lstDevices.Location = new Point(pad, (int)(73 * dpiScale));
             lstDevices.Size = new Size(this.ClientSize.Width - (pad * 2), (int)(212 * dpiScale));
             lstDevices.DrawItem += LstDevices_DrawItem;
             lstDevices.SelectedIndexChanged += (s, e) => OnDeviceSelected();
@@ -184,7 +196,7 @@ namespace RazerBatteryTray
             this.Controls.Add(lstDevices);
 
             // Row 4: Custom Nickname (整体下移，为上方列表腾出展示 4 个设备的完整空间)
-            int formY = (int)(294 * dpiScale);
+            int formY = (int)(295 * dpiScale);
             var lblName = new Label();
             lblName.Text = "自定义昵称:";
             lblName.Font = new Font("Microsoft YaHei UI", 8.8F);
@@ -237,7 +249,7 @@ namespace RazerBatteryTray
             int cardW = this.ClientSize.Width - (pad * 2);
             int cardH = (int)(122 * dpiScale);
             Panel pnlAiAdapter = new Panel();
-            pnlAiAdapter.Location = new Point(pad, (int)(412 * dpiScale));
+            pnlAiAdapter.Location = new Point(pad, (int)(413 * dpiScale));
             pnlAiAdapter.Size = new Size(cardW, cardH);
             pnlAiAdapter.BackColor = Color.FromArgb(22, 25, 34);
             pnlAiAdapter.Paint += (s, e) =>
@@ -300,24 +312,30 @@ namespace RazerBatteryTray
                     int selIdx = lstDevices.SelectedIndex;
                     CustomDeviceConfig selItem = (selIdx >= 0 && selIdx < scannedList.Count) ? scannedList[selIdx] : null;
                     string userTxt = txtCustomName != null ? txtCustomName.Text : null;
-                    string defaultModel = !string.IsNullOrEmpty(userTxt) ? userTxt.Trim() : 
-                        (selItem != null ? (!string.IsNullOrEmpty(selItem.CustomName) ? selItem.CustomName : selItem.OriginalName) : "");
 
-                    using (PromptDialog dlg = new PromptDialog("确认外设商业型号", 
-                        "为了让外部 AI 能够精准逆向协议，请确认该外设的真实商业型号：\n（例如：迈从 A5 V2 Ultra、黑爵 AJ199 4K、狼蛛 F75）", 
-                        defaultModel, dpiScale))
+                    using (AiPromptExportDialog dlg = new AiPromptExportDialog(scannedList, selItem, userTxt, dpiScale))
                     {
                         if (dlg.ShowDialog(this) == DialogResult.OK)
                         {
-                            string confirmedName = dlg.InputText.Trim();
-                            if (!string.IsNullOrEmpty(confirmedName))
+                            if (selItem != null && dlg.DeviceItems != null)
                             {
-                                txtCustomName.Text = confirmedName;
-                                if (selItem != null) selItem.CustomName = confirmedName;
+                                for (int i = 0; i < dlg.DeviceItems.Count; i++)
+                                {
+                                    AiPromptDeviceItem it = dlg.DeviceItems[i];
+                                    if (it != null && it.ScannedConfig == selItem)
+                                    {
+                                        if (!string.IsNullOrEmpty(it.CustomName))
+                                        {
+                                            txtCustomName.Text = it.CustomName;
+                                            selItem.CustomName = it.CustomName;
+                                        }
+                                        selItem.Category = it.Category;
+                                        break;
+                                    }
+                                }
                             }
-                            string prompt = (selItem != null) ? GetAiAdaptationPrompt(selItem, confirmedName) : GetAiAdaptationPrompt();
-                            Clipboard.SetText(prompt);
-                            btnCopyPrompt.Text = (selItem != null) ? "✓ 已复制含设备指纹的提示词！" : "✓ 提示词已复制！";
+
+                            btnCopyPrompt.Text = "✓ 已复制外设适配提示词！";
                             btnCopyPrompt.NormalColor = Color.FromArgb(0, 160, 80);
                             btnCopyPrompt.HoverColor = Color.FromArgb(0, 180, 90);
                             btnCopyPrompt.BorderColor = Color.FromArgb(0, 200, 100);
@@ -389,8 +407,28 @@ namespace RazerBatteryTray
             // Row 8: Buttons
             int btnH = (int)(36 * dpiScale);
             int btnY = (int)(548 * dpiScale);
+            int diagW = (int)(118 * dpiScale);
             int cancelW = (int)(110 * dpiScale);
             int saveW = (int)(150 * dpiScale);
+
+            btnDiagnostic = new ModernButton();
+            btnDiagnostic.Text = "🩺 诊断快照";
+            btnDiagnostic.Font = new Font("Microsoft YaHei UI", 8.8F);
+            btnDiagnostic.NormalColor = Color.FromArgb(28, 36, 52);
+            btnDiagnostic.HoverColor = Color.FromArgb(40, 52, 74);
+            btnDiagnostic.PressedColor = Color.FromArgb(20, 26, 38);
+            btnDiagnostic.BorderColor = Color.FromArgb(58, 76, 108);
+            btnDiagnostic.TextColor = Color.FromArgb(145, 200, 255);
+            btnDiagnostic.Location = new Point(pad, btnY);
+            btnDiagnostic.Size = new Size(diagW, btnH);
+            btnDiagnostic.Click += (s, e) =>
+            {
+                using (DiagnosticReportDialog dlg = new DiagnosticReportDialog(null, dpiScale))
+                {
+                    dlg.ShowDialog(this);
+                }
+            };
+            this.Controls.Add(btnDiagnostic);
 
             btnCancel = new ModernButton();
             btnCancel.Text = "取消";
@@ -418,6 +456,11 @@ namespace RazerBatteryTray
             btnSave.Enabled = false;
             btnSave.Click += (s, e) => SaveSelectedDevice();
             this.Controls.Add(btnSave);
+
+            this.ClientSize = new Size((int)(430 * dpiScale), (int)(600 * dpiScale));
+            Control redundantTitle = this.Tag as Control;
+            this.Tag = null;
+            AttachModernChrome("添加与配置外设向导", redundantTitle, 42, true, true);
 
             PerformScanAsync();
         }
@@ -489,29 +532,51 @@ namespace RazerBatteryTray
             // Text info
             int textX = iconX + iconBoxSize + (int)(10 * dpiScale);
             string dispName = !string.IsNullOrEmpty(item.CustomName) ? item.CustomName : item.OriginalName;
-            using (var nameFont = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold))
+            using (var nameFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.2F, FontStyle.Bold, dpiScale))
             using (var nameBrush = new SolidBrush(Color.FromArgb(242, 246, 255)))
             {
                 g.DrawString(dispName, nameFont, nameBrush, textX, cardRect.Y + (int)(7 * dpiScale));
             }
 
             string sub = item.Transport ?? "2.4G/USB";
-            using (var subFont = new Font("Microsoft YaHei UI", 8F))
+            using (var subFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Regular, dpiScale))
             using (var subBrush = new SolidBrush(Color.FromArgb(135, 145, 165)))
             {
                 g.DrawString(sub, subFont, subBrush, textX, cardRect.Y + (int)(27 * dpiScale));
             }
 
-            // Right tags: [已在设备库中] or [电量: X%]
+            // Right tags: [实时监控中] / [已隐藏] or [电量: X%]
             int rightX = cardRect.Right - (int)(10 * dpiScale);
             if (already)
             {
-                string tag = "已在设备库中";
-                using (var tagFont = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold))
+                string tag = "实时监控中";
+                using (var tagFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Bold, dpiScale))
                 {
-                    var tSz = TextRenderer.MeasureText(tag, tagFont);
-                    int tW = tSz.Width + (int)(10 * dpiScale);
-                    int tH = (int)(20 * dpiScale);
+                    var tSz = TextRenderer.MeasureText(tag, tagFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                    int tW = tSz.Width + (int)(12 * dpiScale);
+                    int tH = Math.Max((int)(20 * dpiScale), tSz.Height + (int)(4 * dpiScale));
+                    int tX = rightX - tW;
+                    int tY = cardRect.Y + (cardRect.Height - tH) / 2;
+                    Rectangle tagRect = new Rectangle(tX, tY, tW, tH);
+
+                    using (var tp = RoundedCard.GetRoundedRectangle(tagRect, (int)(4 * dpiScale)))
+                    {
+                        using (var tb = new SolidBrush(Color.FromArgb(40, 0, 230, 118))) g.FillPath(tb, tp);
+                        using (var tpen = new Pen(Color.FromArgb(160, 0, 230, 118), 1f)) g.DrawPath(tpen, tp);
+                    }
+                    TextRenderer.DrawText(g, tag, tagFont, tagRect, Color.FromArgb(0, 230, 118),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                    rightX = tX - (int)(8 * dpiScale);
+                }
+            }
+            else if (isHidden)
+            {
+                string tag = "已隐藏";
+                using (var tagFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Bold, dpiScale))
+                {
+                    var tSz = TextRenderer.MeasureText(tag, tagFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                    int tW = tSz.Width + (int)(12 * dpiScale);
+                    int tH = Math.Max((int)(20 * dpiScale), tSz.Height + (int)(4 * dpiScale));
                     int tX = rightX - tW;
                     int tY = cardRect.Y + (cardRect.Height - tH) / 2;
                     Rectangle tagRect = new Rectangle(tX, tY, tW, tH);
@@ -521,10 +586,8 @@ namespace RazerBatteryTray
                         using (var tb = new SolidBrush(Color.FromArgb(40, 255, 183, 77))) g.FillPath(tb, tp);
                         using (var tpen = new Pen(Color.FromArgb(180, 255, 183, 77), 1f)) g.DrawPath(tpen, tp);
                     }
-                    using (var tfb = new SolidBrush(Color.FromArgb(255, 195, 100)))
-                    {
-                        g.DrawString(tag, tagFont, tfb, tX + (int)(5 * dpiScale), tY + (int)(2 * dpiScale));
-                    }
+                    TextRenderer.DrawText(g, tag, tagFont, tagRect, Color.FromArgb(255, 195, 100),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                     rightX = tX - (int)(8 * dpiScale);
                 }
             }
@@ -532,11 +595,11 @@ namespace RazerBatteryTray
             if (item.CachedBattery > 0)
             {
                 string bStr = item.CachedBattery + "%";
-                using (var bFont = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold))
+                using (var bFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.5F, FontStyle.Bold, dpiScale))
                 {
-                    var bSz = TextRenderer.MeasureText(bStr, bFont);
-                    int bW = bSz.Width + (int)(10 * dpiScale);
-                    int bH = (int)(20 * dpiScale);
+                    var bSz = TextRenderer.MeasureText(bStr, bFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                    int bW = bSz.Width + (int)(12 * dpiScale);
+                    int bH = Math.Max((int)(20 * dpiScale), bSz.Height + (int)(4 * dpiScale));
                     int bX = rightX - bW;
                     int bY = cardRect.Y + (cardRect.Height - bH) / 2;
                     Rectangle bRect = new Rectangle(bX, bY, bW, bH);
@@ -546,12 +609,91 @@ namespace RazerBatteryTray
                         using (var bb = new SolidBrush(Color.FromArgb(30, 0, 230, 118))) g.FillPath(bb, bp);
                         using (var bpen = new Pen(Color.FromArgb(80, 0, 230, 118), 1f)) g.DrawPath(bpen, bp);
                     }
-                    using (var bfb = new SolidBrush(Color.FromArgb(0, 230, 118)))
+                    TextRenderer.DrawText(g, bStr, bFont, bRect, Color.FromArgb(0, 230, 118),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                }
+            }
+        }
+
+        private static CustomDeviceConfig FindMatchingCustomConfig(List<CustomDeviceConfig> existingConfigs, string devId)
+        {
+            if (existingConfigs == null || string.IsNullOrEmpty(devId)) return null;
+            for (int i = 0; i < existingConfigs.Count; i++)
+            {
+                var c = existingConfigs[i];
+                if (c == null) continue;
+                if (string.Equals(c.DeviceId, devId, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(c.HardwareFingerprint) && string.Equals(c.HardwareFingerprint, devId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return c;
+                }
+            }
+            List<string> vars = DeviceManager.GetDeviceIdVariants(devId);
+            for (int vi = 0; vi < vars.Count; vi++)
+            {
+                string v = vars[vi];
+                for (int i = 0; i < existingConfigs.Count; i++)
+                {
+                    var c = existingConfigs[i];
+                    if (c == null) continue;
+                    if (string.Equals(c.DeviceId, v, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(c.HardwareFingerprint) && string.Equals(c.HardwareFingerprint, v, StringComparison.OrdinalIgnoreCase)))
                     {
-                        g.DrawString(bStr, bFont, bfb, bX + (int)(5 * dpiScale), bY + (int)(2 * dpiScale));
+                        return c;
                     }
                 }
             }
+            return null;
+        }
+
+        private static void CollectIdentityKeys(HashSet<string> keys, string idOrFingerprint)
+        {
+            if (keys == null || string.IsNullOrEmpty(idOrFingerprint)) return;
+            keys.Add(idOrFingerprint);
+            List<string> vars = DeviceManager.GetDeviceIdVariants(idOrFingerprint);
+            for (int i = 0; i < vars.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(vars[i])) keys.Add(vars[i]);
+            }
+        }
+
+        public static bool IsSameScannedDevice(CustomDeviceConfig a, CustomDeviceConfig b)
+        {
+            if (a == null || b == null) return false;
+            HashSet<string> keysA = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectIdentityKeys(keysA, a.DeviceId);
+            CollectIdentityKeys(keysA, a.HardwareFingerprint);
+            if (keysA.Count == 0) return false;
+
+            HashSet<string> keysB = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectIdentityKeys(keysB, b.DeviceId);
+            CollectIdentityKeys(keysB, b.HardwareFingerprint);
+            foreach (string k in keysB)
+            {
+                if (keysA.Contains(k)) return true;
+            }
+            return false;
+        }
+
+        public static void MergeScannedConfig(List<CustomDeviceConfig> list, CustomDeviceConfig candidate, bool preferCandidate)
+        {
+            if (list == null || candidate == null) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (IsSameScannedDevice(list[i], candidate))
+                {
+                    if (preferCandidate)
+                    {
+                        if (string.IsNullOrEmpty(candidate.CustomName) && !string.IsNullOrEmpty(list[i].CustomName))
+                        {
+                            candidate.CustomName = list[i].CustomName;
+                        }
+                        list[i] = candidate;
+                    }
+                    return;
+                }
+            }
+            list.Add(candidate);
         }
 
         private void PerformScanAsync()
@@ -566,25 +708,41 @@ namespace RazerBatteryTray
             lblTestStatus.Text = "正在检索在线 2.4G 接收器、HID 外设与蓝牙设备...";
 
             ThreadPool.QueueUserWorkItem((state) => {
+                lock (HardwareDriverRegistry.ScanSyncRoot)
+                {
+                CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
+                var scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
                 var tempConfigs = new List<CustomDeviceConfig>();
                 var existingConfigs = DeviceManager.LoadCustomDevices();
 
                 Func<string, string, string, string> resolveCustomName = delegate(string devId, string fallbackDisp, string origName) {
-                    if (existingConfigs != null)
-                    {
-                        var match = existingConfigs.Find(c => c.DeviceId == devId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == devId));
-                        if (match != null && !string.IsNullOrEmpty(match.CustomName))
-                            return match.CustomName;
-                    }
+                    var match = FindMatchingCustomConfig(existingConfigs, devId);
+                    if (match != null && !string.IsNullOrEmpty(match.CustomName))
+                        return match.CustomName;
                     return !string.IsNullOrEmpty(fallbackDisp) ? fallbackDisp : origName;
                 };
 
                 Func<string, DeviceCategory, DeviceCategory> resolveCategory = delegate(string devId, DeviceCategory defCat) {
-                    if (existingConfigs != null)
+                    // 硬件事实优先：VID/PID 能唯一确定品类时，绝不让注册表里的
+                    // 历史错值把它盖掉。复合外设（如 3837:1018 同时暴露键盘与
+                    // 鼠标接口）一旦被记成 Keyboard 并固化，鼠标驱动会拒绝接管，
+                    // DPI/回报率控件整块消失，用户无法自行恢复。
+                    DeviceCategory truthCat;
+                    if (MchoseDeviceHelper.TryGetAuthoritativeCategory(devId, devId, out truthCat) &&
+                        truthCat != DeviceCategory.Generic)
                     {
-                        var match = existingConfigs.Find(c => c.DeviceId == devId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == devId));
-                        if (match != null)
-                            return match.Category;
+                        return truthCat;
+                    }
+                    var match = FindMatchingCustomConfig(existingConfigs, devId);
+                    if (match != null)
+                    {
+                        DeviceCategory matchTruthCat;
+                        if (MchoseDeviceHelper.TryGetAuthoritativeCategory(match.DeviceId, match.HardwareFingerprint, out matchTruthCat) &&
+                            matchTruthCat != DeviceCategory.Generic)
+                        {
+                            return matchTruthCat;
+                        }
+                        return match.Category;
                     }
                     return defCat;
                 };
@@ -600,20 +758,17 @@ namespace RazerBatteryTray
                             if (rz != null && (rz.IsConnected || rz.IsDonglePresent))
                             {
                                 string normId = RazerDeviceHelper.NormalizeRazerDeviceId(rz.DeviceId);
-                                if (!tempConfigs.Exists(c => c.DeviceId == normId))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = normId,
-                                        OriginalName = rz.DeviceName,
-                                        CustomName = resolveCustomName(normId, rz.DisplayName, rz.DeviceName),
-                                        Category = resolveCategory(normId, rz.Category),
-                                        Transport = "2.4G 无线",
-                                        CachedBattery = rz.BatteryPercent,
-                                        HardwareFingerprint = rz.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = normId,
+                                    OriginalName = rz.DeviceName,
+                                    CustomName = resolveCustomName(normId, rz.DisplayName, rz.DeviceName),
+                                    Category = resolveCategory(normId, rz.Category),
+                                    Transport = "2.4G 无线",
+                                    CachedBattery = rz.BatteryPercent,
+                                    HardwareFingerprint = rz.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -636,7 +791,28 @@ namespace RazerBatteryTray
                             CachedBattery = rp.BatteryPercent,
                             HardwareFingerprint = rp.DeviceId
                         };
-                        tempConfigs.Add(cfg);
+                        MergeScannedConfig(tempConfigs, cfg, false);
+                    }
+                }
+                catch { }
+
+                // 2.1 Scan Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
+                try
+                {
+                    var rpOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                    if (rpOffice != null && (rpOffice.IsConnected || rpOffice.IsDonglePresent))
+                    {
+                        var cfg = new CustomDeviceConfig
+                        {
+                            DeviceId = rpOffice.DeviceId,
+                            OriginalName = rpOffice.DeviceName,
+                            CustomName = resolveCustomName(rpOffice.DeviceId, rpOffice.DisplayName, rpOffice.DeviceName),
+                            Category = resolveCategory(rpOffice.DeviceId, DeviceCategory.Mouse),
+                            Transport = "2.4G 无线",
+                            CachedBattery = rpOffice.BatteryPercent,
+                            HardwareFingerprint = rpOffice.HardwareFingerprint
+                        };
+                        MergeScannedConfig(tempConfigs, cfg, false);
                     }
                 }
                 catch { }
@@ -657,14 +833,90 @@ namespace RazerBatteryTray
                             CachedBattery = vgn.BatteryPercent,
                             HardwareFingerprint = vgn.DeviceId
                         };
-                        tempConfigs.Add(cfg);
+                        MergeScannedConfig(tempConfigs, cfg, false);
                     }
                 }
                 catch { }
 
-                // 2.55 Scan Logitech Devices (Lightspeed / Unifying / Nano / Wired)
+                // 2.52 Scan MCHOSE Keyboards (G87 V2 / G75 PRO 2.4G)
                 try
                 {
+                    var mchoseList = MchoseDeviceHelper.QueryAllMchoseDevices();
+                    if (mchoseList != null)
+                    {
+                        foreach (var dev in mchoseList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                var cfg = new CustomDeviceConfig
+                                {
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, DeviceCategory.Keyboard),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 2.53 Scan Acer OMR Series Mice (2.4G / USB)
+                try
+                {
+                    var acerList = AcerDeviceHelper.QueryAllAcerDevices();
+                    if (acerList != null)
+                    {
+                        foreach (var dev in acerList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                var cfg = new CustomDeviceConfig
+                                {
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, DeviceCategory.Mouse),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 2.55 Scan Logitech Devices (MR0097 first so exclusive endpoints are skipped, then Lightspeed / Unifying / Nano / Wired)
+                List<MouseBatteryInfo> mr0097List = null;
+                try
+                {
+                    mr0097List = LogitechMr0097Helper.QueryDevices();
+                    if (mr0097List != null)
+                    {
+                        foreach (var dev in mr0097List)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                var cfg = new CustomDeviceConfig
+                                {
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "Lightspeed 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
+                            }
+                        }
+                    }
                     var logiList = LogitechDeviceHelper.QueryAllLogitechDevices();
                     if (logiList != null)
                     {
@@ -672,27 +924,22 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "Lightspeed 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "Lightspeed 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
                 }
                 catch { }
-
-
 
                 // 2.56 Scan Valkyrie Devices (2.4G / USB)
                 try
@@ -704,20 +951,17 @@ namespace RazerBatteryTray
                         {
                             if (vk != null && (vk.IsConnected || vk.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == vk.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == vk.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = vk.DeviceId,
-                                        OriginalName = vk.DeviceName,
-                                        CustomName = resolveCustomName(vk.DeviceId, vk.DisplayName, vk.DeviceName),
-                                        Category = resolveCategory(vk.DeviceId, vk.Category),
-                                        Transport = vk.Transport ?? "2.4G 无线",
-                                        CachedBattery = vk.BatteryPercent,
-                                        HardwareFingerprint = vk.HardwareFingerprint ?? vk.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = vk.DeviceId,
+                                    OriginalName = vk.DeviceName,
+                                    CustomName = resolveCustomName(vk.DeviceId, vk.DisplayName, vk.DeviceName),
+                                    Category = resolveCategory(vk.DeviceId, vk.Category),
+                                    Transport = vk.Transport ?? "2.4G 无线",
+                                    CachedBattery = vk.BatteryPercent,
+                                    HardwareFingerprint = vk.HardwareFingerprint ?? vk.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -734,20 +978,17 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
                                 {
-                                    var cfg = new CustomDeviceConfig
-                                    {
-                                        DeviceId = dev.DeviceId,
-                                        OriginalName = dev.DeviceName,
-                                        CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
-                                        Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "2.4G 无线",
-                                        CachedBattery = dev.BatteryPercent,
-                                        HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
-                                    };
-                                    tempConfigs.Add(cfg);
-                                }
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "2.4G 无线",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
                             }
                         }
                     }
@@ -764,7 +1005,66 @@ namespace RazerBatteryTray
                         {
                             if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                             {
-                                if (!tempConfigs.Exists(c => c.DeviceId == dev.DeviceId || (!string.IsNullOrEmpty(c.HardwareFingerprint) && c.HardwareFingerprint == dev.HardwareFingerprint)))
+                                var cfg = new CustomDeviceConfig
+                                {
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "蓝牙",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, false);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 2.59 Scan Registered External & Built-in Drivers (FDAS v2.0 + C# Script + Built-in Plugins, priority override)
+                try
+                {
+                    var fdasList = FdasRuntimeHelper.QueryAllFdasDevices();
+                    if (fdasList != null)
+                    {
+                        foreach (var dev in fdasList)
+                        {
+                            if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                            {
+                                var cfg = new CustomDeviceConfig
+                                {
+                                    DeviceId = dev.DeviceId,
+                                    OriginalName = dev.DeviceName,
+                                    CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
+                                    Category = resolveCategory(dev.DeviceId, dev.Category),
+                                    Transport = dev.Transport ?? "2.4G/USB",
+                                    CachedBattery = dev.BatteryPercent,
+                                    HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
+                                };
+                                MergeScannedConfig(tempConfigs, cfg, true);
+                            }
+                        }
+                    }
+
+                    var drivers = HardwareDriverRegistry.GetAllDriversOrdered();
+                    if (drivers != null)
+                    {
+                        for (int di = 0; di < drivers.Count; di++)
+                        {
+                            var drv = drivers[di];
+                            if (drv == null) continue;
+                            var dList = drv.IsExternalPackage && drv.Priority >= 300 && !drv.DriverId.StartsWith("FDAS:", StringComparison.OrdinalIgnoreCase)
+                                ? scriptDevices.FindAll(d => string.Equals(d.DriverId, drv.DriverId, StringComparison.OrdinalIgnoreCase))
+                                : (string.Equals(drv.DriverId, LogitechMr0097Helper.DriverKey, StringComparison.OrdinalIgnoreCase) && mr0097List != null
+                                    ? mr0097List
+                                    : drv.QueryDevices());
+                            if (dList == null) continue;
+                            bool preferDrv = drv.IsExternalPackage && drv.Priority >= 200;
+                            for (int k = 0; k < dList.Count; k++)
+                            {
+                                var dev = dList[k];
+                                if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                                 {
                                     var cfg = new CustomDeviceConfig
                                     {
@@ -772,11 +1072,11 @@ namespace RazerBatteryTray
                                         OriginalName = dev.DeviceName,
                                         CustomName = resolveCustomName(dev.DeviceId, dev.DisplayName, dev.DeviceName),
                                         Category = resolveCategory(dev.DeviceId, dev.Category),
-                                        Transport = dev.Transport ?? "蓝牙",
+                                        Transport = dev.Transport ?? "2.4G/USB",
                                         CachedBattery = dev.BatteryPercent,
                                         HardwareFingerprint = dev.HardwareFingerprint ?? dev.DeviceId
                                     };
-                                    tempConfigs.Add(cfg);
+                                    MergeScannedConfig(tempConfigs, cfg, preferDrv);
                                 }
                             }
                         }
@@ -784,21 +1084,57 @@ namespace RazerBatteryTray
                 }
                 catch { }
 
-                // 2.6 Scan Generic HID Mice & Peripherals (2.4G / USB)
+                // 2.6 构建本轮已被专属驱动接管的精确标识集，避免通用 HID 扫描与专属设备重复，同时放行同厂未适配型号
                 try
                 {
-                    var genMice = GenericHidHelper.ScanGenericHidMice(existingIds);
+                    HashSet<string> alreadyDetectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string exId in existingIds)
+                    {
+                        if (string.IsNullOrEmpty(exId)) continue;
+                        alreadyDetectedKeys.Add(exId);
+                        HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, exId);
+                        var exVars = DeviceManager.GetDeviceIdVariants(exId);
+                        for (int vi = 0; vi < exVars.Count; vi++) alreadyDetectedKeys.Add(exVars[vi]);
+                    }
+                    for (int ti = 0; ti < tempConfigs.Count; ti++)
+                    {
+                        CustomDeviceConfig tc = tempConfigs[ti];
+                        if (tc == null) continue;
+                        if (!string.IsNullOrEmpty(tc.DeviceId))
+                        {
+                            alreadyDetectedKeys.Add(tc.DeviceId);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, tc.DeviceId);
+                            var tVars = DeviceManager.GetDeviceIdVariants(tc.DeviceId);
+                            for (int vi = 0; vi < tVars.Count; vi++) alreadyDetectedKeys.Add(tVars[vi]);
+                        }
+                        if (!string.IsNullOrEmpty(tc.HardwareFingerprint))
+                        {
+                            alreadyDetectedKeys.Add(tc.HardwareFingerprint);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, tc.HardwareFingerprint);
+                            var fVars = DeviceManager.GetDeviceIdVariants(tc.HardwareFingerprint);
+                            for (int vi = 0; vi < fVars.Count; vi++) alreadyDetectedKeys.Add(fVars[vi]);
+                        }
+                    }
+
+                    var genMice = GenericHidHelper.ScanGenericHidMice(alreadyDetectedKeys);
                     foreach (var gm in genMice)
                     {
                         if (gm != null)
                         {
-                            string gmKey = gm.DeviceId != null && gm.DeviceId.StartsWith("HID:") ? gm.DeviceId.Substring(4) : gm.DeviceId;
-                            bool dup = tempConfigs.Exists(c => (c.DeviceId != null && c.DeviceId.IndexOf(gmKey, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                                                               (c.HardwareFingerprint != null && c.HardwareFingerprint.IndexOf(gmKey, StringComparison.OrdinalIgnoreCase) >= 0));
-                            if (!dup)
-                            {
-                                tempConfigs.Add(gm);
-                            }
+                            MergeScannedConfig(tempConfigs, gm, false);
+                            alreadyDetectedKeys.Add(gm.DeviceId);
+                            HardwareDiagnosticService.AddVidPidKeysToSet(alreadyDetectedKeys, gm.DeviceId);
+                        }
+                    }
+
+                    // 2.6b 暴露未命中任何专属驱动的大厂 HID 外设（如老款 1532:0528 黑鲨等），方便定位或导出诊断
+                    var unmatchedMajor = GenericHidHelper.ScanUnmatchedMajorBrandHidDevices(alreadyDetectedKeys);
+                    for (int ui = 0; ui < unmatchedMajor.Count; ui++)
+                    {
+                        CustomDeviceConfig um = unmatchedMajor[ui];
+                        if (um != null)
+                        {
+                            MergeScannedConfig(tempConfigs, um, false);
                         }
                     }
                 }
@@ -813,7 +1149,7 @@ namespace RazerBatteryTray
                         b.Transport = "蓝牙";
                         b.CustomName = resolveCustomName(b.DeviceId, b.CustomName, b.OriginalName);
                         b.Category = resolveCategory(b.DeviceId, b.Category);
-                        tempConfigs.Add(b);
+                        MergeScannedConfig(tempConfigs, b, false);
                     }
                 }
                 catch { }
@@ -860,6 +1196,7 @@ namespace RazerBatteryTray
                     }));
                 }
                 catch { }
+                }
             });
         }
 
@@ -901,17 +1238,26 @@ namespace RazerBatteryTray
                 if (already)
                 {
                     lblTestStatus.ForeColor = Color.FromArgb(0, 230, 118);
-                    lblTestStatus.Text = "● 该设备已在设备库中，您可以直接修改自定义昵称或分类并保存更新。";
-                    btnSave.Text = "💾 保存修改";
+                    lblTestStatus.Text = "● 该设备已由驱动原生支持并实时监控中（即插即用，无需手动添加）。\n若需个性化展示，可在此修改自定义别名或设备分类。";
+                    btnSave.Text = "💾 保存个性化设置";
                     btnSave.NormalColor = Color.FromArgb(0, 180, 90);
                     btnSave.HoverColor = Color.FromArgb(0, 210, 110);
+                    btnSave.Enabled = true;
+                }
+                else if (isHidden)
+                {
+                    lblTestStatus.ForeColor = Color.FromArgb(255, 195, 100);
+                    lblTestStatus.Text = "● 该设备此前已被从监控列表中移除（处于隐藏黑名单）。\n点击下方按钮可解除隐藏并恢复实时监控。";
+                    btnSave.Text = "➕ 恢复监控";
+                    btnSave.NormalColor = Color.FromArgb(0, 200, 83);
+                    btnSave.HoverColor = Color.FromArgb(0, 230, 118);
                     btnSave.Enabled = true;
                 }
                 else
                 {
                     lblTestStatus.ForeColor = Color.FromArgb(0, 230, 118);
                     string battStr = item.CachedBattery > 0 ? string.Format("实时电量: {0}%", item.CachedBattery) : "供电: USB/免驱";
-                    lblTestStatus.Text = string.Format("● 设备在线就绪！{0}\n连接通道: {1} | 标识: {2}", 
+                    lblTestStatus.Text = string.Format("● 新设备在线就绪！{0}\n连接通道: {1} | 标识: {2}", 
                         battStr, item.Transport ?? "2.4G/USB", item.HardwareFingerprint ?? item.DeviceId);
                     btnSave.Text = "➕ 加入监控";
                     btnSave.NormalColor = Color.FromArgb(0, 200, 83);
@@ -975,7 +1321,7 @@ namespace RazerBatteryTray
             }
         }
 
-        private static bool TryExtractVidPid(string identifier, out int vid, out int pid)
+        public static bool TryExtractVidPid(string identifier, out int vid, out int pid)
         {
             vid = 0;
             pid = 0;
@@ -1031,6 +1377,12 @@ namespace RazerBatteryTray
                 case 0x0C45: return "松翰 / 黑爵 (AJAZZ)";
                 case 0x258A: return "赛诺伟思 / 达摩鲨 (Darmoshark) / 多彩 (Delux)";
                 case 0x24AE: return "雷柏 (Rapoo)";
+                case 0x25A7:
+                {
+                    string ironcatCombined = ((prodStr ?? "") + " " + (mfgStr ?? "")).ToLowerInvariant();
+                    if (ironcatCombined.Contains("ironcat")) return "因科特 (Ironcat)";
+                    return "Attack Shark / 康普讯公版 (Compx OEM)";
+                }
                 case 0x3554:
                     if (!string.IsNullOrEmpty(prodStr) || !string.IsNullOrEmpty(mfgStr))
                     {
@@ -1053,6 +1405,7 @@ namespace RazerBatteryTray
                             return "盈石 (WLMOUSE / 康普讯 Compx 方案)";
                     }
                     return "康普讯公版方案 (Compx OEM - 广泛代工国产 2.4G/8K 电竞外设)";
+                case 0x2D99: return "漫步者 (Edifier)";
                 case 0x054C: return "索尼 (Sony)";
                 case 0x1038: return "赛睿 (SteelSeries)";
                 case 0x1B1C: return "美商海盗船 (Corsair)";
@@ -1118,6 +1471,50 @@ namespace RazerBatteryTray
             return sb.ToString().TrimEnd();
         }
 
+        private static string GetDeviceTracesForVidPid(int vid, int pid)
+        {
+            if (vid == 0 && pid == 0)
+            {
+                return "    - （无有效 VID:PID，暂无匹配的驱动探测轨迹）";
+            }
+
+            List<string> allTraces = HardwareDiagnosticService.GetRecentDriverTraces();
+            if (allTraces == null || allTraces.Count == 0)
+            {
+                return "    - （当前会话暂无与该 VID:PID 匹配的驱动探测轨迹）";
+            }
+
+            string vpKey = string.Format("{0:X4}:{1:X4}", vid, pid);
+            string vpBracket = "[" + vpKey + "]";
+            List<string> matched = new List<string>();
+            for (int i = 0; i < allTraces.Count; i++)
+            {
+                string line = allTraces[i];
+                if (string.IsNullOrEmpty(line)) continue;
+                string upper = line.ToUpperInvariant();
+                if (upper.Contains(vpBracket) || upper.Contains(vpKey))
+                {
+                    if (!matched.Contains(line))
+                    {
+                        matched.Add(line);
+                    }
+                }
+            }
+
+            if (matched.Count == 0)
+            {
+                return "    - （当前会话暂无与 " + vpKey + " 匹配的驱动探测轨迹）";
+            }
+
+            int start = matched.Count > 12 ? matched.Count - 12 : 0;
+            StringBuilder traceSb = new StringBuilder();
+            for (int i = start; i < matched.Count; i++)
+            {
+                traceSb.AppendLine("    - " + matched[i]);
+            }
+            return traceSb.ToString().TrimEnd('\r', '\n');
+        }
+
         public static string GetAiAdaptationPrompt()
         {
             return GetAiAdaptationPrompt(null, null);
@@ -1125,120 +1522,245 @@ namespace RazerBatteryTray
 
         public static string GetAiAdaptationPrompt(CustomDeviceConfig item, string userTypedName)
         {
-            int vid = 0;
-            int pid = 0;
-            string romProd = "未知";
-            string romMfg = "未知";
-            string endpoints = (item != null) ? ProbeDeviceDetails(item, out vid, out pid, out romProd, out romMfg) : "  * （未在列表中指定特定设备）";
-            string brand = (vid != 0) ? LookupVendorBrand(vid, romProd, romMfg) : "待反查厂商";
-            
-            string userRefName = !string.IsNullOrEmpty(userTypedName) ? userTypedName.Trim() : 
-                ((item != null && !string.IsNullOrEmpty(item.CustomName)) ? item.CustomName : (item != null ? item.OriginalName : "未指定"));
-            if (string.IsNullOrEmpty(userRefName)) userRefName = "未知设备";
-
-            string catStr = "Mouse";
-            string catCn = "鼠标";
+            List<AiPromptDeviceItem> list = new List<AiPromptDeviceItem>();
             if (item != null)
             {
-                catCn = MouseBatteryInfo.GetCategoryDisplayName(item.Category);
-                switch (item.Category)
+                AiPromptDeviceItem it = new AiPromptDeviceItem(item);
+                if (!string.IsNullOrEmpty(userTypedName)) it.CustomName = userTypedName;
+                list.Add(it);
+            }
+            else if (!string.IsNullOrEmpty(userTypedName))
+            {
+                AiPromptDeviceItem it = new AiPromptDeviceItem();
+                it.CustomName = userTypedName;
+                it.IsManual = true;
+                list.Add(it);
+            }
+            return GetMultiDeviceAiAdaptationPrompt(list);
+        }
+
+        public static string GetMultiDeviceAiAdaptationPrompt(List<AiPromptDeviceItem> items)
+        {
+            if (items == null) items = new List<AiPromptDeviceItem>();
+            List<AiPromptDeviceItem> validItems = new List<AiPromptDeviceItem>();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i] != null && items[i].IsChecked) validItems.Add(items[i]);
+            }
+            if (validItems.Count == 0 && items.Count > 0)
+            {
+                validItems.AddRange(items);
+            }
+
+            int count = validItems.Count;
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」外设系统生成零幻觉硬件适配扩展包 (FDAS v2.0 / .fp-driver.cs)");
+            sb.AppendLine();
+            if (count > 1)
+            {
+                sb.AppendLine(string.Format("你好！我当前有 {0} 款外设暂未被「FerrisPulse (灵脉)」原生识别。请你作为 Windows HID 协议与固件逆向工程师，严格依据第 1 节捕获的真实硬件指纹与驱动诊断上下文，遵循第 2 节的零幻觉工作流与安全红线，为每款设备分别输出可直接导入主程序的 **FDAS v2.0** 规范包（`.fp-adapter.json`）或 **C# 5.0** 动态驱动脚本（`.fp-driver.cs`）。", count));
+            }
+            else
+            {
+                sb.AppendLine("你好！我当前有一款外设暂未被「FerrisPulse (灵脉)」原生识别。请你作为 Windows HID 协议与固件逆向工程师，严格依据第 1 节捕获的真实硬件指纹与驱动诊断上下文，遵循第 2 节的零幻觉工作流与安全红线，输出可直接导入主程序的 **FDAS v2.0** 规范包（`.fp-adapter.json`）或 **C# 5.0** 动态驱动脚本（`.fp-driver.cs`）。");
+            }
+            sb.AppendLine();
+            sb.AppendLine("## 1. 现场硬件指纹与驱动诊断上下文");
+            if (validItems.Count == 0)
+            {
+                sb.AppendLine("- （未传入具体探测设备；若需完整设备指纹，请先在「添加设备向导」选中对应设备导出，或提供 VID/PID 与 HID 端点快照）");
+                sb.AppendLine();
+            }
+            else
+            {
+                for (int i = 0; i < validItems.Count; i++)
                 {
-                    case DeviceCategory.Keyboard: catStr = "Keyboard"; break;
-                    case DeviceCategory.Headset: catStr = "Headset"; break;
-                    case DeviceCategory.Earbuds: catStr = "Earbuds"; break;
-                    case DeviceCategory.Gamepad: catStr = "Gamepad"; break;
-                    case DeviceCategory.Dongle: catStr = "Dongle"; break;
-                    case DeviceCategory.Generic: catStr = "Generic"; break;
-                    default: catStr = "Mouse"; break;
+                    AiPromptDeviceItem it = validItems[i];
+                    string catStr = "Mouse";
+                    string catCn = MouseBatteryInfo.GetCategoryDisplayName(it.Category);
+                    switch (it.Category)
+                    {
+                        case DeviceCategory.Keyboard: catStr = "Keyboard"; break;
+                        case DeviceCategory.Headset: catStr = "Headset"; break;
+                        case DeviceCategory.Earbuds: catStr = "Earbuds"; break;
+                        case DeviceCategory.Gamepad: catStr = "Gamepad"; break;
+                        case DeviceCategory.Dongle: catStr = "Dongle"; break;
+                        case DeviceCategory.Generic: catStr = "Generic"; break;
+                        default: catStr = "Mouse"; break;
+                    }
+
+                    string userRefName = !string.IsNullOrEmpty(it.CustomName) ? it.CustomName.Trim() : "未知设备";
+                    string prefix = (count > 1) ? string.Format("### 1.{0} 设备 {0}：{1} [{2}]\r\n", i + 1, userRefName, catCn) : "";
+                    sb.Append(prefix);
+                    sb.AppendLine(string.Format("- 设备推测分类: {0} ({1})", catStr, catCn));
+                    sb.AppendLine(string.Format("- 用户参考名称: {0}", userRefName));
+
+                    if (!it.IsManual && it.ScannedConfig != null)
+                    {
+                        int vid = 0;
+                        int pid = 0;
+                        string romProd = "未知";
+                        string romMfg = "未知";
+                        string endpoints = ProbeDeviceDetails(it.ScannedConfig, out vid, out pid, out romProd, out romMfg);
+                        string brand = (vid != 0) ? LookupVendorBrand(vid, romProd, romMfg) : (string.IsNullOrEmpty(it.Brand) ? "待反查厂商" : it.Brand);
+
+                        sb.AppendLine(string.Format("- 透视厂商归属: {0}", brand));
+                        sb.AppendLine(string.Format("- 物理硬件 ID: VID = 0x{0:X4}, PID = 0x{1:X4}", vid, pid));
+                        sb.AppendLine(string.Format("- 芯片 ROM 固件原名: {0}", romProd));
+                        sb.AppendLine(string.Format("- 芯片 ROM 厂商原名: {0}", romMfg));
+                        sb.AppendLine(string.Format("- 连接物理通道: {0}", it.ScannedConfig.Transport ?? "2.4G/USB"));
+                        sb.AppendLine("- HID 通信拓扑端点列表:");
+                        sb.AppendLine(endpoints);
+                        sb.AppendLine("- 驱动探测轨迹 (Driver Trace):");
+                        sb.AppendLine(GetDeviceTracesForVidPid(vid, pid));
+                    }
+                    else
+                    {
+                        string brand = !string.IsNullOrEmpty(it.Brand) ? it.Brand : "用户手动指定（请先引导用户核实 VID/PID）";
+                        sb.AppendLine(string.Format("- 厂商/品牌归属: {0}", brand));
+                        sb.AppendLine(string.Format("- 商业型号参考: {0}", userRefName));
+                        sb.AppendLine("- 物理探针状态: ⚠️ 用户手动添加，暂无实时 HID 端点描述符与 Driver Trace。请先要求用户提供设备管理器中的 VID/PID、官方 WebHID 网址或抓包报文，不要凭型号猜测协议。");
+                    }
+                    sb.AppendLine();
                 }
             }
 
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# 任务：为「FerrisPulse (灵脉)」开源外设系统生成 FDAS v1.0 硬件适配规范包");
-            sb.AppendLine();
-            sb.AppendLine("你好！我现在使用的外设设备暂未被「FerrisPulse (灵脉)」原生识别。请作为资深系统级硬件逆向与固件协议工程师，根据以下从当前物理硬件中实时捕获的硬件现场指纹与通信拓扑，为我输出一份严格符合 **FDAS v1.0 (FerrisPulse Device Adapter Specification)** 标准的适配规范包（JSON）。");
-            sb.AppendLine();
-            sb.AppendLine("## ⚠️ 核心工作流：两阶段严谨逆向法（物理事实优先，严禁幻觉）");
-            sb.AppendLine("你必须严格按以下两阶段开展工作：");
-            sb.AppendLine();
-            sb.AppendLine("### 阶段一：硬件物理安全第一与官方 WebHID 源码逆向 (Safety First)");
-            sb.AppendLine("1. **严厉安全红线：严禁在真机上下发盲测性质的写指令 (如 Cmd 0x07、写未知内存地址)**！");
-            sb.AppendLine("   - 现代国产无线外设（如 CompX、PixArt 等主控）多将单片机板载 EEPROM / Flash 直接映射为写指令。");
-            sb.AppendLine("   - 盲猜写指令或写错地址/长度，会瞬间冲毁 2.4G RF 配对表、校验扇区或引导记录，导致接收器硬件彻底死锁变砖！");
-            sb.AppendLine("2. **官方 WebHID 源码逆向法（首选且唯一推荐的写指令来源，100% 零风险）**：");
-            sb.AppendLine("   - 现代外设厂商（VGN, ATK, VXE, 迈从, 达摩鲨, 狼蛛, 雷神, 机械师等）90% 均提供官方 Web 驱动（Chrome 浏览器网页端，如 hub.vgn.cn、hub.atk.pro 等）。");
-            sb.AppendLine("   - 请优先让用户或你在浏览器打开该网页驱动，按 F12 打开开发者工具：在 Sources / Network 面板中检索 `sendReport`、`write`、`0x07`、`0x55`、`rate`、`dpi` 等关键词；");
-            sb.AppendLine("   - 直接将官方前端工程师编写的报文生成逻辑与公式提取出来！这套公式是原厂 100% 验证过的安全逻辑，绝不会损害硬件！");
-            sb.AppendLine("3. **探针安全只读原则**：本工程根目录提供了 `tools/probe_hid_device.ps1`，默认仅允许执行只读探针或白名单安全电量查询。");
-            sb.AppendLine();
-            sb.AppendLine("### 阶段二：FDAS v1.0 动态微表达式与规范包封装 (Dynamic Calculation)");
-            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
-            sb.AppendLine("FerrisPulse 底层已内置轻量微表达式求值器，无需改动 C# 代码即可动态处理任意厂商的奇葩算法：");
-            sb.AppendLine("1. **动态派生变量 (`protocol.variables`)**：支持基础四则运算、移位、位掩码与互补校验，例如：");
-            sb.AppendLine("   - `\"rateParity\": \"(0x55 - $rateCode) & 0xFF\"` (CompX 互补校验位)");
-            sb.AppendLine("   - `\"dpiEncoded\": \"($dpi / 50) - 1\"` (PAW3950/3395 编码)");
-            sb.AppendLine("   - `\"dpiLow\": \"$dpiEncoded & 0xFF\"`");
-            sb.AppendLine("   - `\"dpiHigh\": \"($dpiEncoded >> 8) & 0x03\"`");
-            sb.AppendLine("   - `\"dpiFlags\": \"($dpiHigh << 2) | ($dpiHigh << 6)\"`");
-            sb.AppendLine("   - `\"dpiParity\": \"(0x55 - $dpiLow - $dpiLow - $dpiFlags) & 0xFF\"`");
-            sb.AppendLine("   - `\"dpiAddrLo\": \"(0x000C + $stage0 * 4) & 0xFF\"`");
-            sb.AppendLine("2. **私有回报率编码映射 (`protocol.rateCodeMap`)**：如 `\"rateCodeMap\": { \"125\": \"0x08\", \"1000\": \"0x01\", \"8000\": \"0x40\" }`");
-            sb.AppendLine("3. **多步时序握手管线 (`protocol.queryBatteryPipeline`)**：若设备查询电量需先唤醒接收器再查询，可声明执行序列：`[\"08 02 ...\", \"08 04 ...\"]`");
-            sb.AppendLine("4. **内联表达式支持**：模板中直接支持 `{ (0x55 - rateCode) & 0xFF }` 动态求值。");
-            sb.AppendLine();
-            sb.AppendLine("## 🛡️ 逃生舱机制：代码级深度定制授权");
-            sb.AppendLine("如果该设备的物理协议极其罕见或复杂（例如非标准加解密哈希、流式分片压缩等），确实超出了动态 JSON 的表达边界：");
-            sb.AppendLine("**明确授权你直接深入修改 FerrisPulse 本地 C# 源码（位于 `src/Hardware/` 目录下）**，并在本地运行 `cmd.exe /c \"build.bat\"` 编译验证，确保用户立即能用上，绝不受技术教条限制！");
-            sb.AppendLine();
-            sb.AppendLine("## 🤝 开源生态飞轮：社区反哺指引");
-            sb.AppendLine("无论你是通过【FDAS 动态 JSON】还是【C# 源码修改】成功适配了该设备，请务必在回答末尾输出一份《灵脉设备适配成果报告》，并热忱引导用户将此成果提交给官方：");
-            sb.AppendLine("1. **GitHub Issues / PR**: https://github.com/Ferris-echo/FerrisPulse/issues");
-            sb.AppendLine("2. **Gitee Issues / PR**: https://gitee.com/Ferris-echo/FerrisPulse/issues");
-            sb.AppendLine("3. **作者个人邮箱直连投递**: 2949225840@qq.com 或 2949225840zpf@gmail.com");
-            sb.AppendLine("官方团队将以最快速度将你的适配收录进下一版本的内置原生驱动库，并在版本发布说明中对你公开鸣谢，造福全网所有使用该设备的用户！");
-            sb.AppendLine();
-            sb.AppendLine("## 2. 官方源码规范索引");
-            sb.AppendLine("- GitHub (首选): https://github.com/Ferris-echo/FerrisPulse.git");
-            sb.AppendLine("- Gitee (镜像): https://gitee.com/Ferris-echo/ferris-pulse.git");
-            sb.AppendLine("- 规范文档: docs/ADAPTER_SPECIFICATION.md");
-            sb.AppendLine("- 避坑指南: docs/AGENT_HANDBOOK.md & AGENT_RULES.md");
-            sb.AppendLine();
-            sb.AppendLine("## 3. 当前硬件现场物理指纹（由 FerrisPulse 硬件探针实时捕获）：");
-            sb.AppendLine(string.Format("- 设备推测分类: {0} ({1})", catStr, catCn));
-            sb.AppendLine(string.Format("- 用户参考名称: {0}", userRefName));
-            sb.AppendLine(string.Format("- 透视厂商归属: {0}", brand));
-            sb.AppendLine(string.Format("- 物理硬件 ID: VID = 0x{0:X4}, PID = 0x{1:X4}", vid, pid));
-            sb.AppendLine(string.Format("- 芯片 ROM 固件原名: {0}", romProd));
-            sb.AppendLine(string.Format("- 芯片 ROM 厂商原名: {0}", romMfg));
-            sb.AppendLine(string.Format("- 连接物理通道: {0}", (item != null) ? (item.Transport ?? "2.4G/USB") : "未知"));
-            sb.AppendLine("- HID 通信拓扑端点列表:");
-            sb.AppendLine(endpoints);
-            sb.AppendLine();
-            sb.AppendLine("## 4. 输出格式与契约规范");
-            sb.AppendLine("请严格输出一个 Markdown JSON 代码块（```json ... ```），内容符合 FDAS v1.0 规范，包含：");
-            sb.AppendLine("1. `metadata`: brand, model, category, author, description");
-            sb.AppendLine("2. `hardware`: vendorId, productId, endpointTopology (usagePage, usage, reportLength, reportType, readTimeoutMs)");
-            sb.AppendLine("3. `capabilities`:");
-            sb.AppendLine("   - `battery`: reportId, batteryPercentByteOffset, chargingByteOffset, chargingBitMask, batteryFormula, sampleRxHex");
-            if (item == null || item.Category == DeviceCategory.Mouse)
+            sb.AppendLine("## 2. 零幻觉工作流与硬件安全红线（必须严格遵守）");
+            sb.AppendLine("1. **缺口即停规则（Zero-Hallucination Gate）**：");
+            sb.AppendLine("   - 如果当前对话与上述指纹中**没有**经过验证的真实协议证据（例如：官方 WebHID 前端源码、OpenRazer/libratbag/开源项目文档、或实机 USBPcap 抓包的 `TX`/`RX` 字节序列），**请立刻停止并明确告知缺失哪些信息**。");
+            sb.AppendLine("   - 绝对禁止为了凑齐代码而编造 `queryBatteryTxHex`、猜测 Report ID / 字节偏移、或虚构 `sampleRxHex`。");
+            sb.AppendLine("   - 缺失协议事实时，按以下顺序指导用户采集真实数据后再继续：");
+            sb.AppendLine("     1) **Chrome WebHID F12 逆向（首选）**：打开厂商网页驱动（如 `hub.atk.pro`、`hub.vgn.cn`、`hub.mchose.com.cn` 等）-> 按 F12 在 Sources/Network 检索 `sendReport`、`sendFeatureReport`、`oninputreport`，提取真实报文构造与电量解析公式；");
+            sb.AppendLine("     2) **本地只读探针**：在工程根目录运行 `powershell -ExecutionPolicy Bypass -File tools/probe_hid_device.ps1`（只读收集描述符与安全白名单电量，自动拦截写入）；");
+            sb.AppendLine("     3) **Wireshark + USBPcap 抓包**：开启官方驱动读取电量的瞬间抓包，提取真实 `TX`/`RX` Hex 帧与校验和算法。");
+            sb.AppendLine("2. **只读优先与禁盲写 EEPROM 红线**：");
+            sb.AppendLine("   - **严禁盲测写指令（如 `0x07`、DPI/回报率/灯效写入、未知 Feature 写入）**：国产无线主控（CompX、PixArt 等）常直接将写指令映射至片上 EEPROM/Flash，猜错偏移或校验和可能损坏 2.4G 配对表或导致接收器变砖。");
+            sb.AppendLine("   - 未获取 100% 实证的写指令前，**只实现电量与充电状态只读查询**：在 JSON 中省略未验证的写模板并将 `supportsDpi`/`supportsPollingRate` 置为 `false`；在 `.fp-driver.cs` 中不要重写 `SetDpi` / `SetPollingRate`。");
+            sb.AppendLine("3. **Windows HID 底层避坑规则**：");
+            sb.AppendLine("   - 键盘类 HID 句柄必须以权限 `0`（仅属性）或 `HidTransport.OpenFeature` 避开 Windows 内核防监听独占锁；");
+            sb.AppendLine("   - 过滤 `HIDI2C` 内置触控板与虚拟 HID 设备；");
+            sb.AppendLine("   - 共用公版 VID（如 CompX `0x3554`）必须同时校验 `VID + PID + UsagePage + Usage + Input/Output 长度` 隔离设备；");
+            sb.AppendLine("   - 8K 高回报率鼠标/接收器严禁盲目死循环 `DrainReports`，控制读取次数防止阻塞。");
+            sb.AppendLine("## 3. 扩展包选型与契约规范（二选一）");
+            if (count > 1)
             {
-                sb.AppendLine("   - `mouse`: (若需支持 DPI/回报率)");
-                sb.AppendLine("     - `dpi`: minDpi, maxDpi, step, defaultStages, supportsXyIndependence, ratioPresets, activeStageByteOffset, dpiXLoByteOffset, dpiXHiByteOffset, dpiYLoByteOffset, dpiYHiByteOffset, sampleDpiRxHex");
-                sb.AppendLine("     - `pollingRate`: supportedRates, defaultRate, maxRate, rateIndexMap");
+                sb.AppendLine(string.Format("注意：请为上述 **{0} 款外设分别输出各自独立的 `.fp-adapter.json` 或 `.fp-driver.cs` 代码块**。", count));
             }
-            sb.AppendLine("4. `protocol`:");
-            sb.AppendLine("   - queryBatteryTxHex (或 queryBatteryPipeline)");
-            if (item == null || item.Category == DeviceCategory.Mouse)
-            {
-                sb.AppendLine("   - variables (动态算式字典，如 rateParity, dpiLow, dpiParity 等)");
-                sb.AppendLine("   - rateCodeMap (厂商私有回报率编码映射)");
-                sb.AppendLine("   - setDpiTxTemplate (档位写入模板，支持占位符与微表达式)");
-                sb.AppendLine("   - setDpiValueTxTemplate (DPI 分辨率写入模板，若无独立数值包可省略)");
-                sb.AppendLine("   - setPollingRateTxTemplate (回报率写入模板)");
-            }
-            sb.AppendLine("   - checksumType (None / SumMod256 / VgnCompxSum55 / XorSum / SonyInzone)");
+            sb.AppendLine("### 方式 A：FDAS v2.0 声明式扩展包（保存为 `{brand}_{model}.fp-adapter.json`，常规单帧协议首选）");
+            sb.AppendLine("- 适用场景：通过单条或顺序管线报文查询电量，配合公式/掩码即可完成解析。");
+            sb.AppendLine("- 核心字段：`fdasVersion` (`\"2.0\"`)、`metadata` (`brand`/`model`/`category`/`brandColor`/`author`)、`hardware` (`vendorId`/`productId`/`devices` 多 PID 矩阵/`endpointTopology`)、`capabilities` (`battery` 含 `reportId`/`batteryPercentByteOffset`/`chargingByteOffset`/`chargingBitMask`/`batteryFormula`/`sampleRxHex`，可选 `mouse`/`customActions`)、`protocol` (`queryBatteryTxHex` 或 `queryBatteryPipeline`、`variables`、`rateCodeMap`、`checksumType`: `None`/`SumMod256`/`VgnCompxSum55`/`XorSum`/`SonyInzone`)。");
             sb.AppendLine();
-            sb.AppendLine("用户将直接把文件保存为 `{brand}_{model}.fp-adapter.json` 导入 FerrisPulse 自动点亮外设！");
+            sb.AppendLine("### 方式 B：C# 5.0 动态驱动脚本扩展包（保存为 `{brand}_{model}.fp-driver.cs`，复杂协议使用）");
+            sb.AppendLine("- 适用场景：需要多步状态机握手、BUSY 重试、共享接收器拆分子设备、或自定义二进制解码。Priority 300 高于内置驱动。");
+            sb.AppendLine("- **严格 C# 5.0 / .NET Framework 4.0 编译约束（必须遵守）**：");
+            sb.AppendLine("  - **严禁使用 C# 6+ 语法**：禁止 `$\"...\"` 字符串插值、禁止 `?.` / `??=`、禁止 `nameof`、禁止 `out var`、禁止 `=>` 表达式体成员（必须用 `{ get { return ...; } }` 与 `string.Format`）。");
+            sb.AppendLine("- **宿主可用核心 API**：");
+            sb.AppendLine("  - 继承 `RazerBatteryTray.HardwareDriverBase`：必须实现 `DriverId`、`Brand`，建议重写 `IsExternalPackage { get { return true; } }`、`MatchesVidPid(int vid, int pid)`、`PopulateCapabilities(MouseBatteryInfo dev)`、`QueryDevices()`。");
+            sb.AppendLine("  - HID 通信使用 `HidTransport`：`Enumerate(int vid, int pid)`、`Open(path)`、`OpenRead(path)`、`OpenFeature(path)`、`Close(h)`、`WriteReport(h, buf, len, timeoutMs)`、`ReadReportExact(h, len, timeoutMs, out report)`、`SetFeature(h, buf)`、`GetFeature(h, buf)`。");
+            sb.AppendLine("  - 休眠缓存与诊断日志使用 `DriverStateStore.SaveBatteryState` / `TryLoadBatteryState`，异常或跳过端点请调用 `HardwareDiagnosticService.RecordDriverTrace`。");
+            sb.AppendLine();
+
+            sb.AppendLine("## 4. 经引擎验证的最小可用模板（请严格参照结构，勿照抄占位字节）");
+            sb.AppendLine("### 模板 A：FDAS v2.0 最小可用示例（已实测 ATK A87 PRO 33B 中断报文，只读电量）");
+            sb.AppendLine("```json");
+            sb.AppendLine("{");
+            sb.AppendLine("  \"fdasVersion\": \"2.0\",");
+            sb.AppendLine("  \"metadata\": {");
+            sb.AppendLine("    \"brand\": \"ATK\",");
+            sb.AppendLine("    \"model\": \"A87 PRO\",");
+            sb.AppendLine("    \"category\": \"Keyboard\",");
+            sb.AppendLine("    \"brandColor\": \"#A78BFA\",");
+            sb.AppendLine("    \"author\": \"Community Contributor\"");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"hardware\": {");
+            sb.AppendLine("    \"vendorId\": \"0x373B\",");
+            sb.AppendLine("    \"productId\": \"0x111F\",");
+            sb.AppendLine("    \"endpointTopology\": {");
+            sb.AppendLine("      \"usagePage\": \"0xFF60\",");
+            sb.AppendLine("      \"usage\": \"0x0061\",");
+            sb.AppendLine("      \"reportLength\": 33,");
+            sb.AppendLine("      \"reportType\": \"Interrupt\",");
+            sb.AppendLine("      \"readTimeoutMs\": 250");
+            sb.AppendLine("    }");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"capabilities\": {");
+            sb.AppendLine("    \"battery\": {");
+            sb.AppendLine("      \"reportId\": \"0x00\",");
+            sb.AppendLine("      \"batteryPercentByteOffset\": 4,");
+            sb.AppendLine("      \"chargingByteOffset\": 5,");
+            sb.AppendLine("      \"chargingBitMask\": \"0x01\",");
+            sb.AppendLine("      \"batteryFormula\": \"DirectPercent\",");
+            sb.AppendLine("      \"sampleRxHex\": \"00 0B 03 00 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\"");
+            sb.AppendLine("    }");
+            sb.AppendLine("  },");
+            sb.AppendLine("  \"protocol\": {");
+            sb.AppendLine("    \"queryBatteryTxHex\": \"00 0B 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\",");
+            sb.AppendLine("    \"checksumType\": \"None\"");
+            sb.AppendLine("  }");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("### 模板 B：C# 5.0 动态驱动脚本最小编译模板（只读电量骨架）");
+            sb.AppendLine("```csharp");
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using RazerBatteryTray;");
+            sb.AppendLine();
+            sb.AppendLine("namespace FerrisPulse.Extensions");
+            sb.AppendLine("{");
+            sb.AppendLine("    public sealed class SampleVendorBatteryDriver : HardwareDriverBase");
+            sb.AppendLine("    {");
+            sb.AppendLine("        private const int TargetVid = 0x0000;");
+            sb.AppendLine("        private const int TargetPid = 0x0000;");
+            sb.AppendLine();
+            sb.AppendLine("        public override string DriverId { get { return \"custom_sample_vendor\"; } }");
+            sb.AppendLine("        public override string Brand { get { return \"SampleBrand\"; } }");
+            sb.AppendLine("        public override bool IsExternalPackage { get { return true; } }");
+            sb.AppendLine();
+            sb.AppendLine("        public override bool MatchesVidPid(int vid, int pid)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return vid == TargetVid && pid == TargetPid;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public override void PopulateCapabilities(MouseBatteryInfo dev)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (dev == null) return;");
+            sb.AppendLine("            dev.Capabilities.SupportsBattery = true;");
+            sb.AppendLine("            dev.Capabilities.SupportsDpi = false;");
+            sb.AppendLine("            dev.Capabilities.SupportsPollingRate = false;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public override List<MouseBatteryInfo> QueryDevices()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            List<MouseBatteryInfo> results = new List<MouseBatteryInfo>();");
+            sb.AppendLine("            List<HidDeviceDescriptor> eps = HidTransport.Enumerate(TargetVid, TargetPid);");
+            sb.AppendLine("            for (int i = 0; i < eps.Count; i++)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                HidDeviceDescriptor ep = eps[i];");
+            sb.AppendLine("                if (ep.UsagePage != 0xFF00 || ep.InputReportLength <= 0) continue;");
+            sb.AppendLine("                // Replace with verified TX/RX query and DriverStateStore.SaveBatteryState");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return results;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+
+            sb.AppendLine("## 5. 规范索引、交付自检与社区反哺");
+            sb.AppendLine("- **项目源码与文档**：GitHub `https://github.com/Ferris-echo/FerrisPulse.git` | Gitee `https://gitee.com/Ferris-echo/ferris-pulse.git`");
+            sb.AppendLine("- **规范文档**：`docs/ADAPTER_SPECIFICATION.md`、`docs/AGENT_HANDBOOK.md`、`AGENT_RULES.md`");
+            sb.AppendLine("- **交付前自检清单**：");
+            sb.AppendLine("  1. `vendorId`/`productId` 与第 1 节硬件指纹完全一致；");
+            sb.AppendLine("  2. 报文字节、Offset 与公式均来自真实抓包或 WebHID 源码，未凭空编造；");
+            sb.AppendLine("  3. 未验证的写指令已保持关闭或留空；");
+            sb.AppendLine("  4. 若输出 `.fp-driver.cs`，已确认零 C# 6+ 语法且可直接通过 .NET 4.0 编译。");
+            sb.AppendLine("- **社区反哺（输出适配文件后附带简要适配报告）**：");
+            sb.AppendLine("  - GitHub Issues / PR: https://github.com/Ferris-echo/FerrisPulse/issues");
+            sb.AppendLine("  - Gitee Issues / PR: https://gitee.com/Ferris-echo/ferris-pulse/issues");
+            sb.AppendLine("  - 作者个人邮箱直连投递: ferris.echo@gmail.com");
+            sb.AppendLine();
+            sb.AppendLine("用户将直接把你输出的 `.fp-adapter.json` 或 `.fp-driver.cs` 导入 FerrisPulse「导入扩展适配包」窗口。");
             return sb.ToString();
         }
     }

@@ -79,7 +79,7 @@ namespace RazerBatteryTray
             if (Items.Count == 0) return;
             activeMenu = new AnimatedContextMenuStrip();
             activeMenu.Renderer = new ModernDarkMenuRenderer();
-            activeMenu.Font = new Font("Microsoft YaHei UI", 9F);
+            DpiScaleHelper.SetControlBaseFont(activeMenu, "Microsoft YaHei UI", 9F, FontStyle.Regular, DpiScale);
             activeMenu.ShowImageMargin = false;
             activeMenu.ShowCheckMargin = false;
             activeMenu.MinimumSize = new Size(this.Width, 0);
@@ -127,14 +127,14 @@ namespace RazerBatteryTray
             }
 
             string text = SelectedItem;
-            using (var font = new Font("Microsoft YaHei UI", 9F))
+            using (var font = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9F, FontStyle.Regular, DpiScale))
             {
                 int textW = Width - (int)(32 * DpiScale);
                 TextRenderer.DrawText(g, text, font, new Rectangle((int)(10 * DpiScale), 0, textW, Height),
                     Color.FromArgb(240, 245, 255), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
             }
 
-            using (var chvFont = new Font("Segoe UI", 8.5F, FontStyle.Bold))
+            using (var chvFont = DpiScaleHelper.CreateScaledFont("Segoe UI", 8.5F, FontStyle.Bold, DpiScale))
             using (var chvBrush = new SolidBrush(isMenuOpen ? Color.FromArgb(0, 230, 118) : Color.FromArgb(160, 170, 195)))
             {
                 string arrow = isMenuOpen ? "▴" : "▾";

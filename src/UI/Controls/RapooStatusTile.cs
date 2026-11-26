@@ -4,7 +4,7 @@
 // 核心职责:
 //   雷柏/高级外设状态小磁贴卡片，展示标题、右上角状态徽章、中心大号数值与单位、
 //   以及底部细说明文本，自适应 DPI 缩放。
-// 依赖关系: RoundedCard
+// 依赖关系: RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -54,7 +54,7 @@ namespace RazerBatteryTray
 
             int w = Width;
             int h = Height;
-            int r = (int)(8 * DpiScale);
+            int r = Math.Max(3, (int)(8 * DpiScale));
 
             // Background & subtle border
             using (var path = RoundedCard.GetRoundedRectangle(new Rectangle(0, 0, w - 1, h - 1), r))
@@ -72,7 +72,7 @@ namespace RazerBatteryTray
             // Top Header: Title (left) & Badge (right)
             int padX = (int)(14 * DpiScale);
             int topY = (int)(9 * DpiScale);
-            using (var titleFont = new Font("Microsoft YaHei UI", 8.2F, FontStyle.Regular, GraphicsUnit.Point))
+            using (var titleFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2F, FontStyle.Regular, DpiScale))
             using (var titleBrush = new SolidBrush(Color.FromArgb(145, 155, 175)))
             {
                 g.DrawString(Title, titleFont, titleBrush, padX, topY);
@@ -80,7 +80,7 @@ namespace RazerBatteryTray
 
             if (!string.IsNullOrEmpty(Badge))
             {
-                using (var badgeFont = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular, GraphicsUnit.Point))
+                using (var badgeFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Regular, DpiScale))
                 {
                     var sz = TextRenderer.MeasureText(Badge, badgeFont);
                     int bX = w - padX - sz.Width - (int)(8 * DpiScale);
@@ -88,7 +88,7 @@ namespace RazerBatteryTray
                     int bW = sz.Width + (int)(8 * DpiScale);
                     int bH = sz.Height + (int)(2 * DpiScale);
 
-                    using (var bPath = RoundedCard.GetRoundedRectangle(new Rectangle(bX, bY, bW, bH), (int)(4 * DpiScale)))
+                    using (var bPath = RoundedCard.GetRoundedRectangle(new Rectangle(bX, bY, bW, bH), Math.Max(2, (int)(4 * DpiScale))))
                     {
                         using (var bBrush = new SolidBrush(Color.FromArgb(28, AccentColor.R, AccentColor.G, AccentColor.B)))
                         {
@@ -112,7 +112,7 @@ namespace RazerBatteryTray
 
             // Center: Big ValueText + UnitText - mathematically centered between Title and Footnote
             int valY = (topY + footY) / 2 - (int)(9 * DpiScale);
-            using (var valFont = new Font("Microsoft YaHei UI", 14.5F, FontStyle.Bold, GraphicsUnit.Point))
+            using (var valFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 14.5F, FontStyle.Bold, DpiScale))
             using (var valBrush = new SolidBrush(AccentColor))
             {
                 g.DrawString(ValueText, valFont, valBrush, padX - (int)(2 * DpiScale), valY);
@@ -120,7 +120,7 @@ namespace RazerBatteryTray
 
                 if (!string.IsNullOrEmpty(UnitText))
                 {
-                    using (var unitFont = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point))
+                    using (var unitFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.5F, FontStyle.Regular, DpiScale))
                     using (var unitBrush = new SolidBrush(Color.FromArgb(135, 145, 165)))
                     {
                         int unitX = padX + valSz.Width - (int)(6 * DpiScale);
@@ -130,7 +130,7 @@ namespace RazerBatteryTray
                 }
             }
 
-            using (var footFont = new Font("Microsoft YaHei UI", 7.6F, FontStyle.Regular, GraphicsUnit.Point))
+            using (var footFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.6F, FontStyle.Regular, DpiScale))
             using (var footBrush = new SolidBrush(Color.FromArgb(115, 125, 145)))
             {
                 g.DrawString(Footnote, footFont, footBrush, padX, footY);

@@ -9,6 +9,7 @@ $a=[Reflection.Assembly]::Load([IO.File]::ReadAllBytes($assemblyPath))
 $t=$a.GetType('RazerBatteryTray.MainForm')
 $helper=$a.GetType('RazerBatteryTray.RapooDeviceHelper')
 $f=[Activator]::CreateInstance($t,@($false))
+$f.Show()
 $flags=[Reflection.BindingFlags]'NonPublic,Instance'
 function Control($name) { return $t.GetField($name,$flags).GetValue($f) }
 function Assert($ok,$message) { if (!$ok) { throw $message } }
@@ -19,6 +20,9 @@ try {
     $info.BatteryPercent=0; $info.LastUpdated=[DateTime]::Now; $info.Dpi=800; $info.DpiY=600
     $info.DpiStage=1; $info.DpiStageCount=1; $info.DpiStages=[int[]]@(800); $info.DpiStagesY=[int[]]@(600)
     $info.Category=[Enum]::Parse($a.GetType('RazerBatteryTray.DeviceCategory'),'Mouse')
+    $info.SupportsDpiWrite=$true
+    $info.Capabilities.SupportsDpiStages=$true
+    $t.GetField('selectedDevice',$flags).SetValue($f,$info)
     $helper.GetField('CachedBatteryPercent').SetValue($null,0)
     [void]$t.GetMethod('UpdateUI',$flags).Invoke($f,@($info,$false))
     Assert ((Control 'lblBatteryBig').Text -eq '0%') 'Sleeping VT3 lost real zero battery'
@@ -31,7 +35,7 @@ try {
     $info.DpiStages=[int[]]@(400,800,1200,1600,3200,6400); $info.DpiStagesY=[int[]]@(400,800,1200,1600,3200,6400)
     [void]$t.GetMethod('UpdateUI',$flags).Invoke($f,@($info,$false))
     $buttons=Control 'btnDpiStages'
-    Assert ($buttons.Length -eq 6 -and $buttons[5].Text -eq '6400') 'Sixth hardware DPI stage missing from main UI'
+    Assert ($buttons.Length -ge 6 -and $buttons[5].Text -eq '6400' -and $buttons[5].Visible) 'Sixth hardware DPI stage missing from main UI'
     Assert ($buttons[3].Selected -and !$buttons[2].Selected) '1600 DPI status highlighted the wrong hardware stage'
     $dialogType=$a.GetType('RazerBatteryTray.DpiManagementDialog')
     $capType=$a.GetType('RazerBatteryTray.RazerDeviceHelper+RazerDpiCapability')

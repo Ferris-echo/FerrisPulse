@@ -262,7 +262,7 @@ namespace RazerBatteryTray
                 using (SolidBrush bpBrush = new SolidBrush(bpBg))
                     g.FillPath(bpBrush, bpPath);
 
-                using (Font bpFont = new Font("Microsoft YaHei UI", 7.2f, FontStyle.Bold))
+                using (Font bpFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 7.2f, FontStyle.Bold, DpiScale))
                 {
                     TextRenderer.DrawText(g, bpText, bpFont, bpRect, bpFg,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
@@ -271,7 +271,7 @@ namespace RazerBatteryTray
                 // 1. Battery % ALWAYS anchored to far right for perfect vertical alignment across tabs
                 string bStr = dev.BatteryPercent > 0 ? (dev.BatteryPercent + "%") : "--%";
                 int curRight = tabX + tabW - (int)(8 * DpiScale);
-                using (Font bFont = new Font("Microsoft YaHei UI", 8.2f, FontStyle.Bold))
+                using (Font bFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.2f, FontStyle.Bold, DpiScale))
                 {
                     Size szBatt = TextRenderer.MeasureText(g, bStr, bFont, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                     int battW = szBatt.Width + (int)(4 * DpiScale);
@@ -299,7 +299,7 @@ namespace RazerBatteryTray
                         using (Pen pp = new Pen(pBorder, 1f)) g.DrawPath(pp, pPath);
                     }
 
-                    using (Font pFont = new Font("Segoe UI Emoji", 7.0f))
+                    using (Font pFont = DpiScaleHelper.CreateScaledFont("Segoe UI Emoji", 7.0f, FontStyle.Regular, DpiScale))
                     {
                         TextRenderer.DrawText(g, "📌", pFont, pinRect, dev.BrandColor,
                             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
@@ -314,7 +314,7 @@ namespace RazerBatteryTray
                 {
                     Rectangle nameRect = new Rectangle(nameLeft, tRect.Y, nameW, tabH);
                     Color nameColor = isSel ? Color.White : Color.FromArgb(175, 185, 200);
-                    using (Font nFont = new Font("Microsoft YaHei UI", 8.0f, isSel ? FontStyle.Bold : FontStyle.Regular))
+                    using (Font nFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.0f, isSel ? FontStyle.Bold : FontStyle.Regular, DpiScale))
                     {
                         TextRenderer.DrawText(g, dev.DisplayName, nFont, nameRect, nameColor,
                             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);

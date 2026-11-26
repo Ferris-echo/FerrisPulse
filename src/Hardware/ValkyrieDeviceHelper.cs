@@ -60,6 +60,13 @@ namespace RazerBatteryTray
         {
             if (string.IsNullOrEmpty(identifier)) return false;
             string lower = identifier.ToLowerInvariant();
+
+            // VGN Neon75 系列 (ROYUAN 方案) 使用 3151:5038 接收器及 3151:502D/502F/5054 有线端点，
+            // 归由 VgnKeyboardHelper 专属驱动接管，必须在此将它们从 Valkyrie 泛 3151 识别中排除。
+            if (lower.Contains("3151:5038") || lower.Contains("vid_3151&pid_5038")) return false;
+            if (lower.Contains("3151:502d") || lower.Contains("vid_3151&pid_502d")) return false;
+            if (lower.Contains("3151:502f") || lower.Contains("vid_3151&pid_502f")) return false;
+            if (lower.Contains("3151:5054") || lower.Contains("vid_3151&pid_5054")) return false;
             if (lower.Contains("vid_374a") || lower.Contains("374a:") || lower.Contains("valkyrie") || lower.Contains("vkms") || lower.Contains("vk_"))
             {
                 return true;
@@ -102,6 +109,7 @@ namespace RazerBatteryTray
                 case 0xA262: return "VK99 Ultra";
                 case 0xA219: return "VK99 Gaming";
                 case 0xA270: return "VK 87 Max V2";
+                case 0xA272: return "VK 87 Max V2";
                 case 0xA267: return "VK 87 V2";
                 case 0xA274: return "VK MAG87 Max";
                 case 0xA250: return "VK 75 PRO";
@@ -484,6 +492,7 @@ namespace RazerBatteryTray
 
         public static bool UpdateValkyrieHardwareStages(int activeStage, int[] stagesX, int[] stagesY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (stagesX == null || stagesX.Length == 0) return false;
             if (stagesY == null || stagesY.Length < stagesX.Length) stagesY = stagesX;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
@@ -536,6 +545,7 @@ namespace RazerBatteryTray
 
         public static bool SetValkyriePollingRate(int hz)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
 
             IntPtr handle = RazerDeviceHelper.CreateFile(
@@ -590,6 +600,7 @@ namespace RazerBatteryTray
 
         public static bool SetValkyrieDpi(int dpiX, int dpiY)
         {
+            if (HardwareCommandBus.IsHardwareSandboxActive) return false;
             if (string.IsNullOrEmpty(LastMouseDevicePath)) return false;
 
             IntPtr handle = RazerDeviceHelper.CreateFile(
@@ -803,6 +814,14 @@ namespace RazerBatteryTray
                                             else if (rx[0] == 0x01)
                                             {
                                                 baseOffset = 0; // 无前导字节
+                                            }
+                                            else if (rx[0] == 0x00 && rx[1] == 0xF7)
+                                            {
+                                                baseOffset = 2; // 含前导 0x00 与命令回显 0xF7
+                                            }
+                                            else if (rx[0] == 0x00)
+                                            {
+                                                baseOffset = 1; // VK 87 Max V2 (A272) 等 2.4G 固件响应形如 00 00 <batt> 00 00 00 01 01
                                             }
 
                                             int isCanRead = rx[baseOffset + 0];

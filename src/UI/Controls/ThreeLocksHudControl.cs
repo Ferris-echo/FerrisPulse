@@ -3,8 +3,8 @@
 // 所属区域: UI/Controls (高级功能控件层)
 // 核心职责:
 //   键盘三锁（Caps Lock 大写锁定、Num Lock 数字小键盘、Scroll Lock 滚屏锁定）状态 HUD 监控指示条，
-//   支持 150ms 轮询感知物理键盘锁定状态并在界面高亮激活。
-// 依赖关系: RoundedCard
+//   支持 150ms 轮询感知物理键盘锁定状态并在界面高亮激活，支持无极等比缩放。
+// 依赖关系: RoundedCard, Helpers.DpiScaleHelper
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、属性或绘图逻辑时，【必须】同步更新上方说明。
@@ -81,7 +81,7 @@ namespace RazerBatteryTray
 
         private void DrawPill(Graphics g, Rectangle rect, string text, bool isOn)
         {
-            int r = (int)(5 * DpiScale);
+            int r = Math.Max(2, (int)(5 * DpiScale));
             Color bg = isOn ? Color.FromArgb(40, 0, 230, 118) : Color.FromArgb(24, 28, 38);
             Color border = isOn ? Color.FromArgb(0, 230, 118) : Color.FromArgb(45, 52, 68);
             Color fg = isOn ? Color.FromArgb(0, 230, 118) : Color.FromArgb(120, 130, 150);
@@ -93,7 +93,7 @@ namespace RazerBatteryTray
             }
 
             string fullText = text + (isOn ? " ● 开启" : " ○ 关闭");
-            using (Font f = new Font("Microsoft YaHei UI", 8.0F, isOn ? FontStyle.Bold : FontStyle.Regular))
+            using (Font f = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 8.0F, isOn ? FontStyle.Bold : FontStyle.Regular, DpiScale))
             {
                 TextRenderer.DrawText(g, fullText, f, rect, fg,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);

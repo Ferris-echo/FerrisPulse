@@ -20,11 +20,43 @@ namespace RazerBatteryTray
     internal static class NativeMethods
     {
         // ==================== DPI Awareness ====================
+        public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE = new IntPtr(-3);
+        public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+        private const int PROCESS_PER_MONITOR_DPI_AWARE = 2;
+
         [DllImport("user32.dll")]
         public static extern bool SetProcessDPIAware();
 
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetProcessDpiAwarenessContext(IntPtr dpiFlag);
+
+        [DllImport("shcore.dll")]
+        public static extern int SetProcessDpiAwareness(int awareness);
+
         [DllImport("user32.dll")]
         public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+        public static void EnableBestDpiAwareness()
+        {
+            try
+            {
+                IntPtr hUser32 = GetModuleHandle("user32.dll");
+                if (hUser32 != IntPtr.Zero && GetProcAddress(hUser32, "SetProcessDpiAwarenessContext") != IntPtr.Zero)
+                {
+                    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return;
+                    if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE)) return;
+                }
+            }
+            catch { }
+
+            try
+            {
+                if (SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0) return;
+            }
+            catch { }
+
+            try { SetProcessDPIAware(); } catch { }
+        }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
         public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
@@ -32,9 +64,23 @@ namespace RazerBatteryTray
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern IntPtr GetModuleHandle(string lpModuleName);
 
-        // ==================== System Uptime ====================
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint GetShortPathName(string lpszLongPath, StringBuilder lpszShortPath, uint cchBuffer);
+
+        // ==================== System Uptime & Process Queries ====================
         [DllImport("kernel32.dll")]
         public static extern ulong GetTickCount64();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
         // ==================== AppUserModelID & Shell ====================
         [DllImport("shell32.dll", SetLastError = true)]
@@ -60,8 +106,21 @@ namespace RazerBatteryTray
         public static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
 
         public const int WM_INPUT = 0x00FF;
+        public const int WM_SIZING = 0x0214;
+        public const int WM_ENTERSIZEMOVE = 0x0231;
+        public const int WM_EXITSIZEMOVE = 0x0232;
         public const int WM_DPICHANGED = 0x02E0;
         public const int WM_DEVICECHANGE = 0x0219;
+
+        public const int WMSZ_LEFT = 1;
+        public const int WMSZ_RIGHT = 2;
+        public const int WMSZ_TOP = 3;
+        public const int WMSZ_TOPLEFT = 4;
+        public const int WMSZ_TOPRIGHT = 5;
+        public const int WMSZ_BOTTOM = 6;
+        public const int WMSZ_BOTTOMLEFT = 7;
+        public const int WMSZ_BOTTOMRIGHT = 8;
+
         public const int DBT_DEVICEARRIVAL = 0x8000;
         public const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
         public const int DBT_DEVNODES_CHANGED = 0x0007;

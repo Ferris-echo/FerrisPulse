@@ -2,9 +2,11 @@
 // 模块名称: MchoseDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   迈从 (MCHOSE) G87 V2 三模机械键盘 2.4G 电量与充电状态适配：
-//   0x4A 无线电池查询、0x87 有线电池查询、Report ID 0x13/0x09、
-//   64 字节 HID 报告与离线电量缓存。
+//   迈从 (MCHOSE) G87 V2 / G75 PRO / G98V2 / Z75S 三模机械键盘电量与充电状态适配：
+//   G87 V2 使用 65 字节 0x55/0x4A/0x87 协议；G75 PRO (3554:FA09)
+//   使用 FF02/0002、20 字节 Report ID 0x13 / 命令 0x4A 协议与独立缓存（含 KZZI 0x05 指纹避让）。
+//   SINOWEALTH 系 2.4G（Z75S 258A:01BB，G98V2 41E4:2004）用型号字节区分（Z75S=0x09, G98V2=0x18）。
+//   特别鸣谢社区贡献者：“yaphets”。
 // 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, Microsoft.Win32
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -15,6 +17,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32;
 
 namespace RazerBatteryTray
@@ -26,6 +32,40 @@ namespace RazerBatteryTray
 
         public const int VendorIdMchose = 0x3837;
         public const int PidG87V2 = 0x3033;
+        /// <summary>
+        /// K99 V3 有线直连身份。与 2.4G 接收器 PidG87V2 是同一把键盘的两个硬件身份：
+        /// 开关拨 OFF 并插 USB 线时只枚举本 PID，2.4G 接收器随之断链（仍枚举但不转发厂商报文）。
+        /// </summary>
+        public const int PidK99V3Wired = 0x2020;
+        /// <summary>
+        /// K99 V3 蓝牙 BLE 身份。实测（2026-10-31，本机）：
+        ///   BTHLEDEVICE\{GATT GUID}_DEV_VID&amp;0107D7_PID&amp;EFFF_REV&amp;0120_&lt;MAC&gt;\...
+        /// 蓝牙形态用的是一组**公版** VID/PID（07D7:EFFF），不是迈从自有 VID 0x3837，
+        /// 与 2.4G(0x3033) / 有线(0x2020) 完全不同。因此绝不能只凭 VID/PID 认设备——
+        /// 07D7:EFFF 可能被大量蓝牙键盘共用，必须再叠加 FriendlyName 的 "MCHOSE" 前缀校验。
+        /// </summary>
+        public const int BleVendorIdK99V3 = 0x07D7;
+        public const int BlePidK99V3 = 0xEFFF;
+        /// <summary>BLE 设备的 FriendlyName 必须含该标记，避免误认其它同 VID/PID 的公版蓝牙键盘。</summary>
+        private const string BleNameToken = "MCHOSE";
+
+        public const int VendorIdCompX = 0x3554;
+        public const int PidG75Pro = 0xFA09;
+        public const int VendorIdZ75s = 0x258A;
+        public const int PidZ75sWireless = 0x01BB;
+        // G98V2 的 2.4G 方案同样由 SINOWEALTH 提供，与 Z75S 帧格式一致但型号字节不同。
+        public const int VendorIdG98V2 = 0x41E4;
+        public const int PidG98V2Wireless = 0x2004;
+        private const int Z75sReportLength = 20;
+        private const byte Z75sModelByte = 0x09;
+        private const byte G98V2ModelByte = 0x18;
+        private const string Z75sModelToken = "0A0000000009";
+        private const string G98V2ModelToken = "0A0000000018";
+        private static readonly object z75sLock = new object();
+        private static DateTime lastZ75sQueryTime = DateTime.MinValue;
+        private static List<MouseBatteryInfo> cachedZ75sDevices = new List<MouseBatteryInfo>();
+        private static readonly Dictionary<string, MouseBatteryInfo> z75sSamples =
+            new Dictionary<string, MouseBatteryInfo>(StringComparer.OrdinalIgnoreCase);
 
         private const byte WirelessReportId = 0x13;
         private const byte WiredReportId = 0x09;
@@ -33,9 +73,21 @@ namespace RazerBatteryTray
         private const byte WiredBatteryCommand = 0x87;
         private const byte PerformanceCommand = 0x55;
         private const int PerformanceFrameLength = 64;
+        /// <summary>
+        /// 0x55 性能帧数据区偏移（相对帧首 0xAA，即 report[offset]）。
+        /// 实测 K99 V3/G87 V2 固件：[40] = bit7 充电标志 | 低 7 位电量百分比；[42] = 传输形态。
+        /// 旧固件按 [41] 存 isCharging 的写法只在 bit7 恰好为 1 时"看起来能用"，
+        /// 电量大于 127 会溢出成 >100 被整体判为无效，因此必须按位域解析。
+        /// </summary>
         private const int PerformanceBatteryOffset = 40;
-        private const int PerformanceChargingOffset = 41;
+        private const int PerformanceBatteryMask = 0x7F;
+        private const int PerformanceChargingMask = 0x80;
+        /// <summary>传输形态字节：0x01 = USB 有线直连，0x02 = 2.4G 接收器。</summary>
+        private const int PerformanceTransportOffset = 42;
+        private const byte TransportValueWired = 0x01;
+        private const byte TransportValueWireless = 0x02;
         private const int ReportLength = 65;
+        private const int G75ReportLength = 20;
         private const int ReadTimeoutMs = 320;
         private const int QueryThrottleMs = 5000;
 
@@ -45,6 +97,10 @@ namespace RazerBatteryTray
         private static bool cachedCharging = false;
         private static string cachedDeviceName = "MCHOSE G87 V2";
         private static DateTime cachedLastUpdated = DateTime.MinValue;
+        private static int cachedG75Battery = -1;
+        private static bool cachedG75Charging = false;
+        private static string cachedG75DeviceName = "MCHOSE G75 PRO";
+        private static DateTime cachedG75LastUpdated = DateTime.MinValue;
 
         static MchoseDeviceHelper()
         {
@@ -53,16 +109,66 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedVidPid(int vid, int pid)
         {
-            return vid == VendorIdMchose && pid == PidG87V2;
+            return (vid == VendorIdMchose && pid == PidG87V2) ||
+                   (vid == VendorIdMchose && pid == PidK99V3Wired) ||
+                   (vid == VendorIdCompX && pid == PidG75Pro) ||
+                   (vid == VendorIdZ75s && pid == PidZ75sWireless) ||
+                   (vid == VendorIdG98V2 && pid == PidG98V2Wireless);
         }
 
         public static bool IsMchoseKeyboard(string identifier)
         {
             if (string.IsNullOrEmpty(identifier)) return false;
             string lower = identifier.ToLowerInvariant();
-            bool isVid = lower.Contains("vid_3837") || lower.Contains("3837:") || lower.Contains("3837&");
-            if (!isVid) return false;
-            return lower.Contains("pid_3033") || lower.Contains(":3033");
+            bool isG87 = (lower.Contains("vid_3837") || lower.Contains("3837:") || lower.Contains("3837&")) &&
+                         (lower.Contains("pid_3033") || lower.Contains(":3033") ||
+                          lower.Contains("pid_2020") || lower.Contains(":2020"));
+            bool isG75 = (lower.Contains("vid_3554") || lower.Contains("3554:") || lower.Contains("3554&")) &&
+                         (lower.Contains("pid_fa09") || lower.Contains(":fa09"));
+            bool isZ75s = (lower.Contains("vid_258a") || lower.Contains("258a:") || lower.Contains("258a&")) &&
+                          (lower.Contains("pid_01bb") || lower.Contains(":01bb"));
+            bool isG98V2 = (lower.Contains("vid_41e4") || lower.Contains("41e4:") || lower.Contains("41e4&")) &&
+                           (lower.Contains("pid_2004") || lower.Contains(":2004"));
+            return isG87 || isG75 || isZ75s || isG98V2;
+        }
+
+        /// <summary>
+        /// 根据 VID/PID 给出迈从设备的权威品类判定。
+        /// 4D 协议族（K7 V2 Ultra+ 等）与旧版 A5 V2 Ultra 都是鼠标；
+        /// G87 V2 / G75 PRO / Z75s 是键盘。
+        /// 用途：修正被误写进注册表的品类。这些复合外设在 USB 描述符里
+        /// 同时暴露键盘与鼠标接口（K7 V2 Ultra+ 的 MI_01 就是 HID Keyboard），
+        /// 用户手动添加设备时很容易被记成 Keyboard；一旦固化进注册表，
+        /// 鼠标驱动的 CanHandle 会因品类不符拒绝接管，DPI 与回报率控件整块消失。
+        /// </summary>
+        public static bool TryGetAuthoritativeCategory(string deviceId, string hardwareFingerprint, out DeviceCategory category)
+        {
+            category = DeviceCategory.Generic;
+            int vid = 0;
+            int pid = 0;
+            bool vidPidOk = HardwareDriverBase.TryExtractVidPidFromString(deviceId, out vid, out pid);
+            if (!vidPidOk)
+            {
+                vidPidOk = HardwareDriverBase.TryExtractVidPidFromString(hardwareFingerprint, out vid, out pid);
+            }
+            if (!vidPidOk) return false;
+
+            if (vid == VendorIdMchose && MchoseMouse4DHelper.IsSupportedPid(pid))
+            {
+                category = DeviceCategory.Mouse;
+                return true;
+            }
+
+            if ((vid == VendorIdMchose && (pid == PidG87V2 || pid == PidK99V3Wired)) ||
+                (vid == VendorIdCompX && pid == PidG75Pro) ||
+                (vid == VendorIdZ75s && pid == PidZ75sWireless) ||
+                (vid == VendorIdG98V2 && pid == PidG98V2Wireless))
+            {
+                category = DeviceCategory.Keyboard;
+                return true;
+            }
+
+            return false;
         }
 
         public static string GetModelName(string productString)
@@ -78,6 +184,12 @@ namespace RazerBatteryTray
             return "MCHOSE G87 V2";
         }
 
+        public static string GetModelName(int pid, string productString)
+        {
+            if (pid == PidG75Pro) return "MCHOSE G75 PRO";
+            return GetModelName(productString);
+        }
+
         /// <summary>
         /// 构建 0x4A 无线电池查询帧。校验和覆盖 Report ID 0x13 在内的前 19 字节。
         /// </summary>
@@ -91,6 +203,42 @@ namespace RazerBatteryTray
             for (int i = 0; i <= 18; i++) sum += frame[i];
             frame[19] = (byte)(sum & 0xFF);
             return frame;
+        }
+
+        /// <summary>
+        /// 构建 G75 PRO 2.4G 电量查询帧。实机端点要求恰好 20 字节，
+        /// 校验和为前 19 字节无符号和的低 8 位。
+        /// </summary>
+        public static byte[] BuildG75BatteryFrame()
+        {
+            byte[] frame = new byte[G75ReportLength];
+            frame[0] = WirelessReportId;
+            frame[1] = WirelessBatteryCommand;
+            int sum = 0;
+            for (int i = 0; i < G75ReportLength - 1; i++) sum += frame[i];
+            frame[G75ReportLength - 1] = (byte)(sum & 0xFF);
+            return frame;
+        }
+
+        public static bool ParseG75BatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            if (report == null || length < G75ReportLength || report.Length < G75ReportLength) return false;
+            if (report[0] != WirelessReportId || (report[1] & 0x7F) != WirelessBatteryCommand) return false;
+
+            int sum = 0;
+            for (int i = 0; i < G75ReportLength - 1; i++) sum += report[i];
+            if ((byte)(sum & 0xFF) != report[G75ReportLength - 1]) return false;
+
+            int battery = report[5];
+            byte state = report[6];
+            if (battery < 0 || battery > 100) return false;
+            if (state != 0x01 && state != 0x10) return false;
+
+            batteryPercent = battery;
+            isCharging = state == 0x10;
+            return true;
         }
 
         public static byte[] BuildWiredBatteryFrame()
@@ -129,11 +277,43 @@ namespace RazerBatteryTray
             if (offset < 0) return false;
             if (length < offset + PerformanceBatteryOffset + 2) return false;
 
-            int battery = report[offset + PerformanceBatteryOffset];
-            if (battery < 0 || battery > 100) return false;
+            // 电量与充电共用一个字节：bit7 是充电标志，低 7 位才是百分比。
+            // 插着 USB 线充电时该字节形如 0xC3(=195)，若直接把整字节当百分比会超出 0-100
+            // 而被判为无效报文，导致电量与充电状态同时丢失。
+            int raw = report[offset + PerformanceBatteryOffset];
+            int battery = raw & PerformanceBatteryMask;
+            if (battery > 100) return false;
             batteryPercent = battery;
-            isCharging = report[offset + PerformanceChargingOffset] != 0;
+            isCharging = (raw & PerformanceChargingMask) != 0;
             return true;
+        }
+
+        /// <summary>
+        /// 从 0x55 性能帧解析当前传输形态。0x01 = USB 有线直连，0x02 = 2.4G 接收器。
+        /// 返回 false 表示该帧不含形态信息（旧固件或长度不足），调用方应沿用已有判定。
+        /// </summary>
+        public static bool TryParsePerformanceTransport(byte[] report, int length, out bool isWired)
+        {
+            isWired = false;
+            if (report == null) return false;
+            int offset = -1;
+            if (length >= PerformanceTransportOffset + 1 && report[0] == 0xAA && report[1] == 0x05) offset = 0;
+            else if (length >= PerformanceTransportOffset + 2 && report[0] == 0x00 && report[1] == 0xAA && report[2] == 0x05) offset = 1;
+            if (offset < 0) return false;
+            if (length < offset + PerformanceTransportOffset + 1) return false;
+
+            byte transport = report[offset + PerformanceTransportOffset];
+            if (transport == TransportValueWired)
+            {
+                isWired = true;
+                return true;
+            }
+            if (transport == TransportValueWireless)
+            {
+                isWired = false;
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -170,6 +350,292 @@ namespace RazerBatteryTray
             return true;
         }
 
+        /// <summary>
+        /// Z75S: Windows 缓冲区已包含 Report ID 0x13，不再补前导 0。
+        /// 官方 M HUB 的 0x05 型号标识为 0A0000000009；同 VID/PID 的 Z75 必须排除。
+        /// </summary>
+        public static byte[] BuildZ75sIdentityFrame()
+        {
+            return BuildZ75sFrame(0x05);
+        }
+
+        public static byte[] BuildZ75sBatteryFrame()
+        {
+            return BuildZ75sFrame(WirelessBatteryCommand);
+        }
+
+        private static byte[] BuildZ75sFrame(byte command)
+        {
+            byte[] frame = new byte[Z75sReportLength];
+            frame[0] = WirelessReportId;
+            frame[1] = command;
+            frame[2] = 1;
+            frame[19] = (byte)((frame[0] + frame[1] + frame[2]) & 0xFF);
+            return frame;
+        }
+
+        private static bool IsZ75sResponse(byte[] report, int length, byte command, byte payloadLength)
+        {
+            if (report == null || length != Z75sReportLength || report.Length < length) return false;
+            if (report[0] != WirelessReportId || report[1] != command || report[2] != 1 ||
+                report[3] != 0 || report[4] != payloadLength) return false;
+            int sum = 0;
+            for (int i = 0; i < 19; i++) sum += report[i];
+            return report[19] == (byte)(sum & 0xFF);
+        }
+
+        /// <summary>
+        /// 校验 SINOWEALTH 系型号应答，并回传型号标识字节（0x09 = Z75S，0x18 = G98V2）。
+        /// </summary>
+        public static bool ParseSinowealthIdentityResponse(byte[] report, int length, out byte modelByte)
+        {
+            modelByte = 0;
+            if (!IsZ75sResponse(report, length, 0x05, 6)) return false;
+            if (report[5] != 0x0A || report[6] != 0 || report[7] != 0 || report[8] != 0 || report[9] != 0) return false;
+            byte value = report[10];
+            if (value != Z75sModelByte && value != G98V2ModelByte) return false;
+            modelByte = value;
+            return true;
+        }
+
+        public static bool ParseZ75sIdentityResponse(byte[] report, int length)
+        {
+            byte modelByte;
+            return ParseSinowealthIdentityResponse(report, length, out modelByte) && modelByte == Z75sModelByte;
+        }
+
+        public static bool ParseZ75sBatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            if (!IsZ75sResponse(report, length, WirelessBatteryCommand, 2) || report[5] > 100) return false;
+            batteryPercent = report[5];
+            // 官方 little-endian bit4(fullStatus) 在低半字节，chargeStatus 在高半字节。
+            // 满电位本身不等于“充电中”；实机插线状态是 0x10。
+            isCharging = (report[6] & 0xF0) != 0;
+            return true;
+        }
+
+        /// <summary>
+        /// 只接受已实测的 SINOWEALTH 接收器组合：258A:01BB（Z75S）与 41E4:2004（G98V2）。
+        /// 必须同时锁定 UsagePage/Usage 与 20 字节的 In/Out 长度，禁止宽松匹配。
+        /// </summary>
+        private static bool IsZ75sEndpoint(HidDeviceDescriptor descriptor)
+        {
+            if (descriptor == null || string.IsNullOrEmpty(descriptor.DevicePath)) return false;
+            bool knownPair = (descriptor.VendorId == VendorIdZ75s && descriptor.ProductId == PidZ75sWireless) ||
+                             (descriptor.VendorId == VendorIdG98V2 && descriptor.ProductId == PidG98V2Wireless);
+            return knownPair && descriptor.UsagePage == 0xFF02 &&
+                descriptor.Usage == 2 && descriptor.InputReportLength == Z75sReportLength &&
+                descriptor.OutputReportLength == Z75sReportLength;
+        }
+
+        private static bool IsG98V2Endpoint(HidDeviceDescriptor descriptor)
+        {
+            return descriptor != null && descriptor.VendorId == VendorIdG98V2 &&
+                descriptor.ProductId == PidG98V2Wireless;
+        }
+
+        private static string GetZ75sEndpointKey(HidDeviceDescriptor descriptor)
+        {
+            return string.IsNullOrEmpty(descriptor.InstanceId) ? descriptor.DevicePath : descriptor.InstanceId;
+        }
+
+        private static string GetZ75sCachePath(HidDeviceDescriptor descriptor)
+        {
+            // 可逆编码实例标识，避免替换分隔符造成两个接收器的缓存键碰撞。
+            byte[] bytes = Encoding.UTF8.GetBytes(GetZ75sEndpointKey(descriptor).ToUpperInvariant());
+            return CacheRegistryKey + @"\Z75S\" + BitConverter.ToString(bytes).Replace("-", "");
+        }
+
+        private static MouseBatteryInfo CreateZ75sInfo(HidDeviceDescriptor descriptor, MouseBatteryInfo previous,
+            int battery, bool charging, bool fresh)
+        {
+            byte modelByte = IsG98V2Endpoint(descriptor) ? G98V2ModelByte : Z75sModelByte;
+            return BuildSinowealthInfo(descriptor, previous, battery, charging, fresh, modelByte);
+        }
+
+        private static MouseBatteryInfo BuildSinowealthInfo(HidDeviceDescriptor descriptor, MouseBatteryInfo previous,
+            int battery, bool charging, bool fresh, byte modelByte)
+        {
+            bool isG98V2 = modelByte == G98V2ModelByte;
+            string modelName = isG98V2 ? "MCHOSE G98V2" : "MCHOSE Z75S";
+            string modelId = isG98V2 ? "MCHOSE:41E4:2004" : "MCHOSE:258A:01BB";
+            bool hasPrevious = previous != null && previous.BatteryPercent >= 0 && previous.BatteryPercent <= 100;
+            MouseBatteryInfo info = new MouseBatteryInfo();
+            info.DeviceId = modelId;
+            info.HardwareFingerprint = isG98V2 ? "HID:41E4:2004" : "HID:258A:01BB";
+            info.HardwareId = descriptor.InstanceId;
+            info.DeviceName = modelName;
+            info.Brand = "MCHOSE";
+            info.Category = DeviceCategory.Keyboard;
+            info.Transport = "2.4G 无线";
+            info.IsCustom = false;
+            info.IsConnected = true;
+            info.IsDonglePresent = true;
+            info.IsSleeping = !fresh;
+            info.BatteryPercent = fresh ? battery : (hasPrevious ? previous.BatteryPercent : -1);
+            info.ExactBatteryPercent = info.BatteryPercent;
+            info.IsCharging = fresh ? charging : (hasPrevious && previous.IsCharging);
+            info.LastUpdated = fresh ? DateTime.Now : (hasPrevious ? previous.LastUpdated : DateTime.MinValue);
+            if (!fresh) info.CustomTooltip = modelName + " 接收器在线，键盘暂未响应；电量为上次真实读数（如有）";
+            return info;
+        }
+
+        private static bool IsKnownModelToken(string token)
+        {
+            return Z75sModelToken.Equals(token, StringComparison.Ordinal) ||
+                   G98V2ModelToken.Equals(token, StringComparison.Ordinal);
+        }
+
+        private static string GetModelToken(HidDeviceDescriptor descriptor)
+        {
+            return IsG98V2Endpoint(descriptor) ? G98V2ModelToken : Z75sModelToken;
+        }
+
+        private static MouseBatteryInfo LoadZ75sCache(HidDeviceDescriptor descriptor)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(GetZ75sCachePath(descriptor), false))
+                {
+                    if (key == null || !IsKnownModelToken(key.GetValue("ModelToken") as string) ||
+                        !GetZ75sEndpointKey(descriptor).Equals(key.GetValue("Endpoint") as string, StringComparison.OrdinalIgnoreCase)) return null;
+                    MouseBatteryInfo info = CreateZ75sInfo(descriptor, null, -1, false, false);
+                    int battery = Convert.ToInt32(key.GetValue("BatteryPercent", -1));
+                    DateTime updated;
+                    if (battery >= 0 && battery <= 100 && DateTime.TryParse(key.GetValue("LastUpdated") as string,
+                        CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out updated))
+                    {
+                        info.BatteryPercent = battery;
+                        info.ExactBatteryPercent = battery;
+                        info.IsCharging = Convert.ToInt32(key.GetValue("IsCharging", 0)) == 1;
+                        info.LastUpdated = updated;
+                    }
+                    return info;
+                }
+            }
+            catch { return null; }
+        }
+
+        private static void SaveZ75sCache(HidDeviceDescriptor descriptor, MouseBatteryInfo info)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(GetZ75sCachePath(descriptor)))
+                {
+                    if (key == null) return;
+                    key.SetValue("ModelToken", GetModelToken(descriptor), RegistryValueKind.String);
+                    key.SetValue("Endpoint", GetZ75sEndpointKey(descriptor), RegistryValueKind.String);
+                    if (info.BatteryPercent < 0) return; // 只持久化真实电量；型号握手成功也可单独记忆。
+                    key.SetValue("BatteryPercent", info.BatteryPercent, RegistryValueKind.DWord);
+                    key.SetValue("IsCharging", info.IsCharging ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("LastUpdated", info.LastUpdated.ToString("o", CultureInfo.InvariantCulture), RegistryValueKind.String);
+                }
+            }
+            catch { }
+        }
+
+        // 一次事务共用一个截止时间，无论成功/超时都由外层 5 秒节流。
+        private static bool ExchangeZ75sReport(IntPtr handle, byte[] tx, Stopwatch timer, out byte[] rx)
+        {
+            rx = null;
+            int remaining = ReadTimeoutMs - (int)timer.ElapsedMilliseconds;
+            if (remaining <= 0 || !HidTransport.WriteReport(handle, tx, tx.Length, remaining)) return false;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                remaining = ReadTimeoutMs - (int)timer.ElapsedMilliseconds;
+                if (remaining <= 0) break;
+                byte[] data;
+                if (!HidTransport.ReadReportExact(handle, Z75sReportLength, remaining, out data)) break;
+                if (!IsZ75sResponse(data, data.Length, tx[1], tx[1] == 0x05 ? (byte)6 : (byte)2)) continue;
+                rx = data;
+                return true;
+            }
+            return false;
+        }
+
+        private static bool QueryZ75sDevice(HidDeviceDescriptor descriptor, out bool verified, out bool differentModel,
+            out int battery, out bool charging, out byte modelByte)
+        {
+            verified = false;
+            differentModel = false;
+            battery = -1;
+            charging = false;
+            modelByte = 0;
+            // 只打开厂商配置集合，按键集合（Usage 1/6、\\kbd）绝不进入中断 I/O。
+            if (!IsZ75sEndpoint(descriptor)) return false;
+            IntPtr handle = HidTransport.Open(descriptor.DevicePath);
+            if (!HidTransport.IsValidHandle(handle)) return false;
+            try
+            {
+                Stopwatch timer = Stopwatch.StartNew();
+                HidTransport.DrainReports(handle, Z75sReportLength, 3);
+                byte[] rx;
+                if (!ExchangeZ75sReport(handle, BuildZ75sIdentityFrame(), timer, out rx)) return false;
+                byte detected;
+                verified = ParseSinowealthIdentityResponse(rx, rx.Length, out detected);
+                if (!verified)
+                {
+                    differentModel = true;
+                    return false;
+                }
+                modelByte = detected;
+                if (!ExchangeZ75sReport(handle, BuildZ75sBatteryFrame(), timer, out rx)) return false;
+                return ParseZ75sBatteryResponse(rx, rx.Length, out battery, out charging);
+            }
+            catch { return false; }
+            finally { HidTransport.Close(handle); }
+        }
+
+        private static List<MouseBatteryInfo> QueryAllZ75sDevices()
+        {
+            lock (z75sLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                if ((now - lastZ75sQueryTime).TotalMilliseconds < QueryThrottleMs)
+                    return new List<MouseBatteryInfo>(cachedZ75sDevices);
+                lastZ75sQueryTime = now;
+                List<MouseBatteryInfo> result = new List<MouseBatteryInfo>();
+                List<HidDeviceDescriptor> descriptors = new List<HidDeviceDescriptor>();
+                descriptors.AddRange(HidTransport.Enumerate(VendorIdZ75s, PidZ75sWireless));
+                descriptors.AddRange(HidTransport.Enumerate(VendorIdG98V2, PidG98V2Wireless));
+                HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < descriptors.Count; i++)
+                {
+                    HidDeviceDescriptor descriptor = descriptors[i];
+                    if (!IsZ75sEndpoint(descriptor)) continue;
+                    string endpoint = GetZ75sEndpointKey(descriptor);
+                    if (!seen.Add(endpoint)) continue;
+                    MouseBatteryInfo previous;
+                    if (!z75sSamples.TryGetValue(endpoint, out previous)) previous = LoadZ75sCache(descriptor);
+                    bool verified;
+                    bool differentModel;
+                    int battery;
+                    bool charging;
+                    byte modelByte;
+                    bool fresh = QueryZ75sDevice(descriptor, out verified, out differentModel, out battery, out charging, out modelByte);
+                    if (differentModel)
+                    {
+                        z75sSamples.Remove(endpoint);
+                        try { Registry.CurrentUser.DeleteSubKeyTree(GetZ75sCachePath(descriptor), false); } catch { }
+                        continue;
+                    }
+                    if (!verified && previous == null) continue; // 冷启动无型号响应时不猜测机型。
+                    byte effectiveModel = verified ? modelByte
+                        : (IsG98V2Endpoint(descriptor) ? G98V2ModelByte : Z75sModelByte);
+                    MouseBatteryInfo info = BuildSinowealthInfo(descriptor, previous, battery, charging, fresh, effectiveModel);
+                    z75sSamples[endpoint] = info;
+                    if (verified) SaveZ75sCache(descriptor, info);
+                    result.Add(info);
+                }
+                // 拔下接收器后立即从下一轮枚举结果移除；持久化记录仅供其再次接入时使用。
+                cachedZ75sDevices = new List<MouseBatteryInfo>(result);
+                return result;
+            }
+        }
+
+
         private static void LoadHardwareCache()
         {
             try
@@ -188,6 +654,19 @@ namespace RazerBatteryTray
                     {
                         DateTime dt;
                         if (DateTime.TryParse(updated, out dt)) cachedLastUpdated = dt;
+                    }
+
+                    object g75Batt = key.GetValue("G75BatteryPercent");
+                    if (g75Batt != null) cachedG75Battery = Convert.ToInt32(g75Batt);
+                    object g75Chg = key.GetValue("G75IsCharging");
+                    if (g75Chg != null) cachedG75Charging = Convert.ToInt32(g75Chg) == 1;
+                    string g75Name = key.GetValue("G75DeviceName") as string;
+                    if (!string.IsNullOrEmpty(g75Name)) cachedG75DeviceName = g75Name;
+                    string g75Updated = key.GetValue("G75LastUpdated") as string;
+                    if (!string.IsNullOrEmpty(g75Updated))
+                    {
+                        DateTime g75Date;
+                        if (DateTime.TryParse(g75Updated, out g75Date)) cachedG75LastUpdated = g75Date;
                     }
                 }
             }
@@ -214,10 +693,145 @@ namespace RazerBatteryTray
             catch { }
         }
 
-        private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName)
+        private static void SaveG75HardwareCache(int battery, bool charging, string deviceName)
+        {
+            cachedG75Battery = battery;
+            cachedG75Charging = charging;
+            cachedG75DeviceName = deviceName;
+            cachedG75LastUpdated = DateTime.Now;
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(CacheRegistryKey))
+                {
+                    if (key == null) return;
+                    key.SetValue("G75BatteryPercent", battery, RegistryValueKind.DWord);
+                    key.SetValue("G75IsCharging", charging ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("G75DeviceName", deviceName, RegistryValueKind.String);
+                    key.SetValue("G75LastUpdated", DateTime.Now.ToString("o"), RegistryValueKind.String);
+                }
+            }
+            catch { }
+        }
+
+        private static bool QueryG75Device(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging)
         {
             batteryPercent = -1;
             isCharging = false;
+            if (descriptor == null || descriptor.VendorId != VendorIdCompX || descriptor.ProductId != PidG75Pro) return false;
+            if (descriptor.UsagePage != 0xFF02 || descriptor.Usage != 0x0002 ||
+                descriptor.InputReportLength != G75ReportLength || descriptor.OutputReportLength != G75ReportLength) return false;
+
+            IntPtr handle = HidTransport.Open(descriptor.DevicePath);
+            if (!HidTransport.IsValidHandle(handle)) return false;
+            try
+            {
+                HidTransport.DrainReports(handle, G75ReportLength, 8);
+                byte[] query = BuildG75BatteryFrame();
+                if (!HidTransport.WriteReport(handle, query, query.Length, 650)) return false;
+
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] response;
+                    if (!HidTransport.ReadReport(handle, G75ReportLength, ReadTimeoutMs, out response)) continue;
+                    int battery;
+                    bool charging;
+                    if (!ParseG75BatteryResponse(response, response.Length, out battery, out charging)) continue;
+                    batteryPercent = battery;
+                    isCharging = charging;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                HidTransport.Close(handle);
+            }
+            return false;
+        }
+
+        private static void AppendG75Device(List<MouseBatteryInfo> result)
+        {
+            List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdCompX, PidG75Pro);
+            HidDeviceDescriptor selected = null;
+            for (int i = 0; i < descriptors.Count; i++)
+            {
+                HidDeviceDescriptor descriptor = descriptors[i];
+                if (descriptor.UsagePage == 0xFF02 && descriptor.Usage == 0x0002 &&
+                    descriptor.InputReportLength == G75ReportLength && descriptor.OutputReportLength == G75ReportLength)
+                {
+                    selected = descriptor;
+                    break;
+                }
+            }
+            if (selected == null) return;
+
+            // 3554:FA09 是 CompX 公版 PID，KZZI K75 等键盘共用；先做 0x05 状态指纹识别，
+            // 命中则交给 KzziDeviceHelper，避免被误标为 MCHOSE G75 PRO。
+            if (KzziDeviceHelper.TryIdentifyKzziK75(selected)) return;
+
+            int battery;
+            bool charging;
+            bool ok = QueryG75Device(selected, out battery, out charging);
+            string name = GetModelName(PidG75Pro, selected.ProductString);
+            if (!ok && !string.IsNullOrEmpty(cachedG75DeviceName)) name = cachedG75DeviceName;
+
+            MouseBatteryInfo info = new MouseBatteryInfo();
+            info.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
+            info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
+            info.HardwareId = selected.InstanceId;
+            info.DriverId = "BuiltIn:MchoseKeyboard";
+            info.DeviceName = name;
+            info.Brand = "MCHOSE";
+            info.Category = DeviceCategory.Keyboard;
+            info.Transport = "2.4G 无线";
+            info.IsCustom = false;
+            info.IsDonglePresent = true;
+            info.Capabilities.SupportsBattery = true;
+
+            if (ok)
+            {
+                info.IsConnected = true;
+                info.IsSleeping = false;
+                info.IsCharging = charging;
+                info.BatteryPercent = battery;
+                info.ExactBatteryPercent = battery;
+                info.LastUpdated = DateTime.Now;
+                SaveG75HardwareCache(battery, charging, name);
+            }
+            else
+            {
+                info.IsConnected = false;
+                info.IsSleeping = true;
+                info.IsCharging = cachedG75Battery >= 0 ? cachedG75Charging : false;
+                info.BatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : -1;
+                info.ExactBatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : 0;
+                info.LastUpdated = cachedG75Battery >= 0 ? cachedG75LastUpdated : DateTime.Now;
+                info.CustomTooltip = "MCHOSE G75 PRO 接收器在线；键盘可能休眠，正在保留上次电量";
+            }
+
+            result.Add(info);
+        }
+
+        private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName)
+        {
+            bool transportWired;
+            bool transportKnown;
+            return QueryDevice(descriptor, out batteryPercent, out isCharging, out deviceName, out transportWired, out transportKnown);
+        }
+
+        /// <summary>
+        /// 查询单端点电量/充电/形态。形态来自 0x55 性能帧 [42]：
+        /// 0x01 = USB 有线直连，0x02 = 2.4G 接收器。旧固件帧不含该字节时 transportKnown 为 false，
+        /// 调用方应回退到「该端点自身的 PID 身份」判定形态。
+        /// </summary>
+        private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName, out bool transportWired, out bool transportKnown)
+        {
+            batteryPercent = -1;
+            isCharging = false;
+            transportWired = false;
+            transportKnown = false;
             deviceName = GetModelName(descriptor.ProductString);
 
             IntPtr handle = HidTransport.Open(descriptor.DevicePath);
@@ -250,6 +864,12 @@ namespace RazerBatteryTray
                         int battery;
                         bool charging;
                         if (!ParsePerformanceResponse(rx, inputLength, out battery, out charging)) continue;
+                        bool isWiredTransport;
+                        if (TryParsePerformanceTransport(rx, inputLength, out isWiredTransport))
+                        {
+                            transportWired = isWiredTransport;
+                            transportKnown = true;
+                        }
                         batteryPercent = battery;
                         isCharging = charging;
                         return true;
@@ -295,6 +915,85 @@ namespace RazerBatteryTray
 
         public static List<MouseBatteryInfo> QueryAllMchoseDevices()
         {
+            List<MouseBatteryInfo> result = QueryAllG87AndG75Devices();
+            result.AddRange(QueryAllZ75sDevices());
+            return result;
+        }
+
+        /// <summary>
+        /// 单个 USB 硬件身份（一个 PID）的查询结果。
+        /// </summary>
+        private sealed class EndpointReading
+        {
+            public HidDeviceDescriptor Descriptor;
+            public bool Responded;
+            public int Battery = -1;
+            public bool Charging;
+            public bool TransportWired;
+            public bool TransportKnown;
+            public string Name;
+            public bool IsWiredPid;
+        }
+
+        /// <summary>
+        /// 依次尝试候选端点，返回第一个真正回出 0x55 性能帧的读数。
+        /// </summary>
+        private static EndpointReading ReadEndpoint(List<HidDeviceDescriptor> candidates, bool isWiredPid)
+        {
+            EndpointReading reading = new EndpointReading();
+            reading.IsWiredPid = isWiredPid;
+            if (candidates == null || candidates.Count == 0) return reading;
+
+            reading.Descriptor = candidates[0];
+            reading.Name = GetModelName(candidates[0].ProductString);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                int battery;
+                bool charging;
+                string name;
+                bool transportWired;
+                bool transportKnown;
+                if (QueryDevice(candidates[i], out battery, out charging, out name, out transportWired, out transportKnown))
+                {
+                    reading.Descriptor = candidates[i];
+                    reading.Responded = true;
+                    reading.Battery = battery;
+                    reading.Charging = charging;
+                    reading.TransportWired = transportWired;
+                    reading.TransportKnown = transportKnown;
+                    reading.Name = name;
+                    return reading;
+                }
+            }
+            return reading;
+        }
+
+        /// <summary>
+        /// 收集一个 PID 的全部候选端点，主集合（UsagePage=1 / Usage=0）排最前。
+        /// </summary>
+        private static List<HidDeviceDescriptor> CollectCandidates(int pid)
+        {
+            List<HidDeviceDescriptor> candidates = new List<HidDeviceDescriptor>();
+            List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdMchose, pid);
+            HidDeviceDescriptor primary = null;
+            for (int i = 0; i < descriptors.Count; i++)
+            {
+                HidDeviceDescriptor d = descriptors[i];
+                if (d.InputReportLength < ReportLength || d.OutputReportLength < ReportLength) continue;
+                if (primary == null && d.UsagePage == 1 && d.Usage == 0) primary = d;
+                candidates.Add(d);
+            }
+            if (primary != null)
+            {
+                candidates.Remove(primary);
+                candidates.Insert(0, primary);
+            }
+            return candidates;
+        }
+
+        private static List<MouseBatteryInfo> QueryAllG87AndG75Devices()
+        {
             lock (hidLock)
             {
                 if ((DateTime.Now - lastQueryTime).TotalMilliseconds < QueryThrottleMs)
@@ -304,71 +1003,126 @@ namespace RazerBatteryTray
                 lastQueryTime = DateTime.Now;
 
                 List<MouseBatteryInfo> result = new List<MouseBatteryInfo>();
-                List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdMchose, PidG87V2);
-                List<HidDeviceDescriptor> candidates = new List<HidDeviceDescriptor>();
-                HidDeviceDescriptor primary = null;
-                for (int i = 0; i < descriptors.Count; i++)
+                AppendG75Device(result);
+
+                // 蓝牙形态优先：键盘切到蓝牙后，2.4G 接收器通常仍插在机器上但已断链，
+                // 此时 0x55 通道只会回忙标志或干脆无应答。若同一把键盘的 BLE 节点在线，
+                // 就只保留 BLE 实时卡，避免一台物理键盘在列表里出现两张卡片。
+                //
+                // 性能要点（本机实测，务必保留）：键盘切到蓝牙后，2.4G/有线端点每次探测
+                // 都要把 ReadTimeoutMs(320) 的超时耗完才放弃，单轮查询会明显变慢。
+                // BLE 在线时必须直接返回，跳过后续 USB 探测。
+                MouseBatteryInfo bleDevice = QueryMchoseK99V3Ble();
+                if (bleDevice != null && bleDevice.IsConnected)
                 {
-                    HidDeviceDescriptor d = descriptors[i];
-                    if (d.InputReportLength < ReportLength || d.OutputReportLength < ReportLength) continue;
-                    if (primary == null && d.UsagePage == 1 && d.Usage == 0) primary = d;
-                    candidates.Add(d);
-                }
-                if (candidates.Count == 0) return result;
-                if (primary != null)
-                {
-                    candidates.Remove(primary);
-                    candidates.Insert(0, primary);
+                    result.Add(bleDevice);
+                    cachedDevices = new List<MouseBatteryInfo>(result);
+                    return result;
                 }
 
-                int battery = -1;
-                bool charging = false;
-                string name = GetModelName(candidates[0].ProductString);
-                bool ok = false;
-                HidDeviceDescriptor selected = candidates[0];
-                for (int i = 0; i < candidates.Count; i++)
+                // K99 V3 / G87 V2 同一把键盘有两个 USB 硬件身份：
+                //   0x3033 = 2.4G 接收器通道（键盘开关拨到 2.4G 时才转发性能帧）
+                //   0x2020 = USB 有线直连（开关拨到 OFF 并插线时才有）
+                // 两者可以同时枚举：插着 USB 线给 2.4G 键盘充电时两端点都回帧，
+                // 但充电位只出现在有线端点 —— 必须同时查询再合并，否则「充电中」永远读不到。
+                EndpointReading wireless = ReadEndpoint(CollectCandidates(PidG87V2), false);
+                EndpointReading wired = ReadEndpoint(CollectCandidates(PidK99V3Wired), true);
+
+                // 两个身份都没枚举到，说明这把键盘当前不在这台机器上。
+                if (wireless.Descriptor == null && wired.Descriptor == null)
                 {
-                    if (QueryDevice(candidates[i], out battery, out charging, out name))
-                    {
-                        selected = candidates[i];
-                        ok = true;
-                        break;
-                    }
+                    cachedDevices = new List<MouseBatteryInfo>(result);
+                    return result;
                 }
+
+                bool wirelessOnline = wireless.Responded;
+                bool wiredOnline = wired.Responded;
+
+                // 形态判定：2.4G 通道能回性能帧，说明开关就在 2.4G 档（此时有线端点只是供电+充电）；
+                // 只有有线端点能回帧，说明开关已拨 OFF，纯 USB 直连。
+                bool displayWired;
+                if (wirelessOnline && !wiredOnline) displayWired = false;
+                else if (wiredOnline && !wirelessOnline) displayWired = true;
+                else if (wirelessOnline && wiredOnline) displayWired = false;
+                else displayWired = (wired.Descriptor != null && wireless.Descriptor == null);
+
+                // 电量取主形态端点的读数；主形态没读数时用另一侧兜底。
+                int battery = -1;
+                if (!displayWired)
+                {
+                    battery = wirelessOnline ? wireless.Battery : (wiredOnline ? wired.Battery : -1);
+                }
+                else
+                {
+                    battery = wiredOnline ? wired.Battery : (wirelessOnline ? wireless.Battery : -1);
+                }
+
+                // 充电状态取两端点并集：插着 USB 线充电时只有有线端点会报充电位。
+                bool charging = (wirelessOnline && wireless.Charging) || (wiredOnline && wired.Charging);
+
+                // 充电期间固件上报的百分比不可信：实测 2.4G+USB 充电时 [41] 连续 13 分钟恒定 0xCA(74%)，
+                // 拔掉 USB 线的瞬间立刻跳到 0x64(100%)。说明充电时固件冻结在某个假值上（与官方 MCHOSE HUB
+                // 充电时只显示「充电中」不显示数字的行为一致）。因此充电中一律不采用该数值，
+                // 按「电量未知」处理，避免把假 74% 当成真实电量展示。
+                if (charging) battery = -1;
+
+                string name = null;
+                if (wirelessOnline && !string.IsNullOrEmpty(wireless.Name)) name = wireless.Name;
+                else if (wiredOnline && !string.IsNullOrEmpty(wired.Name)) name = wired.Name;
+                else if (wireless.Descriptor != null) name = wireless.Name;
+                else if (wired.Descriptor != null) name = wired.Name;
+                if (string.IsNullOrEmpty(name)) name = GetModelName(null);
+
+                HidDeviceDescriptor selected;
+                if (wirelessOnline) selected = wireless.Descriptor;
+                else if (wiredOnline) selected = wired.Descriptor;
+                else if (wireless.Descriptor != null) selected = wireless.Descriptor;
+                else selected = wired.Descriptor;
 
                 MouseBatteryInfo info = new MouseBatteryInfo();
+                // DeviceId 固定使用型号身份，不随连接形态变化：
+                // 否则在 2.4G / 有线之间切换时聚焦记忆（LastSelectedDevice）会因 ID 不同而失效。
                 info.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdMchose, PidG87V2);
                 info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", VendorIdMchose, PidG87V2);
-                info.HardwareId = selected.InstanceId;
+                info.HardwareId = selected != null ? selected.InstanceId : null;
                 info.DeviceName = name;
                 info.Brand = "MCHOSE";
                 info.Category = DeviceCategory.Keyboard;
-                info.Transport = "2.4G 无线";
+                info.Capabilities.SupportsBattery = true;
                 info.IsCustom = false;
-                info.IsDonglePresent = true;
+                info.IsDonglePresent = wireless.Descriptor != null;
                 info.LastUpdated = DateTime.Now;
 
-                if (ok)
+                if (displayWired)
+                {
+                    info.Transport = charging ? "USB 有线 + 充电" : "USB 有线";
+                }
+                else
+                {
+                    info.Transport = charging ? "2.4G 无线 + USB 充电" : "2.4G 无线";
+                }
+
+                if (wirelessOnline || wiredOnline)
                 {
                     info.IsConnected = true;
                     info.IsSleeping = false;
                     info.IsCharging = charging;
                     info.BatteryPercent = battery;
                     info.ExactBatteryPercent = battery;
-                    SaveHardwareCache(battery, charging, name);
+                    // 只在拿到可信电量时写缓存；充电中的冻结值不写，避免污染下次启动的兜底显示。
+                    if (battery >= 0) SaveHardwareCache(battery, charging, name);
                 }
                 else
                 {
-                    // 接收器与键盘均在线，但当前固件对 0x4A 查询只回固定状态帧：
-                    // 不得把设备误标为“离线”。保留在线卡片；有缓存则显示上次电量，
-                    // 无缓存则显示电量未知，等待后续抓包补齐真实命令。
+                    // 端点枚举到了但都不回性能帧：键盘可能休眠或走了别的通道。
+                    // 不得标为离线，也不得把缓存值当成实时值。
                     info.IsConnected = true;
                     info.IsSleeping = false;
                     info.IsCharging = cachedBattery >= 0 ? cachedCharging : false;
                     info.BatteryPercent = cachedBattery >= 0 ? cachedBattery : -1;
                     info.ExactBatteryPercent = cachedBattery >= 0 ? cachedBattery : 0;
                     info.LastUpdated = cachedBattery >= 0 ? cachedLastUpdated : DateTime.Now;
-                    info.CustomTooltip = "MCHOSE 2.4G 接收器在线；当前固件未返回 0x4A 电量报文";
+                    info.CustomTooltip = "MCHOSE 键盘在线；当前固件未返回电量报文（可能休眠或充电初始化中）";
                 }
 
                 result.Add(info);
@@ -376,5 +1130,378 @@ namespace RazerBatteryTray
                 return result;
             }
         }
+
+        /// <summary>
+        /// 查询蓝牙 BLE 形态下的迈从 K99 V3 键盘。
+        ///
+        /// 关键事实（本机实测，务必保留）：
+        /// 1. 蓝牙形态的 VID/PID 是公版 07D7:EFFF，与 2.4G(0x3033) / 有线(0x2020) 都不同，
+        ///    因此必须单独识别，且必须叠加 FriendlyName 的 "MCHOSE" 校验。
+        /// 2. Windows 把身份与电量拆在两个不同节点上：
+        ///      BTHLEDEVICE\{GATT GUID}_DEV_VID&amp;0107D7_PID&amp;EFFF_&lt;MAC&gt;\...  有 VID/PID，无电量
+        ///      BTHLE\DEV_&lt;MAC&gt;\...                                   有电量与名字，无 VID/PID
+        ///    必须先从服务节点取 MAC，再回父节点读电量，两步缺一不可。
+        /// 3. 蓝牙形态只暴露标准 GATT 服务（0x1800/0x1801/0x180A/0x180F/0x1812），
+        ///    没有任何厂商集合，因此拿不到 DPI / 回报率，能力必须如实降级。
+        /// 4. 标准 GATT 电池服务只给百分比，没有充电标志位，IsCharging 恒 false，绝不猜测。
+        ///
+        /// 未检测到在线 BLE 节点时返回 null（由调用方回退到 2.4G / 有线探测）。
+        /// </summary>
+        public static MouseBatteryInfo QueryMchoseK99V3Ble()
+        {
+            string mac;
+            if (!TryFindMchoseBleKeyboardMac(out mac)) return null;
+
+            string parentId = FindBleParentNodeId(mac);
+            if (string.IsNullOrEmpty(parentId)) return null;
+
+            string friendlyName;
+            int battery;
+            if (!TryReadBleParentNode(parentId, out friendlyName, out battery)) return null;
+
+            // 名字兜底：父节点读不到名字时用服务节点缓存的型号名，绝不编造。
+            string modelName = NormalizeBleKeyboardName(friendlyName);
+            if (string.IsNullOrEmpty(modelName))
+            {
+                modelName = !string.IsNullOrEmpty(cachedDeviceName) ? cachedDeviceName : "MCHOSE K99 V3";
+            }
+
+            MouseBatteryInfo dev = new MouseBatteryInfo();
+            // DeviceId 固定用 2.4G 形态的型号身份，与 QueryAllG87AndG75Devices 保持一致：
+            // 否则在 2.4G / 有线 / 蓝牙之间切换时，聚焦记忆（LastSelectedDevice）会因 ID 不同而失效。
+            dev.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdMchose, PidG87V2);
+            dev.HardwareFingerprint = string.Format("BLE:{0:X4}:{1:X4}", BleVendorIdK99V3, BlePidK99V3);
+            dev.HardwareId = parentId;
+            dev.DeviceName = modelName;
+            dev.Brand = "MCHOSE";
+            dev.Category = DeviceCategory.Keyboard;
+            dev.Capabilities.SupportsBattery = true;
+            dev.IsCustom = false;
+            dev.Transport = "蓝牙 BLE";
+            dev.IsConnected = battery >= 0;
+            dev.IsSleeping = false;
+            dev.IsDonglePresent = false;
+            dev.BatteryPercent = battery;
+            dev.ExactBatteryPercent = battery;
+            // 标准 GATT 电池服务没有充电位，恒为 false。
+            dev.IsCharging = false;
+            dev.LastUpdated = (battery >= 0) ? DateTime.Now : cachedLastUpdated;
+
+            // 蓝牙形态无厂商通道：DPI / 回报率留空，由 MchoseKeyboardDriver 依据能力契约降级。
+            dev.Dpi = 0;
+            dev.DpiY = 0;
+            dev.DpiStage = 0;
+            dev.DpiStageCount = 0;
+            dev.DpiStages = null;
+            dev.DpiStagesY = null;
+            dev.IsXyIndependent = false;
+            dev.XyRatio = 1.0;
+            dev.PollingRate = 0;
+            dev.SupportedPollingRates = new int[0];
+            dev.MaxPollingRate = 0;
+
+            if (battery >= 0) SaveHardwareCache(battery, false, modelName);
+            return dev;
+        }
+
+        /// <summary>
+        /// 从 BTHLEDEVICE 服务节点找出属于迈从键盘的 BLE 设备 MAC。
+        /// 同一 MAC 会对应多个 GATT 服务节点（0x1800/0x1801/0x180A/0x180F/0x1812），去重后返回。
+        /// </summary>
+        public static bool TryFindMchoseBleKeyboardMac(out string mac)
+        {
+            mac = null;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLEDEVICE", IntPtr.Zero, BleDigcfPresent | BleDigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return false;
+
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+
+                    string instId = idSb.ToString();
+                    int nodeVid, nodePid;
+                    if (!TryParseBleVidPid(instId, out nodeVid, out nodePid)) continue;
+                    if (nodeVid != BleVendorIdK99V3) continue;
+                    if (nodePid != BlePidK99V3) continue;
+
+                    string nodeMac = TryParseBleMac(instId);
+                    if (string.IsNullOrEmpty(nodeMac)) continue;
+
+                    // 公版 VID/PID 可能被其它蓝牙键盘共用，必须再用名字确认是迈从设备。
+                    string parentId = FindBleParentNodeId(nodeMac);
+                    if (string.IsNullOrEmpty(parentId)) continue;
+
+                    string friendlyName;
+                    int battery;
+                    if (!TryReadBleParentNode(parentId, out friendlyName, out battery)) continue;
+                    if (string.IsNullOrEmpty(friendlyName)) continue;
+                    if (friendlyName.IndexOf(BleNameToken, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                    mac = nodeMac;
+                    return true;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 解析 BLE 实例 ID 中 "VID&amp;" / "PID&amp;" 之后的十六进制字段。
+        /// Windows 会在 VID/PID 前补两位序号前缀（如 023837 → 3837），因此只取末 4 位。
+        /// </summary>
+        public static bool TryParseBleVidPid(string instanceId, out int vid, out int pid)
+        {
+            vid = 0;
+            pid = 0;
+            if (string.IsNullOrEmpty(instanceId)) return false;
+
+            string upper = instanceId.ToUpperInvariant();
+            int vidIdx = upper.IndexOf("VID&", StringComparison.Ordinal);
+            int pidIdx = upper.IndexOf("PID&", StringComparison.Ordinal);
+            if (vidIdx < 0 || pidIdx < 0) return false;
+
+            if (!TryParseBleHex(upper, vidIdx + 4, out vid)) return false;
+            if (!TryParseBleHex(upper, pidIdx + 4, out pid)) return false;
+            return vid > 0 && pid > 0;
+        }
+
+        private static bool TryParseBleHex(string text, int start, out int value)
+        {
+            value = 0;
+            if (start < 0 || start >= text.Length) return false;
+
+            int end = start;
+            while (end < text.Length && Uri.IsHexDigit(text[end])) end++;
+            if (end <= start) return false;
+
+            string hex = text.Substring(start, end - start);
+            if (hex.Length > 4) hex = hex.Substring(hex.Length - 4, 4);
+
+            try
+            {
+                value = int.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 从服务节点实例 ID 中取出设备 MAC（12 位大写十六进制）。
+        /// 形如：BTHLEDEVICE\{...GUID...}_DEV_VID&amp;0107D7_PID&amp;EFFF_REV&amp;0120_DC80652107DF\9&amp;338F4FA&amp;0&amp;000C
+        /// MAC 位于**最后一个**反斜杠之前、且是该段中最后一个下划线之后。
+        /// 不能取第一个反斜杠：实例 ID 形如 "BTHLEDEVICE\{GUID}_DEV_..."，
+        /// 首个反斜杠在 "BTHLEDEVICE" 之后就出现了，会把整段截成 "BTHLEDEVICE"。
+        /// 也不能复用 BluetoothDeviceHelper.ExtractMac：它按 "DEV_" 后取 12 位，
+        /// 对这种带 VID&amp;/PID&amp; 前缀的 BLE 格式会截成 "VID&amp;0107D7_P"。
+        /// </summary>
+        public static string TryParseBleMac(string instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return null;
+
+            // 只接受服务节点：必须先确认实例 ID 里带 VID&/PID& 标记。
+            // 父节点 BTHLE\DEV_<MAC>\... 不含这两个标记，虽然也能切出 MAC，
+            // 但按契约它不该被本方法接受（调用方只应在服务节点上调用）。
+            string upper = instanceId.ToUpperInvariant();
+            if (upper.IndexOf("VID&", StringComparison.Ordinal) < 0) return null;
+            if (upper.IndexOf("PID&", StringComparison.Ordinal) < 0) return null;
+
+            int lb = instanceId.LastIndexOf('\\');
+            if (lb <= 0) return null;
+
+            string head = instanceId.Substring(0, lb);
+            int us = head.LastIndexOf('_');
+            if (us < 0 || head.Length - us - 1 < 12) return null;
+
+            string mac = head.Substring(us + 1).Trim().ToUpperInvariant();
+            if (mac.Length != 12) return null;
+
+            for (int i = 0; i < mac.Length; i++)
+            {
+                if (!Uri.IsHexDigit(mac[i])) return null;
+            }
+            return mac;
+        }
+
+        /// <summary>
+        /// 在 BTHLE 枚举器中按 MAC 找到父节点实例 ID（形如 BTHLE\DEV_DC80652107DF\8&amp;71E4D4F&amp;0&amp;DC80652107DF）。
+        /// 该节点被系统明确标记为已断开时返回 null，避免把历史缓存当成在线设备。
+        /// </summary>
+        public static string FindBleParentNodeId(string mac)
+        {
+            if (string.IsNullOrEmpty(mac)) return null;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLE", IntPtr.Zero, BleDigcfPresent | BleDigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return null;
+
+            string found = null;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                string needle = "DEV_" + mac.ToUpperInvariant();
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+
+                    string instId = idSb.ToString();
+                    if (instId.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (IsBleNodeDisconnected(devInfo, ref data)) continue;
+
+                    found = instId;
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return found;
+        }
+
+        /// <summary>
+        /// 判定该 BLE 节点是否**明确**已断开。
+        /// 属性读不到时返回 false（视为"未知，先不排除"），只有系统明确回了 IsConnected = 0 才算断开。
+        /// </summary>
+        private static bool IsBleNodeDisconnected(IntPtr devInfo, ref BluetoothDeviceHelper.SP_DEVINFO_DATA data)
+        {
+            try
+            {
+                byte[] connBuf = new byte[16];
+                uint pType;
+                uint req;
+                if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                        devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_IsConnected,
+                        out pType, connBuf, (uint)connBuf.Length, out req, 0))
+                {
+                    return connBuf[0] == 0;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>读取 BLE 父节点的 FriendlyName 与电量。读不到电量时 battery = -1。</summary>
+        private static bool TryReadBleParentNode(string instanceId, out string friendlyName, out int battery)
+        {
+            friendlyName = null;
+            battery = -1;
+            if (string.IsNullOrEmpty(instanceId)) return false;
+
+            IntPtr devInfo = BluetoothDeviceHelper.SetupDiGetClassDevs(
+                IntPtr.Zero, "BTHLE", IntPtr.Zero, BleDigcfPresent | BleDigcfAllClasses);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return false;
+
+            bool found = false;
+            try
+            {
+                BluetoothDeviceHelper.SP_DEVINFO_DATA data = new BluetoothDeviceHelper.SP_DEVINFO_DATA();
+                data.cbSize = (uint)Marshal.SizeOf(typeof(BluetoothDeviceHelper.SP_DEVINFO_DATA));
+
+                uint idx = 0;
+                while (BluetoothDeviceHelper.SetupDiEnumDeviceInfo(devInfo, idx++, ref data))
+                {
+                    StringBuilder idSb = new StringBuilder(512);
+                    uint req;
+                    if (!BluetoothDeviceHelper.SetupDiGetDeviceInstanceIdW(devInfo, ref data, idSb, (uint)idSb.Capacity, out req))
+                    {
+                        continue;
+                    }
+                    if (!string.Equals(idSb.ToString(), instanceId, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    found = true;
+
+                    byte[] nameBuf = new byte[512];
+                    uint pType;
+                    if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                            devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_FriendlyName,
+                            out pType, nameBuf, (uint)nameBuf.Length, out req, 0))
+                    {
+                        friendlyName = Encoding.Unicode.GetString(nameBuf, 0, (int)req).TrimEnd('\0', ' ', '\t');
+                    }
+
+                    byte[] battBuf = new byte[16];
+                    if (BluetoothDeviceHelper.SetupDiGetDevicePropertyW(
+                            devInfo, ref data, ref BluetoothDeviceHelper.DEVPKEY_Device_BatteryLevel,
+                            out pType, battBuf, (uint)battBuf.Length, out req, 0))
+                    {
+                        // 该属性是 DEVPROP_TYPE_BYTE（单字节 0-100），
+                        // 不能按 ToInt32 读——那会把相邻字节一并算进来得到荒谬数值。
+                        int value = (int)battBuf[0];
+                        if (value >= 0 && value <= 100) battery = value;
+                    }
+                    break;
+                }
+            }
+            catch { }
+            finally
+            {
+                BluetoothDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return found;
+        }
+
+        /// <summary>
+        /// 归一化 BLE 键盘名字。
+        /// Windows 上报的 FriendlyName 形如 "MCHOSE K99 V3-1"，末尾的 "-N" 是键盘 BLE 通道槽位号
+        /// （同一把键盘可被系统登记为多个槽位），展示时必须去掉，否则同一型号会出现多个不同名字。
+        /// </summary>
+        public static string NormalizeBleKeyboardName(string rawName)
+        {
+            if (string.IsNullOrEmpty(rawName)) return null;
+
+            string name = rawName.Trim();
+            if (name.Length == 0) return null;
+
+            // 去掉末尾的 "-<数字>" 槽位后缀（至少保留 1 个字符的名字）。
+            int dash = name.LastIndexOf('-');
+            if (dash > 0 && dash < name.Length - 1)
+            {
+                bool allDigits = true;
+                for (int i = dash + 1; i < name.Length; i++)
+                {
+                    if (name[i] < '0' || name[i] > '9') { allDigits = false; break; }
+                }
+                if (allDigits) name = name.Substring(0, dash).Trim();
+            }
+
+            if (name.Length == 0) return null;
+            return GetModelName(name);
+        }
+
+        private const uint BleDigcfPresent = 0x00000002;
+        private const uint BleDigcfAllClasses = 0x00000004;
     }
 }

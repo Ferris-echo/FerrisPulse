@@ -20,7 +20,7 @@ namespace RazerBatteryTray
 {
     public class PromptDialog : DpiAwareForm
     {
-        private TextBox txtInput;
+        private ModernInputBox txtInput;
         private ModernButton btnOk;
         private ModernButton btnCancel;
         private Label lblPrompt;
@@ -58,14 +58,12 @@ namespace RazerBatteryTray
             lblPrompt.BackColor = Color.Transparent;
             this.Controls.Add(lblPrompt);
 
-            txtInput = new TextBox();
+            txtInput = new ModernInputBox();
+            txtInput.DpiScale = this.dpiScale;
             txtInput.Text = defaultValue ?? "";
-            txtInput.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular);
-            txtInput.BackColor = Color.FromArgb(30, 36, 48);
-            txtInput.ForeColor = Color.White;
-            txtInput.BorderStyle = BorderStyle.FixedSingle;
-            txtInput.Location = new Point(Scale(22), Scale(64));
-            txtInput.Size = new Size(clientW - Scale(44), Scale(26));
+            txtInput.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Regular);
+            txtInput.Location = new Point(Scale(20), Scale(60));
+            txtInput.Size = new Size(clientW - Scale(40), Scale(34));
             this.Controls.Add(txtInput);
 
             int btnH = Scale(30);
@@ -100,6 +98,9 @@ namespace RazerBatteryTray
             btnOk.Cursor = Cursors.Hand;
             btnOk.Click += (s, e) => { this.DialogResult = DialogResult.OK; this.Close(); };
             this.Controls.Add(btnOk);
+
+            this.modernChromeTitlePadLeftBase = 20;
+            AttachModernChrome(title, null, 42, true, false);
 
             this.KeyPreview = true;
             this.KeyDown += (s, e) =>

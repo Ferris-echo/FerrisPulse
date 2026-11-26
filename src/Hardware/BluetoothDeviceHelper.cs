@@ -36,6 +36,8 @@ using System.Runtime.InteropServices;
 
 using System.Text;
 
+using System.Text.RegularExpressions;
+
 using System.Threading;
 
 using Microsoft.Win32;
@@ -400,7 +402,9 @@ namespace RazerBatteryTray
 
                         uint propType, req;
 
-                        if (!SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0) || connBuf[0] == 0)
+                        bool pnpConnected = SetupDiGetDevicePropertyW(devInfo, ref data, ref DEVPKEY_Device_IsConnected, out propType, connBuf, (uint)connBuf.Length, out req, 0) && connBuf[0] != 0;
+
+                        if (!pnpConnected)
 
                         {
 
@@ -500,6 +504,8 @@ namespace RazerBatteryTray
 
 
 
+        private static readonly Regex SerialComPortRegex = new Regex(@"(^|[\s\(\[\-_])com\d+($|[\s\)\]\-_])", RegexOptions.IgnoreCase);
+
         public static bool IsValidDeviceFriendlyName(string name)
 
         {
@@ -532,9 +538,25 @@ namespace RazerBatteryTray
 
                 lower.Contains("串行") || 
 
-                lower.Contains("com") || 
+                SerialComPortRegex.IsMatch(s) ||
 
-                lower.StartsWith("bluetooth") ||
+                lower == "bluetooth" ||
+
+                lower == "bluetooth device" ||
+
+                lower.Contains("bluetooth adapter") ||
+
+                lower.Contains("bluetooth protocol") ||
+
+                lower.Contains("bluetooth radio") ||
+
+                lower.Contains("bluetooth enumerator") ||
+
+                lower.Contains("bluetooth le generic") ||
+
+                lower.Contains("bluetooth transport") ||
+
+                lower.Contains("bluetooth peripheral") ||
 
                 lower.Contains("audio/video remote") ||
 
@@ -636,7 +658,17 @@ namespace RazerBatteryTray
 
                                 string devMac = string.Format("{0:X12}", dev.Address);
 
-                                if (string.Equals(devMac, mac, StringComparison.OrdinalIgnoreCase))
+                                bool matchesMac = string.Equals(devMac, mac, StringComparison.OrdinalIgnoreCase);
+
+                                bool matchesName = (!string.IsNullOrEmpty(hintName) && !string.IsNullOrEmpty(dev.szName) &&
+
+                                    (string.Equals(dev.szName, hintName, StringComparison.OrdinalIgnoreCase) ||
+
+                                     dev.szName.IndexOf(hintName, StringComparison.OrdinalIgnoreCase) >= 0 ||
+
+                                     hintName.IndexOf(dev.szName, StringComparison.OrdinalIgnoreCase) >= 0));
+
+                                if (matchesMac || matchesName)
 
                                 {
 
@@ -726,7 +758,7 @@ namespace RazerBatteryTray
 
                                 string fn = Encoding.Unicode.GetString(nameBuf, 0, (int)req).TrimEnd('\0', ' ', '\t');
 
-                                if (!string.IsNullOrEmpty(fn) && (string.Equals(fn, hintName, StringComparison.OrdinalIgnoreCase) || fn.StartsWith(hintName, StringComparison.OrdinalIgnoreCase) || hintName.StartsWith(fn, StringComparison.OrdinalIgnoreCase)))
+                                if (!string.IsNullOrEmpty(fn) && (string.Equals(fn, hintName, StringComparison.OrdinalIgnoreCase) || fn.IndexOf(hintName, StringComparison.OrdinalIgnoreCase) >= 0 || hintName.IndexOf(fn, StringComparison.OrdinalIgnoreCase) >= 0))
 
                                 {
 
@@ -1203,7 +1235,7 @@ namespace RazerBatteryTray
 
                     cat = DeviceCategory.Mouse;
 
-                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("kb"))
+                else if (lower.Contains("keyboard") || lower.Contains("键盘") || lower.Contains("nuphy") || lower.Contains("keychron") || lower.Contains("halo") || lower.Contains("air75") || lower.Contains("air96") || lower.Contains("air60") || lower.Contains("wh80") || lower.Contains("wave75") || lower.Contains("wave 75") || lower.Contains("kzzi") || lower.Contains("k75") || lower.Contains("kb"))
 
                     cat = DeviceCategory.Keyboard;
 
@@ -1225,7 +1257,7 @@ namespace RazerBatteryTray
 
                     Transport = "蓝牙 (BLE)",
 
-                    CachedBattery = batt >= 0 ? batt : 0,
+                    CachedBattery = batt >= 0 ? batt : -1,
 
                     LastSeen = DateTime.Now
 
@@ -1235,7 +1267,71 @@ namespace RazerBatteryTray
 
 
 
-            return result;
+            // 归一化聚合 TWS 耳机与蓝牙音频设备，防止同一副耳机展示多个分身节点
+
+            var deduped = new List<CustomDeviceConfig>();
+
+            var seenAudioNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+
+
+            for (int i = 0; i < result.Count; i++)
+
+            {
+
+                var cur = result[i];
+
+                if (cur.Category == DeviceCategory.Earbuds || cur.Category == DeviceCategory.Headset)
+
+                {
+
+                    string key = (cur.OriginalName ?? cur.CustomName ?? "").Trim();
+
+                    if (!string.IsNullOrEmpty(key))
+
+                    {
+
+                        if (seenAudioNames.Contains(key))
+
+                        {
+
+                            int existingIdx = deduped.FindIndex(delegate(CustomDeviceConfig x) {
+
+                                return string.Equals(x.OriginalName ?? x.CustomName, key, StringComparison.OrdinalIgnoreCase);
+
+                            });
+
+                            if (existingIdx >= 0)
+
+                            {
+
+                                if (cur.CachedBattery > 0 && deduped[existingIdx].CachedBattery <= 0)
+
+                                {
+
+                                    deduped[existingIdx] = cur;
+
+                                }
+
+                            }
+
+                            continue;
+
+                        }
+
+                        seenAudioNames.Add(key);
+
+                    }
+
+                }
+
+                deduped.Add(cur);
+
+            }
+
+
+
+            return deduped;
 
         }
 

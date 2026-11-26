@@ -5,9 +5,11 @@
 //   OpenMouse 与 All-in-One-Mouse-Driver (Mouse Hub) 全量外设协议引擎
 //   涵盖 20+ 个品牌、数百款主流电竞/客制化/原相方案鼠标及键盘：
 //   1. CompX / PixArt 64字节 Feature 引擎 (Lamzu, Pulsar, WLmouse, Attack Shark, Ajazz, Darmoshark, Glorious, Ninjutso, RAWM, Incott, Delux, Vancer, Fantech, Finalmouse)
-//   2. Beken / ATK / Endgame Gear 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系, Endgame Gear OP1we/XM2we)
+//   2. Beken / ATK 16字节 EEPROM 引擎 (ATK A9/F1/X1, VXE R1 全系)；Endgame Gear 已迁移至
+//      EndgameGearDeviceHelper 双端点专属驱动 (Feature 0x08 下发 / Interrupt IN 0x09 回收)
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
+//   Keychron Link-KM 3434:D026 与 M6 USB 3434:D060 由内置 Keychron M6 驱动独立接管。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -35,6 +37,59 @@ namespace RazerBatteryTray
 
         private const uint GENERIC_READ = 0x80000000;
         private const uint GENERIC_WRITE = 0x40000000;
+        private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+        private const uint WAIT_OBJECT_0 = 0;
+        private const int ERROR_IO_PENDING = 997;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct OVERLAPPED
+        {
+            public IntPtr Internal;
+            public IntPtr InternalHigh;
+            public uint Offset;
+            public uint OffsetHigh;
+            public IntPtr hEvent;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateEvent(IntPtr lpEventAttributes, bool bManualReset, bool bInitialState, string lpName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ResetEvent(IntPtr hEvent);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToRead, out uint lpNumberOfBytesRead, ref OVERLAPPED lpOverlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToWrite, out uint lpNumberOfBytesWritten, ref OVERLAPPED lpOverlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetOverlappedResult(IntPtr hFile, ref OVERLAPPED lpOverlapped, out uint lpNumberOfBytesTransferred, bool bWait);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CancelIo(IntPtr hFile);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr CreateFileW(
+            string lpFileName,
+            uint dwDesiredAccess,
+            uint dwShareMode,
+            IntPtr lpSecurityAttributes,
+            uint dwCreationDisposition,
+            uint dwFlagsAndAttributes,
+            IntPtr hTemplateFile);
+
+        [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool SetupDiGetDeviceInterfaceDetailW(
+            IntPtr DeviceInfoSet,
+            ref RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA DeviceInterfaceData,
+            IntPtr DeviceInterfaceDetailData,
+            uint DeviceInterfaceDetailDataSize,
+            out uint RequiredSize,
+            IntPtr DeviceInfoData);
 
         #region 品牌 VID 常量定义 (汇总自 OpenMouse 与 All-in-One)
 
@@ -164,9 +219,8 @@ namespace RazerBatteryTray
             AddProduct(VID_PULSAR, 0x0009, "Pulsar", "Xlite V3 eS 8K", DeviceCategory.Mouse, 8000);
 
             // --- ENDGAME GEAR ---
-            AddProduct(VID_ENDGAME_GEAR, 0x0001, "Endgame Gear", "OP1we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0002, "Endgame Gear", "XM2we Wireless", DeviceCategory.Mouse, 1000);
-            AddProduct(VID_ENDGAME_GEAR, 0x0003, "Endgame Gear", "OP1 8K 有线", DeviceCategory.Mouse, 8000);
+            // 3367:1960 (OP1we) / 3367:1961 (XM2we) 由 EndgameGearDeviceHelper 专属双端点引擎接管，
+            // 本通用引擎不再登记其型号，避免单句柄 GetFeature 永远读到全零而漏判。
 
             // --- ATK / VXE ---
             AddProduct(VID_ATK, 0x1085, "VXE", "VXE Dragonfly R1 SE / SE+", DeviceCategory.Mouse, 2000);
@@ -179,6 +233,7 @@ namespace RazerBatteryTray
             AddProduct(VID_ATK, 0x1087, "ATK", "ATK F1 Ultimate 8K", DeviceCategory.Mouse, 8000);
             AddProduct(VID_ATK, 0x1088, "ATK", "ATK X1 Pro Wireless", DeviceCategory.Mouse, 8000);
             AddProduct(VID_ATK, 0x1089, "ATK", "ATK X1 Pro Max Wireless", DeviceCategory.Mouse, 8000);
+            AddProduct(VID_ATK, 0x11D9, "ATK", "ATK F1 Ultimate 2.0", DeviceCategory.Mouse, 8000);
 
             // --- ATTACK SHARK (攻击鲨) ---
             AddProduct(VID_ATTACK_SHARK_1, 0x0001, "Attack Shark", "Attack Shark X3 Wireless", DeviceCategory.Mouse, 1000);
@@ -316,9 +371,6 @@ namespace RazerBatteryTray
                 case VID_WLMOUSE:
                     brand = "WLmouse";
                     poll = 8000;
-                    break;
-                case VID_ENDGAME_GEAR:
-                    brand = "Endgame Gear";
                     break;
                 case VID_ATK:
                     brand = "ATK";
@@ -461,6 +513,33 @@ namespace RazerBatteryTray
             return (byte)((0x55 - (sum & 0xFF)) & 0xFF);
         }
 
+        public static bool ParseBekenWeBatteryResponse(byte[] rx, int length, out int percent, out bool isCharging, out int millivolts)
+        {
+            percent = -1;
+            isCharging = false;
+            millivolts = 0;
+            if (rx == null || length < 10 || rx.Length < length) return false;
+
+            int offset = (rx[0] == 0x08) ? 1 : 0;
+            if (offset + 8 >= length) return false;
+            if (rx[offset] != 0x04) return false;
+
+            int len = rx[offset + 4];
+            if (len >= 1)
+            {
+                percent = Math.Min((int)rx[offset + 5], 100);
+            }
+            if (len >= 2)
+            {
+                isCharging = (rx[offset + 6] != 0);
+            }
+            if (len >= 4)
+            {
+                millivolts = (rx[offset + 7] << 8) | rx[offset + 8];
+            }
+            return (percent > 0 && percent <= 100);
+        }
+
         public static bool QueryBekenWeBattery(IntPtr handle, out int percent, out bool isCharging, out int millivolts)
         {
             percent = -1;
@@ -495,29 +574,148 @@ namespace RazerBatteryTray
                 rx[0] = 0x08;
                 if (RazerDeviceHelper.HidD_GetFeature(handle, rx, rx.Length))
                 {
-                    int offset = (rx[0] == 0x08) ? 1 : 0;
-                    if (rx[offset] == 0x04)
-                    {
-                        int len = rx[offset + 4];
-                        if (len >= 1)
-                        {
-                            percent = Math.Min((int)rx[offset + 5], 100);
-                        }
-                        if (len >= 2)
-                        {
-                            isCharging = (rx[offset + 6] != 0);
-                        }
-                        if (len >= 4)
-                        {
-                            millivolts = (rx[offset + 7] << 8) | rx[offset + 8];
-                        }
-                        if (percent > 0 && percent <= 100) return true;
-                    }
+                    return ParseBekenWeBatteryResponse(rx, rx.Length, out percent, out isCharging, out millivolts);
                 }
             }
             catch { }
 
             return false;
+        }
+
+        /// <summary>
+        /// 针对 ATK F1 Ultimate 2.0 (373B:11D9, 8k dongle-L) 等仅暴露 UsagePage 0xFF02 / Usage 0x0002
+        /// 17 字节 Interrupt Out/In 端点（无 Feature 报告）的 Beken 方案接收器查询电量。
+        /// 重要：严禁在 WriteFile 前执行 DrainReports，否则会破坏接收器与鼠标的无线握手状态。
+        /// 鸣谢社区贡献者：“好的很”。
+        /// </summary>
+        public static bool QueryAtkBekenOutputBattery(string devicePath, out int percent, out bool isCharging, out int millivolts)
+        {
+            percent = -1;
+            isCharging = false;
+            millivolts = 0;
+            if (string.IsNullOrEmpty(devicePath)) return false;
+
+            IntPtr handle = CreateFileW(
+                devicePath,
+                GENERIC_READ | GENERIC_WRITE,
+                RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
+                IntPtr.Zero,
+                RazerDeviceHelper.OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                IntPtr.Zero);
+            if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
+
+            IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
+            if (hEvent == IntPtr.Zero)
+            {
+                RazerDeviceHelper.CloseHandle(handle);
+                return false;
+            }
+
+            try
+            {
+                byte[] tx = new byte[17];
+                tx[0] = 0x08;
+                tx[1] = 0x04;
+
+                byte[] data15 = new byte[15];
+                Array.Copy(tx, 1, data15, 0, 15);
+                tx[16] = CalculateWeChecksum(0x08, data15);
+
+                OVERLAPPED wOl = new OVERLAPPED();
+                wOl.hEvent = hEvent;
+                ResetEvent(hEvent);
+                uint written;
+                bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
+                if (!wOk)
+                {
+                    int wErr = Marshal.GetLastWin32Error();
+                    if (wErr != ERROR_IO_PENDING) return false;
+                    if (WaitForSingleObject(hEvent, 500) != WAIT_OBJECT_0)
+                    {
+                        CancelIo(handle);
+                        return false;
+                    }
+                    if (!GetOverlappedResult(handle, ref wOl, out written, false)) return false;
+                }
+
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] rx = new byte[17];
+                    OVERLAPPED rOl = new OVERLAPPED();
+                    rOl.hEvent = hEvent;
+                    ResetEvent(hEvent);
+                    uint readBytes = 0;
+                    bool rOk = ReadFile(handle, rx, (uint)rx.Length, out readBytes, ref rOl);
+                    if (!rOk)
+                    {
+                        int rErr = Marshal.GetLastWin32Error();
+                        if (rErr != ERROR_IO_PENDING) continue;
+                        if (WaitForSingleObject(hEvent, 350) != WAIT_OBJECT_0)
+                        {
+                            CancelIo(handle);
+                            continue;
+                        }
+                        if (!GetOverlappedResult(handle, ref rOl, out readBytes, false)) continue;
+                    }
+
+                    if (ParseBekenWeBatteryResponse(rx, (int)readBytes, out percent, out isCharging, out millivolts))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            finally
+            {
+                RazerDeviceHelper.CloseHandle(hEvent);
+                RazerDeviceHelper.CloseHandle(handle);
+            }
+
+            return false;
+        }
+
+        // 373B:11D9 is shared by several ATK mice. The model is identified through
+        // the receiver's read-only CID/MID command before showing an A9 name.
+        public static byte[] BuildAtkReceiverIdentityRequest()
+        {
+            byte[] report = new byte[17];
+            report[0] = 0x08;
+            report[1] = 0x10;
+            byte[] payload = new byte[15];
+            payload[0] = 0x10;
+            report[16] = CalculateWeChecksum(0x08, payload);
+            return report;
+        }
+
+        public static bool IsAtkA9UltimateIdentity(byte[] report)
+        {
+            if (report == null || report.Length != 17 || report[0] != 0x08 || report[1] != 0x10 ||
+                report[2] != 0 || report[3] != 0 || report[4] != 0 || report[5] < 2 || report[5] > 10 ||
+                report[6] != 1 || report[7] != 3) return false;
+            int sum = 0;
+            for (int i = 0; i < report.Length; i++) sum += report[i];
+            return (sum & 0xFF) == 0x55;
+        }
+
+        private static bool QueryAtkA9UltimateIdentity(string devicePath)
+        {
+            IntPtr handle = IntPtr.Zero;
+            try
+            {
+                handle = HidTransport.Open(devicePath);
+                if (handle == IntPtr.Zero || handle.ToInt64() == -1) return false;
+                if (!HidTransport.WriteReport(handle, BuildAtkReceiverIdentityRequest(), 17, 500)) return false;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    byte[] reply;
+                    if (!HidTransport.ReadReportExact(handle, 17, 350, out reply)) return false;
+                    if (IsAtkA9UltimateIdentity(reply)) return true;
+                }
+                return false;
+            }
+            catch { return false; }
+            finally { HidTransport.Close(handle); }
         }
 
         #endregion
@@ -673,13 +871,55 @@ namespace RazerBatteryTray
 
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
-            // MCHOSE G87 V2 键盘 (3837:3033) 由 MchoseDeviceHelper 的键盘电量协议接管，
-            // 禁止通用鼠标协议向键盘 Vendor 集合误发 64 字节 Feature 报文。
-            if (vid == VID_MCHOSE && !string.IsNullOrEmpty(path))
+            // Endgame Gear (3367) 使用 Feature 0x08 下发 + Interrupt IN 0x09 回收的双端点协议，由 EndgameGearDeviceHelper 接管。
+            if (vid == VID_ENDGAME_GEAR) return false;
+
+            // Link-KM uses Keychron output reports and a paired-model handshake.
+            if (vid == VID_KEYCHRON && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_d026", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_d060", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // ASUS PELTA, wired Scope II RX, ROG OMNI Receiver, AZOTH 96 HE (1AD0/1C10), and DELTA II (1AFA) have dedicated classification. Never send mouse probes.
+            if (vid == AsusDeviceHelper.VendorId && !string.IsNullOrEmpty(path))
             {
-                string lowerPath = path.ToLowerInvariant();
-                if (lowerPath.Contains("pid_3033")) return false;
+                string asusPath = path.ToLowerInvariant();
+                if (asusPath.Contains("pid_1b84") || asusPath.Contains("pid_1b82") || asusPath.Contains("pid_1ab5") || asusPath.Contains("pid_1ace") ||
+                    asusPath.Contains("pid_1ad0") || asusPath.Contains("pid_1afa") || asusPath.Contains("pid_1c10")) return false;
             }
+            // 258A:01BB 的 Z75/Z75S、41E4:2004 的 G98V2 均为键盘接收器；由 MchoseDeviceHelper 握手确认型号。
+            if (vid == MchoseDeviceHelper.VendorIdZ75s && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_01bb", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (vid == MchoseDeviceHelper.VendorIdG98V2 && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2004", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            // A8A5:2255 为 MCHOSE G 系列鼠标 2.4G 接收器，由 MchoseGMouseHelper 专属接管。
+            if (vid == MchoseGMouseHelper.VendorIdMchoseG && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_2255", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            // Corsair HS80 MAX (0A97 接收器 / 0A96 有线) 与 SLIPSTREAM 接收器 (1BDC) 由 CorsairDeviceHelper 专属接管。
+            if (vid == VID_CORSAIR && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_0a97", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_0a96", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_1bdc", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // 373B:111F 的 ATK A87 PRO 为键盘（FF60/0x61 33 字节 VIA 私有协议），
+            // 373B:1216 的 VXE R1 星闪版为 BITMOUSE（FF05/0x01 64 字节 NearLink 协议，由 VxeNearLinkDeviceHelper 接管），
+            // 与 ATK Beken 鼠标共用公版 VID 0x373B，必须按 PID 精确隔离，严禁向它们盲发 Beken 查询。
+            if (vid == VID_ATK && !string.IsNullOrEmpty(path) &&
+                (path.IndexOf("pid_111f", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_1216", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+
+            // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
+            if (vid == VID_MCHOSE || vid == VID_STEELSERIES)
+            {
+                return false;
+            }
+            if (!string.IsNullOrEmpty(path) && (path.IndexOf("pid_3033", StringComparison.OrdinalIgnoreCase) >= 0 || path.IndexOf("pid_fa09", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return false;
+            }
+            // Ironcat Zero (25A7:FA7C) 由专属 IroncatDeviceHelper 的 17 字节 Feature 通道接管，通用 64B 引擎禁止越界探测。
+            if (!string.IsNullOrEmpty(path) && path.IndexOf("pid_fa7c", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (!string.IsNullOrEmpty(prod) && prod.IndexOf("ironcat", StringComparison.OrdinalIgnoreCase) >= 0) return false;
 
             switch (vid)
             {
@@ -687,7 +927,6 @@ namespace RazerBatteryTray
                 case VID_COMPX_LAMZU:
                 case VID_PULSAR:
                 case VID_WLMOUSE:
-                case VID_ENDGAME_GEAR:
                 case VID_ATK:
                 case VID_ANGRY_MIAO_1:
                 case VID_ANGRY_MIAO_2:
@@ -707,7 +946,6 @@ namespace RazerBatteryTray
                 case VID_WOOTING:
                 case VID_DAREU:
                 case VID_ASUS:
-                case VID_STEELSERIES:
                 case VID_CORSAIR:
                 case VID_GWOLVES:
                 case VID_ZAUNKOENIG:
@@ -775,7 +1013,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null)
+                            if (devicePath != null && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                             {
                                 // 过滤键盘按键集合，保留控制/Vendor集合 (mi_02 或非普通 kbd)
                                 if (devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
@@ -838,25 +1076,24 @@ namespace RazerBatteryTray
                                                 int batt = -1;
                                                 bool isChg = false;
                                                 int mv = 0;
+                                                bool ok = false;
 
-                                                // 1. 尝试 CompX / PixArt 协议
-                                                bool ok = QueryCompxBattery(handle, out batt, out isChg);
-
-                                                // 2. 尝试 Beken / ATK / Endgame 协议
-                                                if (!ok)
+                                                // 按协议族白名单精准分发探测，严禁向同一设备盲扫 4 套异构 Feature Report
+                                                if (attr.VendorID == VID_ANGRY_MIAO_1 || attr.VendorID == VID_ANGRY_MIAO_2)
                                                 {
-                                                    ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
+                                                    ok = QueryAngryMiaoBattery(handle, attr.ProductID, out batt, out isChg);
                                                 }
-
-                                                // 3. 尝试 Vaxee 协议
-                                                if (!ok)
+                                                else if (attr.VendorID == 0x3554 && attr.ProductID >= 0x1010 && attr.ProductID <= 0x101F)
                                                 {
                                                     ok = QueryVaxeeBattery(handle, out batt, out isChg);
                                                 }
-
-                                                if (!ok)
+                                                else if (attr.VendorID == VID_ATK)
                                                 {
-                                                    ok = QueryAngryMiaoBattery(handle, attr.ProductID, out batt, out isChg);
+                                                    ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
+                                                }
+                                                else
+                                                {
+                                                    ok = QueryCompxBattery(handle, out batt, out isChg);
                                                 }
 
                                                 if (ok || batt > 0)
@@ -866,6 +1103,7 @@ namespace RazerBatteryTray
                                                     MouseBatteryInfo info = new MouseBatteryInfo();
                                                     info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
                                                     info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                    info.DriverId = "BuiltIn:UniversalGaming";
                                                     info.DeviceName = product.ModelName;
                                                     info.Brand = product.Brand;
                                                     info.Category = product.Category;
@@ -877,6 +1115,10 @@ namespace RazerBatteryTray
                                                     info.BatteryPercent = batt;
                                                     info.MaxPollingRate = product.MaxPollingRate;
                                                     info.SupportedPollingRates = GetSupportedPollingRatesByMax(product.MaxPollingRate);
+                                                    info.Capabilities.SupportsBattery = true;
+                                                    info.Capabilities.SupportsDpi = false;
+                                                    info.Capabilities.SupportsDpiStages = false;
+                                                    info.Capabilities.SupportsPollingRate = false;
 
                                                     list.Add(info);
                                                 }
@@ -897,9 +1139,177 @@ namespace RazerBatteryTray
                 {
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
                 }
+
+                QueryAtkOutputEndpointDevices(list, seenKeys);
             }
 
             return list;
+        }
+
+        private static List<string> EnumerateHidInterfacePaths()
+        {
+            List<string> paths = new List<string>();
+            Guid hidGuid;
+            RazerDeviceHelper.HidD_GetHidGuid(out hidGuid);
+            IntPtr devInfo = RazerDeviceHelper.SetupDiGetClassDevs(ref hidGuid, null, IntPtr.Zero, 0x12);
+            if (devInfo == IntPtr.Zero || devInfo == new IntPtr(-1)) return paths;
+
+            RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA ifData = new RazerDeviceHelper.SP_DEVICE_INTERFACE_DATA();
+            uint memberIdx = 0;
+            try
+            {
+                ifData.cbSize = Marshal.SizeOf(ifData);
+                while (RazerDeviceHelper.SetupDiEnumDeviceInterfaces(devInfo, IntPtr.Zero, ref hidGuid, memberIdx++, ref ifData))
+                {
+                    uint reqSize;
+                    SetupDiGetDeviceInterfaceDetailW(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                    if (reqSize == 0) continue;
+
+                    IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
+                    Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 6);
+                    try
+                    {
+                        if (SetupDiGetDeviceInterfaceDetailW(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        {
+                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                            string devicePath = Marshal.PtrToStringUni(pDevicePath);
+                            if (!string.IsNullOrEmpty(devicePath) && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
+                            {
+                                paths.Add(devicePath);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(detailBuffer);
+                    }
+                }
+            }
+            finally
+            {
+                RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+            }
+
+            return paths;
+        }
+
+        private static void QueryAtkOutputEndpointDevices(List<MouseBatteryInfo> list, HashSet<string> seenKeys)
+        {
+            List<string> paths = EnumerateHidInterfacePaths();
+            for (int i = 0; i < paths.Count; i++)
+            {
+                string devicePath = paths[i];
+                if (string.IsNullOrEmpty(devicePath) || devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                IntPtr handle = CreateFileW(
+                    devicePath,
+                    0,
+                    RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
+                    IntPtr.Zero,
+                    RazerDeviceHelper.OPEN_EXISTING,
+                    0,
+                    IntPtr.Zero);
+                if (handle == IntPtr.Zero || handle.ToInt64() == -1) continue;
+
+                int vid = 0;
+                int pid = 0;
+                string prodStr = "";
+                ushort usagePage = 0;
+                ushort usage = 0;
+                ushort inLen = 0;
+                ushort outLen = 0;
+                ushort featLen = 0;
+                try
+                {
+                    RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                    attr.Size = Marshal.SizeOf(attr);
+                    if (!RazerDeviceHelper.HidD_GetAttributes(handle, ref attr)) continue;
+                    vid = attr.VendorID;
+                    pid = attr.ProductID;
+
+                    IntPtr preparsed;
+                    if (!RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed)) continue;
+                    try
+                    {
+                        RazerDeviceHelper.HIDP_CAPS caps;
+                        RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                        usagePage = (ushort)caps.UsagePage;
+                        usage = (ushort)caps.Usage;
+                        inLen = (ushort)caps.InputReportByteLength;
+                        outLen = (ushort)caps.OutputReportByteLength;
+                        featLen = (ushort)caps.FeatureReportByteLength;
+                    }
+                    finally
+                    {
+                        RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+                    }
+
+                    StringBuilder sbProd = new StringBuilder(256);
+                    if (RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity))
+                    {
+                        prodStr = sbProd.ToString().Trim();
+                    }
+                }
+                finally
+                {
+                    RazerDeviceHelper.CloseHandle(handle);
+                }
+
+                if (vid != VID_ATK || usagePage != 0xFF02 || usage != 0x0002 || inLen != 17 || outLen != 17 || featLen != 0)
+                {
+                    continue;
+                }
+
+                string deviceKey = string.Format("{0:X4}:{1:X4}", vid, pid);
+                if (seenKeys.Contains(deviceKey)) continue;
+
+                ProductEntry product = LookupProduct(vid, pid, prodStr);
+                int batt;
+                bool isChg;
+                int mv;
+                bool ok = QueryAtkBekenOutputBattery(devicePath, out batt, out isChg, out mv);
+                bool isA9Ultimate = ok && pid == 0x11D9 && QueryAtkA9UltimateIdentity(devicePath);
+                string modelName = isA9Ultimate ? "ATK A9 Ultimate" : product.ModelName;
+                seenKeys.Add(deviceKey);
+
+                int cachedBatt;
+                bool cachedChg;
+                string cachedName;
+                DateTime cachedUpdated;
+                bool hasCache = DriverStateStore.TryLoadBatteryState("Gaming:" + deviceKey, out cachedBatt, out cachedChg, out cachedName, out cachedUpdated);
+
+                if (ok && batt > 0 && batt <= 100)
+                {
+                    DriverStateStore.SaveBatteryState("Gaming:" + deviceKey, batt, isChg, modelName);
+                }
+
+                MouseBatteryInfo info = new MouseBatteryInfo();
+                info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", vid, pid);
+                info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", vid, pid);
+                info.DriverId = "BuiltIn:UniversalGaming";
+                info.DeviceName = modelName;
+                info.Brand = product.Brand;
+                info.Category = product.Category;
+                info.Transport = "2.4G 无线 / 极速回报";
+                info.IsDonglePresent = true;
+                info.IsConnected = ok;
+                info.IsSleeping = !ok;
+                info.IsCharging = ok ? isChg : (hasCache ? cachedChg : false);
+                info.BatteryPercent = ok ? batt : (hasCache ? cachedBatt : -1);
+                info.ExactBatteryPercent = info.BatteryPercent >= 0 ? info.BatteryPercent : 0;
+                info.LastUpdated = ok ? DateTime.Now : (hasCache ? cachedUpdated : DateTime.Now);
+                info.MaxPollingRate = product.MaxPollingRate;
+                info.SupportedPollingRates = GetSupportedPollingRatesByMax(product.MaxPollingRate);
+                info.Capabilities.SupportsBattery = true;
+                info.Capabilities.SupportsDpi = false;
+                info.Capabilities.SupportsDpiStages = false;
+                info.Capabilities.SupportsPollingRate = false;
+
+                list.Add(info);
+            }
         }
 
         #endregion

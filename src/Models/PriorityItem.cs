@@ -23,11 +23,23 @@ namespace RazerBatteryTray
         public DeviceCategory Category { get; set; }
         public int Battery { get; set; }
         public bool IsConnected { get; set; }
+        public bool IsSleeping { get; set; }
         public Color AccentColor { get; set; }
         public int PriorityIndex { get; set; }
         public float CurrentY { get; set; }
         public float TargetY { get; set; }
         public bool IsCustom { get; set; }
         public string HardwareFingerprint { get; set; }
+        public string OriginalName { get; set; }
+        public Color DefaultBrandColor { get; set; }
+        public string ThemeColorHex { get; set; }
+        public string TrayColorHex { get; set; }
+        private bool linkTrayColorToTheme = true;
+        public bool LinkTrayColorToTheme
+        {
+            get { return linkTrayColorToTheme; }
+            set { linkTrayColorToTheme = value; }
+        }
+        public Color TrayAccentColor { get; set; }
     }
 }

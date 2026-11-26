@@ -1,4 +1,4 @@
-# FerrisPulse AI 维护规范与工程准则 (AGENT RULES)
+﻿# FerrisPulse AI 维护规范与工程准则 (AGENT RULES)
 
 > 本文档为所有介入维护本项目（FerrisPulse）的 AI Agent 及开发者的全局最高效力规范。任何修改与代码审查必须严格遵从以下 11 大铁律。
 

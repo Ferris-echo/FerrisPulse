@@ -2,8 +2,10 @@
 // 模块名称: HidTransport.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
+// CORE_CAPABILITY: ZERO-DEPENDENCY WIN32 HID TRANSPORT
 //   零依赖 Win32 HID 底层通信总线：SetupAPI 枚举、HidD 属性/能力查询、
-//   重叠 I/O 读写与超时取消。供 Flydigi / MCHOSE 等新品牌 Helper 复用。
+//   重叠 I/O 读写与超时取消（含 HidD_SetOutputReport 封装）。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
+//   供 Flydigi / MCHOSE / VXE 等品牌 Helper 复用。
 // 依赖关系: 仅 .NET 4.0 核心程序集 + hid.dll / setupapi.dll / kernel32.dll
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -150,6 +152,9 @@ namespace RazerBatteryTray
 
         [DllImport("hid.dll", SetLastError = true)]
         private static extern bool HidD_GetFeature(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        private static extern bool HidD_SetOutputReport(IntPtr HidDeviceObject, byte[] lpReportBuffer, int ReportBufferLength);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateFile(string FileName, uint DesiredAccess, uint ShareMode, IntPtr SecurityAttributes, uint CreationDisposition, uint FlagsAndAttributes, IntPtr TemplateFile);
@@ -310,6 +315,29 @@ namespace RazerBatteryTray
             return CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
         }
 
+        public static IntPtr OpenRead(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return new IntPtr(-1);
+            return CreateFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
+        }
+
+        public static IntPtr OpenFeature(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return new IntPtr(-1);
+            return CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+        }
+
+        public static bool ReadFeatureReport(IntPtr handle, byte reportId, int length, out byte[] data)
+        {
+            data = null;
+            if (!IsValidHandle(handle) || length < 2 || length > 4096) return false;
+            byte[] report = new byte[length];
+            report[0] = reportId;
+            if (!HidD_GetFeature(handle, report, length) || report[0] != reportId) return false;
+            data = report;
+            return true;
+        }
+
         public static void Close(IntPtr handle)
         {
             if (IsValidHandle(handle)) CloseHandle(handle);
@@ -322,8 +350,10 @@ namespace RazerBatteryTray
             if (evt == IntPtr.Zero) return false;
             OVERLAPPED overlapped = new OVERLAPPED();
             overlapped.hEvent = evt;
+            GCHandle pinned = default(GCHandle);
             try
             {
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
                 uint written = 0;
                 bool ok = WriteFile(handle, buffer, (uint)length, out written, ref overlapped);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
@@ -332,11 +362,12 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        GetOverlappedResult(handle, ref overlapped, out written, true);
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out written, false);
                 }
-                return ok && written > 0;
+                return ok && written == length;
             }
             catch
             {
@@ -344,11 +375,23 @@ namespace RazerBatteryTray
             }
             finally
             {
+                if (pinned.IsAllocated) pinned.Free();
                 CloseHandle(evt);
             }
         }
 
         public static bool ReadReport(IntPtr handle, int length, int timeoutMs, out byte[] data)
+        {
+            return ReadReportCore(handle, length, timeoutMs, false, out data);
+        }
+
+        // 固定长度协议必须校验 Win32 实际字节数，不能把分配缓冲区的补零当作收到的数据。
+        public static bool ReadReportExact(IntPtr handle, int length, int timeoutMs, out byte[] data)
+        {
+            return ReadReportCore(handle, length, timeoutMs, true, out data);
+        }
+
+        private static bool ReadReportCore(IntPtr handle, int length, int timeoutMs, bool requireExactLength, out byte[] data)
         {
             data = null;
             if (!IsValidHandle(handle) || length <= 0) return false;
@@ -356,9 +399,11 @@ namespace RazerBatteryTray
             if (evt == IntPtr.Zero) return false;
             OVERLAPPED overlapped = new OVERLAPPED();
             overlapped.hEvent = evt;
+            GCHandle pinned = default(GCHandle);
             try
             {
                 byte[] buffer = new byte[length];
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
                 uint read = 0;
                 bool ok = ReadFile(handle, buffer, (uint)length, out read, ref overlapped);
                 if (!ok && Marshal.GetLastWin32Error() == ERROR_IO_PENDING)
@@ -367,12 +412,14 @@ namespace RazerBatteryTray
                     if (wait != 0)
                     {
                         CancelIo(handle);
+                        GetOverlappedResult(handle, ref overlapped, out read, true);
                         return false;
                     }
                     ok = GetOverlappedResult(handle, ref overlapped, out read, false);
                 }
-                if (ok && read > 0)
+                if (ok && read > 0 && (!requireExactLength || read == (uint)length))
                 {
+                    if (read != buffer.Length) Array.Resize(ref buffer, (int)read);
                     data = buffer;
                     return true;
                 }
@@ -384,6 +431,7 @@ namespace RazerBatteryTray
             }
             finally
             {
+                if (pinned.IsAllocated) pinned.Free();
                 CloseHandle(evt);
             }
         }
@@ -398,6 +446,12 @@ namespace RazerBatteryTray
         {
             if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
             return HidD_GetFeature(handle, buffer, buffer.Length);
+        }
+
+        public static bool SetOutputReport(IntPtr handle, byte[] buffer)
+        {
+            if (!IsValidHandle(handle) || buffer == null || buffer.Length == 0) return false;
+            return HidD_SetOutputReport(handle, buffer, buffer.Length);
         }
 
         public static bool DrainReports(IntPtr handle, int length, int maxReports)

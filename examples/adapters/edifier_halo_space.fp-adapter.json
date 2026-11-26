@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v1.0.json",
+  "fdasVersion": "1.0",
+  "metadata": {
+    "brand": "EDIFIER",
+    "model": "花再 Halo Space (HALO SPACE 2.4G)",
+    "category": "Headset",
+    "author": "FerrisPulse 社区贡献 (DeepSeek 协作逆向)",
+    "description": "漫步者 花再 Halo Space 2.4GHz 无线头戴式耳机的 EC 私有协议。实机验证要点：HID 接口 UsagePage 0xFF14 / Usage 0x0001、64 字节中断报文；Tx 帧头 2E AA EC、Rx 帧头 2F BB EC（= Tx 的 0x2E/0xAA 各 +1/+0x11）；载荷整体 XOR 0xA5 掩码（长度与校验和保持明文）；8 位累加和自下标 1 起算、不含首字节；0xD0 电量查询无载荷、响应长度恒为 1 字节。固件 1.0.2 对 0xF2 设备状态查询完全不回包，故本适配器不声明 chargingByteOffset，严禁臆造充电状态。注意：FDAS v1.0 仅内置 DirectPercent / Max10Scale / XorMask(^0xFF) / VoltageAdc 四种算子，不能表达 XOR 0xA5 二次掩码与偏移校验和，因此 payloadXorMask / checksumOffset / rxFrameHeader 为本文件记录协议事实的扩展键，真正的解析由原生驱动 src/Hardware/EdifierDeviceHelper.cs 完成。"
+  },
+  "hardware": {
+    "vendorId": "0x2D99",
+    "productId": "0xE049",
+    "productString": "漫步者 Halo Space D1",
+    "manufacturerString": "EDIFIER",
+    "endpointTopology": {
+      "usagePage": "0xFF14",
+      "usage": "0x0001",
+      "reportType": "Interrupt",
+      "reportLength": 64,
+      "readTimeoutMs": 400
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00",
+      "batteryPercentByteOffset": 6,
+      "batteryFormula": "DirectPercent",
+      "payloadXorMask": "0xA5",
+      "sampleRxHex": "2F BB EC D0 00 01 86 FE",
+      "sampleDecodedPercent": 35,
+      "notes": "payload[0]=0x86 经 XOR 0xA5 得 0x23=35%；Rx 第 7 字节 0xFE 为校验和。采样仅截取有效帧区间，设备 64 字节缓冲区尾部为历史报文残渣，解析时必须忽略。"
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "2E AA EC D0 00 00 66",
+    "txPadLength": 64,
+    "txFrameHeader": "2E AA EC",
+    "rxFrameHeader": "2F BB EC",
+    "checksumType": "SumMod256",
+    "checksumOffset": 1,
+    "checksumNotes": "crc = sum(frame[1..len-2]) & 0xFF，自下标 1（帧头 0xAA / 0xBB）起算，不含首字节 0x2E / 0x2F；Tx 帧需以 0x00 补齐至 64 字节后发送。",
+    "auxiliaryCommands": {
+      "0xC9": "设备名称查询 (UTF-8，实机返回 花再 Halo Space)",
+      "0xC6": "固件版本查询 (3 字节 major.minor.patch，实机 1.0.2)",
+      "0xC8": "蓝牙 MAC 查询 (6 字节，实机 B4:E7:B3:31:52:D3)",
+      "0xF2": "设备状态查询 (TWS 充放电状态)；本机型固件不响应，任何载荷长度均无回包"
+    }
+  }
+}

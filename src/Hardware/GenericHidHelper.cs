@@ -2,8 +2,9 @@
 // 模块名称: GenericHidHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   通用标准 USB HID 电池报告规范 (HID Usage Page 0x59 / 0x85) 解析
-// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
+//   通用标准 USB HID 电池报告规范 (HID Usage Page 0x59 / 0x85) 解析，
+//   并提供未适配大厂外设只读扫描与 HIDI2C/I2C HID 内置触摸板过滤。
+// 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, HardwareDiagnosticService.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
 // 1. [契约同步更新]: 任何 AI Agent 在修改本文件逻辑、协议解析或签名时，【必须】同步更新上方说明。
@@ -25,6 +26,15 @@ namespace RazerBatteryTray
 {
     public static class GenericHidHelper
     {
+        public static bool IsInternalHidDevice(string productString, string devicePath)
+        {
+            string product = string.IsNullOrEmpty(productString) ? "" : productString.ToLowerInvariant();
+            string path = string.IsNullOrEmpty(devicePath) ? "" : devicePath.ToLowerInvariant();
+            if (product.Contains("hidi2c") || product.Contains("i2c hid")) return true;
+            if (path.Contains("acpi#htix") || path.Contains("acpi\\htix")) return true;
+            return false;
+        }
+
         public static bool IsDeviceConnected(string hidFingerprint)
         {
             if (string.IsNullOrEmpty(hidFingerprint)) return false;
@@ -232,12 +242,20 @@ namespace RazerBatteryTray
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
                             if (devicePath != null)
                             {
+                                // VHF 虚拟 HID（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
+                                // 没有物理电池，也不是实体外设；必须排除，否则向导会出现
+                                // “HID VHF Driver / 2.4G 无线 / 可加入监控”的误导项。
+                                if (VirtualHidFilter.IsVirtualHidPath(devicePath))
+                                {
+                                    Marshal.FreeHGlobal(detailBuffer);
+                                    ifData.cbSize = Marshal.SizeOf(ifData);
+                                    continue;
+                                }
                                 string lower = devicePath.ToLower();
-                                // Skip known handled or internal non-mouse devices
-                                if (lower.Contains("vid_046d") || lower.Contains("vid_1532") || lower.Contains("vid_24ae") || lower.Contains("vid_3554") ||
-                                    lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") || lower.Contains("vid_048d") ||
-                                    lower.Contains("vid_17ef") || lower.Contains("vid_054c") || lower.Contains("vid_37d7") || lower.Contains("vid_3837") || lower.Contains("syna") || lower.Contains("tencent") || lower.Contains("virtual") ||
-                                    ValkyrieDeviceHelper.IsValkyrieDevice(lower))
+                                // Skip internal non-peripheral sensors/touchpads and strict single-model PIDs owned by dedicated helpers
+                                if (lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") ||
+                                    lower.Contains("vid_048d") || lower.Contains("vid_17ef") || lower.Contains("syna") ||
+                                    lower.Contains("tencent") || lower.Contains("virtual") || AcerDeviceHelper.IsAcerMouse(lower))
                                 {
                                     Marshal.FreeHGlobal(detailBuffer);
                                     ifData.cbSize = Marshal.SizeOf(ifData);
@@ -258,6 +276,13 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HIDP_CAPS caps;
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                            if (IsInternalHidDevice(prod, devicePath))
+                                            {
+                                                Marshal.FreeHGlobal(detailBuffer);
+                                                ifData.cbSize = Marshal.SizeOf(ifData);
+                                                continue;
+                                            }
 
                                             bool isGamepad = (caps.UsagePage == 0x01 && (caps.Usage == 0x04 || caps.Usage == 0x05)) ||
                                                              (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("gamepad") || prod.ToLower().Contains("controller") || prod.ToLower().Contains("joystick") || prod.Contains("手柄")));
@@ -283,13 +308,37 @@ namespace RazerBatteryTray
                                             bool isMouse = (caps.UsagePage == 0x01 && caps.Usage == 0x02) ||
                                                            (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("mouse") || prod.Contains("鼠标")));
 
-                                            if (isGamepad || isHeadset || isDongle || isKeyboard || isMouse)
-                                            {
-                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                                attr.Size = Marshal.SizeOf(attr);
-                                                RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
 
+                                            // 水月雨 GM-01 PRO 由专属 MoondropDeviceHelper 负责注册，通用扫描不再泛化它。
+                                            bool managedByDedicatedDriver = MoondropDeviceHelper.IsManagedDevice(attr.VendorID, attr.ProductID);
+
+                                            if (!managedByDedicatedDriver && (isGamepad || isHeadset || isDongle || isKeyboard || isMouse))
+                                            {
                                                 string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                if (existingIds != null)
+                                                {
+                                                    bool alreadyClaimed = existingIds.Contains(key) ||
+                                                        existingIds.Contains("HID:" + key) ||
+                                                        existingIds.Contains(string.Format("vid_{0:X4}&pid_{1:X4}", attr.VendorID, attr.ProductID));
+                                                    if (!alreadyClaimed && attr.VendorID == 0x1532)
+                                                    {
+                                                        int normRzPid = RazerDeviceHelper.NormalizeRazerPid(attr.ProductID);
+                                                        string rzKey = string.Format("1532:{0:X4}", normRzPid);
+                                                        alreadyClaimed = existingIds.Contains(rzKey) ||
+                                                            existingIds.Contains("Razer:" + rzKey) ||
+                                                            existingIds.Contains("HID:" + rzKey);
+                                                    }
+                                                    if (alreadyClaimed)
+                                                    {
+                                                        Marshal.FreeHGlobal(detailBuffer);
+                                                        ifData.cbSize = Marshal.SizeOf(ifData);
+                                                        continue;
+                                                    }
+                                                }
+
                                                 string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 
                                                 DeviceCategory devCat = DeviceCategory.Generic;
@@ -365,6 +414,156 @@ namespace RazerBatteryTray
                 finally
                 {
                     RazerDeviceHelper.SetupDiDestroyDeviceInfoList(devInfo);
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        public static string GetMajorBrandName(ushort vid)
+        {
+            switch (vid)
+            {
+                case 0x1532: return "Razer";
+                case 0x046D: return "Logitech";
+                case 0x24AE: return "Rapoo";
+                case 0x3554: return "CompX / VGN";
+                case 0x3837: return "MCHOSE";
+                case 0x054C: return "Sony";
+                case 0x1B1C: return "Corsair";
+                case 0x1038: return "SteelSeries";
+                case 0x0B05: return "ASUS ROG";
+                case 0x373B: return "ATK / VXE";
+                case 0x258A: return "SinoWealth";
+                default: return null;
+            }
+        }
+
+        public static bool IsMajorPeripheralVendorId(ushort vid)
+        {
+            return GetMajorBrandName(vid) != null;
+        }
+
+        /// <summary>
+        /// 扫描未被任何专属驱动识别的大厂 HID 外设（纯只读枚举，零写入），
+        /// 使老型号/未收录 PID 在「添加与配置外设向导」中可见并支持一键导出诊断或 AI 适配。
+        /// </summary>
+        public static List<CustomDeviceConfig> ScanUnmatchedMajorBrandHidDevices(HashSet<string> alreadyDetectedKeys)
+        {
+            List<CustomDeviceConfig> result = new List<CustomDeviceConfig>();
+            try
+            {
+                int skippedV;
+                int skippedI;
+                List<HidEndpointSnapshot> endpoints = HardwareDiagnosticService.EnumeratePhysicalHidEndpoints(out skippedV, out skippedI);
+                if (endpoints == null || endpoints.Count == 0) return result;
+
+                Dictionary<string, List<HidEndpointSnapshot>> grouped = new Dictionary<string, List<HidEndpointSnapshot>>(StringComparer.OrdinalIgnoreCase);
+                List<string> order = new List<string>();
+                for (int i = 0; i < endpoints.Count; i++)
+                {
+                    HidEndpointSnapshot ep = endpoints[i];
+                    if (ep == null || !IsMajorPeripheralVendorId(ep.VendorId)) continue;
+                    if (!grouped.ContainsKey(ep.VidPidKey))
+                    {
+                        grouped[ep.VidPidKey] = new List<HidEndpointSnapshot>();
+                        order.Add(ep.VidPidKey);
+                    }
+                    grouped[ep.VidPidKey].Add(ep);
+                }
+
+                for (int k = 0; k < order.Count; k++)
+                {
+                    string key = order[k];
+                    List<HidEndpointSnapshot> group = grouped[key];
+                    HidEndpointSnapshot first = group[0];
+
+                    if (alreadyDetectedKeys != null)
+                    {
+                        if (alreadyDetectedKeys.Contains(key) ||
+                            alreadyDetectedKeys.Contains("HID:" + key) ||
+                            alreadyDetectedKeys.Contains(string.Format("vid_{0:X4}&pid_{1:X4}", first.VendorId, first.ProductId)))
+                        {
+                            continue;
+                        }
+                        if (first.VendorId == 0x1532)
+                        {
+                            int normPid = RazerDeviceHelper.NormalizeRazerPid(first.ProductId);
+                            string normKey = string.Format("1532:{0:X4}", normPid);
+                            if (alreadyDetectedKeys.Contains(normKey) ||
+                                alreadyDetectedKeys.Contains("Razer:" + normKey) ||
+                                alreadyDetectedKeys.Contains("HID:" + normKey))
+                            {
+                                continue;
+                            }
+                        }
+                    }
+
+                    string prod = "";
+                    bool hasPeripheralEndpoint = false;
+                    bool isGamepad = false;
+                    bool isHeadset = false;
+                    bool isKeyboard = false;
+                    bool isMouse = false;
+                    bool isDongle = false;
+
+                    for (int j = 0; j < group.Count; j++)
+                    {
+                        HidEndpointSnapshot ep = group[j];
+                        if (string.IsNullOrEmpty(prod) && !string.IsNullOrEmpty(ep.ProductString))
+                        {
+                            prod = ep.ProductString;
+                        }
+
+                        string pl = string.IsNullOrEmpty(ep.ProductString) ? "" : ep.ProductString.ToLowerInvariant();
+                        bool epGamepad = (ep.UsagePage == 0x01 && (ep.Usage == 0x04 || ep.Usage == 0x05)) ||
+                                         pl.Contains("gamepad") || pl.Contains("controller") || pl.Contains("joystick") || pl.Contains("手柄");
+                        bool epHeadset = (ep.UsagePage == 0x0C || ep.UsagePage == 0x0B || ep.UsagePage == 0x85) ||
+                                         pl.Contains("headset") || pl.Contains("headphone") || pl.Contains("blackshark") ||
+                                         pl.Contains("kraken") || pl.Contains("barracuda") || pl.Contains("nari") ||
+                                         pl.Contains("audio") || pl.Contains("ear") || pl.Contains("耳机");
+                        bool epKeyboard = (ep.UsagePage == 0x01 && ep.Usage == 0x06) || pl.Contains("keyboard") || pl.Contains("键盘");
+                        bool epMouse = (ep.UsagePage == 0x01 && ep.Usage == 0x02) || pl.Contains("mouse") || pl.Contains("鼠标");
+                        bool epDongle = pl.Contains("dongle") || pl.Contains("receiver") || pl.Contains("接收器");
+
+                        if (epGamepad) isGamepad = true;
+                        if (epHeadset) isHeadset = true;
+                        if (epKeyboard) isKeyboard = true;
+                        if (epMouse) isMouse = true;
+                        if (epDongle) isDongle = true;
+
+                        if (epGamepad || epHeadset || epKeyboard || epMouse || epDongle || ep.UsagePage >= 0xFF00 || !string.IsNullOrEmpty(ep.ProductString))
+                        {
+                            hasPeripheralEndpoint = true;
+                        }
+                    }
+
+                    if (!hasPeripheralEndpoint) continue;
+
+                    DeviceCategory cat = DeviceCategory.Generic;
+                    if (isGamepad) cat = DeviceCategory.Gamepad;
+                    else if (isHeadset) cat = DeviceCategory.Headset;
+                    else if (first.VendorId == 0x1532)
+                    {
+                        cat = RazerDeviceHelper.GetRazerDeviceCategory(first.ProductId, prod);
+                    }
+                    else if (isMouse) cat = DeviceCategory.Mouse;
+                    else if (isKeyboard) cat = DeviceCategory.Keyboard;
+                    else if (isDongle) cat = DeviceCategory.Dongle;
+
+                    string brandName = GetMajorBrandName(first.VendorId) ?? "HID";
+                    string displayName = !string.IsNullOrEmpty(prod) ? prod : string.Format("{0} 未适配外设 ({1})", brandName, key);
+
+                    CustomDeviceConfig cfg = new CustomDeviceConfig();
+                    cfg.DeviceId = "HID:" + key;
+                    cfg.OriginalName = displayName;
+                    cfg.CustomName = displayName;
+                    cfg.Category = cat;
+                    cfg.Transport = "未适配 (可导出诊断/AI适配)";
+                    cfg.CachedBattery = -1;
+                    cfg.HardwareFingerprint = "HID:" + key;
+                    cfg.LastSeen = DateTime.Now;
+                    result.Add(cfg);
                 }
             }
             catch { }

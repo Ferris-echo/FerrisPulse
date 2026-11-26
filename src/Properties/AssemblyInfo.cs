@@ -1,4 +1,4 @@
-﻿﻿// ============================================================================
+﻿// ============================================================================
 // 模块名称: AssemblyInfo.cs
 // 所属区域: Properties (程序集元数据层)
 // 核心职责:
@@ -26,7 +26,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 [assembly: Guid("e0557259-c592-4be6-97a5-3ae3c207c5fe")]
 
-[assembly: AssemblyVersion("2.2.0.0")]
-[assembly: AssemblyFileVersion("2.2.0.0")]
-[assembly: AssemblyInformationalVersion("2.2.0-Release")]
+[assembly: AssemblyVersion("2.4.1.0")]
+[assembly: AssemblyFileVersion("2.4.1.0")]
+[assembly: AssemblyInformationalVersion("2.4.1-Release")]
 

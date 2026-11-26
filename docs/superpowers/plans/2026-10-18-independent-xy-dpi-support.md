@@ -1,4 +1,4 @@
-# 雷蛇 & 瓦尔基里 XY 轴独立灵敏度与比例调节实现方案
+﻿# 雷蛇 & 瓦尔基里 XY 轴独立灵敏度与比例调节实现方案
 
 > **文件路径**: `docs/superpowers/plans/2026-10-18-independent-xy-dpi-support.md`  
 > **创建日期**: 2026-10-18  

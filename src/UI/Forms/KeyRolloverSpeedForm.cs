@@ -95,7 +95,7 @@ namespace RazerBatteryTray
             this.TopMost = true;
             this.BackColor = Color.FromArgb(16, 20, 28);
             this.ForeColor = Color.FromArgb(240, 245, 255);
-            this.ClientSize = new Size((int)(520 * scale), (int)(360 * scale));
+            this.ClientSize = new Size(Scale(520), Scale(360));
             this.KeyPreview = true;
             this.ImeMode = ImeMode.Disable;
 
@@ -105,36 +105,36 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            int pad = (int)(16 * scale);
+            int pad = Scale(16);
 
             lblTitle = new Label();
             lblTitle.Text = "⚡ 机械键盘按键矩阵与全键无冲 (NKRO) 测速仪 [独占抢占]";
             lblTitle.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
             lblTitle.ForeColor = Color.FromArgb(0, 229, 255);
-            lblTitle.SetBounds(pad, (int)(12 * scale), ClientSize.Width - (pad * 2), (int)(24 * scale));
+            lblTitle.SetBounds(pad, Scale(12), ClientSize.Width - (pad * 2), Scale(24));
             this.Controls.Add(lblTitle);
 
-            int cardW = (ClientSize.Width - (pad * 2) - (int)(16 * scale)) / 3;
-            int cardY = (int)(42 * scale);
-            int cardH = (int)(62 * scale);
+            int cardW = (ClientSize.Width - (pad * 2) - Scale(16)) / 3;
+            int cardY = Scale(42);
+            int cardH = Scale(62);
 
             Panel p1 = CreateMetricPanel("当前/最大并发", "0 键", out lblConcurrent, pad, cardY, cardW, cardH, Color.FromArgb(0, 230, 118));
-            Panel p2 = CreateMetricPanel("击键间隔延迟", "-- ms", out lblLatency, pad + cardW + (int)(8 * scale), cardY, cardW, cardH, Color.FromArgb(0, 229, 255));
-            Panel p3 = CreateMetricPanel("累计击键计数", "0 次", out lblCounter, pad + (cardW + (int)(8 * scale)) * 2, cardY, cardW, cardH, Color.FromArgb(255, 183, 77));
+            Panel p2 = CreateMetricPanel("击键间隔延迟", "-- ms", out lblLatency, pad + cardW + Scale(8), cardY, cardW, cardH, Color.FromArgb(0, 229, 255));
+            Panel p3 = CreateMetricPanel("累计击键计数", "0 次", out lblCounter, pad + (cardW + Scale(8)) * 2, cardY, cardW, cardH, Color.FromArgb(255, 183, 77));
             this.Controls.AddRange(new Control[] { p1, p2, p3 });
 
             keysPanel = new Panel();
-            keysPanel.SetBounds(pad, (int)(114 * scale), ClientSize.Width - (pad * 2), (int)(180 * scale));
+            keysPanel.SetBounds(pad, Scale(114), ClientSize.Width - (pad * 2), Scale(180));
             keysPanel.BackColor = Color.FromArgb(22, 26, 36);
             keysPanel.ImeMode = ImeMode.Disable;
             keysPanel.Paint += KeysPanel_Paint;
             this.Controls.Add(keysPanel);
 
-            int btnH = (int)(32 * scale);
-            int btnY = ClientSize.Height - btnH - (int)(12 * scale);
-            int resetW = (int)(92 * scale);
-            int closeW = (int)(92 * scale);
-            int shieldW = ClientSize.Width - (pad * 2) - resetW - closeW - (int)(16 * scale);
+            int btnH = Scale(32);
+            int btnY = ClientSize.Height - btnH - Scale(12);
+            int resetW = Scale(92);
+            int closeW = Scale(92);
+            int shieldW = ClientSize.Width - (pad * 2) - resetW - closeW - Scale(16);
 
             btnReset = new ModernButton();
             btnReset.Text = "清空重置";
@@ -143,7 +143,7 @@ namespace RazerBatteryTray
             btnReset.HoverColor = Color.FromArgb(48, 56, 76);
             btnReset.BorderColor = Color.FromArgb(60, 70, 96);
             btnReset.TextColor = Color.FromArgb(190, 200, 220);
-            btnReset.CornerRadius = (int)(6 * scale);
+            btnReset.CornerRadius = Scale(6);
             btnReset.SetBounds(pad, btnY, resetW, btnH);
             btnReset.Click += (s, e) => {
                 heldKeys.Clear();
@@ -157,8 +157,8 @@ namespace RazerBatteryTray
 
             btnShieldToggle = new ModernButton();
             btnShieldToggle.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold);
-            btnShieldToggle.CornerRadius = (int)(6 * scale);
-            btnShieldToggle.SetBounds(pad + resetW + (int)(8 * scale), btnY, shieldW, btnH);
+            btnShieldToggle.CornerRadius = Scale(6);
+            btnShieldToggle.SetBounds(pad + resetW + Scale(8), btnY, shieldW, btnH);
             btnShieldToggle.Cursor = Cursors.Hand;
             UpdateShieldButtonUI();
             btnShieldToggle.Click += (s, e) => {
@@ -174,11 +174,13 @@ namespace RazerBatteryTray
             btnClose.HoverColor = Color.FromArgb(0, 210, 105);
             btnClose.BorderColor = Color.FromArgb(0, 230, 118);
             btnClose.TextColor = Color.White;
-            btnClose.CornerRadius = (int)(6 * scale);
+            btnClose.CornerRadius = Scale(6);
             btnClose.SetBounds(ClientSize.Width - closeW - pad, btnY, closeW, btnH);
             btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(btnClose);
 
+            AttachModernChrome("机械键盘全键无冲 (NKRO) 测速仪 [独占抢占]", lblTitle, 16, true, false);
+            lblTitle = null;
             InstallHook();
         }
 

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 
 // 1. 目标平台与编译规范：严格维持 C# 5.0 语法标准与 .NET Framework 4.0 兼容性。严禁引入任何第三方包或依赖。
 
@@ -196,6 +196,8 @@ namespace RazerBatteryTray
 
         private readonly Dictionary<IntPtr, bool> mouseDeviceWakeMatchCache = new Dictionary<IntPtr, bool>();
 
+        private string mouseWakeCacheDeviceId = null;
+
         private volatile bool isPassiveWakePollingQueued = false;
 
 
@@ -211,6 +213,13 @@ namespace RazerBatteryTray
 
 
         private NotifyIcon trayIcon;
+        private bool multiTrayEnabled = false;
+        private int multiTrayMaxCount = 3;
+        private MultiTrayIconHost multiTrayHost;
+        private ToolStripMenuItem multiTrayMenuItem;
+        private string trayContextDeviceId = null;
+        private bool isSlotContextOpening = false;
+        private bool isTogglingWindow = false;
 
         private ContextMenuStrip contextMenu;
 
@@ -406,32 +415,79 @@ namespace RazerBatteryTray
 
         private DateTime lastRapooDpiPollTime = DateTime.MinValue;
         private DateTime lastGameOptOsdTime = DateTime.MinValue;
+        private long dpiMonitorBurstUntilTicks = 0;
 
-        private Dictionary<string, int> lastMonitoredRazerDpis = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private static long lastTargetMouseActivityTicks = DateTime.UtcNow.Ticks;
+        private static AutoResetEvent dpiMonitorWakeEvent = new AutoResetEvent(false);
+        private volatile bool isDpiMonitorSleeping = false;
+        private Dictionary<string, bool> calibratedStartupDevices = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
-        private Dictionary<string, int> lastMonitoredRazerStages = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredDpis = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredStages = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> pendingDpiCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> pendingStageCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        private Dictionary<string, int> pendingRazerDpiCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, int> lastMonitoredRazerDpis { get { return lastMonitoredDpis; } }
+        private Dictionary<string, int> lastMonitoredRazerStages { get { return lastMonitoredStages; } }
+        private Dictionary<string, int> pendingRazerDpiCandidates { get { return pendingDpiCandidates; } }
+        private Dictionary<string, int> pendingRazerStageCandidates { get { return pendingStageCandidates; } }
 
-        private Dictionary<string, int> pendingRazerStageCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public static CustomDeviceAction GetDeviceToggleAction(MouseBatteryInfo dev, string actionId)
+        {
+            return GetDeviceToggleAction(dev, -1, actionId);
+        }
 
+        public static CustomDeviceAction GetDeviceSliderAction(MouseBatteryInfo dev, string actionId)
+        {
+            return GetDeviceSliderAction(dev, -1, actionId);
+        }
 
+        public static CustomDeviceAction GetDeviceToggleAction(MouseBatteryInfo dev, int fallbackIndex, string actionId)
+        {
+            if (dev == null || dev.Capabilities == null || dev.Capabilities.CustomActions == null) return null;
+            var list = dev.Capabilities.CustomActions;
+            if (!string.IsNullOrEmpty(actionId))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (string.Equals(list[i].ActionId, actionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return list[i];
+                    }
+                }
+            }
+            if (fallbackIndex >= 0 && fallbackIndex < list.Count)
+            {
+                return list[fallbackIndex];
+            }
+            return null;
+        }
+
+        public static CustomDeviceAction GetDeviceSliderAction(MouseBatteryInfo dev, int fallbackIndex, string actionId)
+        {
+            if (dev == null || dev.Capabilities == null || dev.Capabilities.CustomActions == null) return null;
+            var list = dev.Capabilities.CustomActions;
+            if (!string.IsNullOrEmpty(actionId))
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (string.Equals(list[i].ActionId, actionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return list[i];
+                    }
+                }
+            }
+            if (fallbackIndex >= 0 && fallbackIndex < list.Count)
+            {
+                return list[fallbackIndex];
+            }
+            return null;
+        }
 
         private int lastMonitoredValkyrieDpi = -1;
-
         private int lastMonitoredValkyrieStage = -1;
-
-        private int pendingValkyrieDpiCandidate = -1;
-
-        private int pendingValkyrieStageCandidate = -1;
-
         private int lastMonitoredLogitechDpi = -1;
-
         private int lastMonitoredLogitechStage = -1;
-
-        private int pendingLogitechDpiCandidate = -1;
-
-        private int pendingLogitechStageCandidate = -1;
 
         private DpiOsdForm osdForm;
 
@@ -465,9 +521,10 @@ namespace RazerBatteryTray
 
         private ModernButton btnDpiManage;
 
-        private List<int> dpiStageList = new List<int> { 400, 800, 1600, 3000, 6400 };
+        // 档位默认为空：必须等设备实际上报板载档位后才渲染，绝不能用默认值伪造选项。
+        private List<int> dpiStageList = new List<int>();
 
-        private int[] dpiStageValues = new int[] { 400, 800, 1600, 3000, 6400 };
+        private int[] dpiStageValues = new int[0];
 
         private Label lblRateTitle;
 
@@ -475,7 +532,7 @@ namespace RazerBatteryTray
 
         private ModernButton btnRateManage;
 
-        private int[] pollingRateValues = new int[] { 1000, 2000, 4000, 8000 };
+        private int[] pollingRateValues = new int[0];
 
         private bool autoGameRateEnabled = false;
 
@@ -489,7 +546,29 @@ namespace RazerBatteryTray
 
         private int desktopDpiStage = 0;
 
+        // DPI 硬件下发单任务防抖调度与后台轮询避让
+        internal class DpiDispatchTarget
+        {
+            public MouseBatteryInfo Device;
+            public int TargetDpi;
+            public int TargetDpiY;
+            public int TargetStage;
+            public int PreviousDpi;
+            public int PreviousDpiY;
+            public int PreviousStage;
+            public string Brand;
+            public string DeviceId;
+        }
+
+        private DpiDispatchTarget pendingDpiTarget = null;
+        private readonly object dpiDispatchLock = new object();
+        private bool isDpiDispatching = false;
+        private long dpiMonitorSuppressUntilTicks = 0;
+
         private bool isGamingActive = false;
+        private int inGameRuntimeDpiStage = 0;
+        private int inGameRuntimePollingRate = 0;
+        private string inGameActiveGameTitle = "";
 
         private int inGameTickCount = 0;
 
@@ -533,7 +612,8 @@ namespace RazerBatteryTray
 
 
 
-        private List<string> monitoredGameProcesses = new List<string> { "cs2.exe", "b1-win64-shipping.exe", "valorant-win64-shipping.exe" };
+        private List<string> monitoredGameProcesses = new List<string>();
+        private Dictionary<string, GameProfile> gameProfiles = new Dictionary<string, GameProfile>(StringComparer.OrdinalIgnoreCase);
 
         private bool fallbackFullscreenEnabled = false;
 
@@ -674,6 +754,12 @@ namespace RazerBatteryTray
         private ModernSegmentButton btnOsdStyleGauge;
 
         private ModernSegmentButton btnOsdStyleCompact;
+        private Label lblZoomTitle;
+        private ModernSegmentButton btnZoomSmall;
+        private ModernSegmentButton btnZoomMedium;
+        private ModernSegmentButton btnZoomLarge;
+        private ModernSegmentButton btnZoomReset;
+        private System.Windows.Forms.Timer sizingDragTimer = null;
 
         private SubtleDivider divSettings;
 
@@ -692,6 +778,7 @@ namespace RazerBatteryTray
         // Visual controls - Bottom Actions
 
         private ModernButton btnRefresh;
+        private DateTime lastManualRefreshTime = DateTime.MinValue;
 
         private ModernButton btnHideToTray;
 
@@ -705,11 +792,21 @@ namespace RazerBatteryTray
 
         private const string StartupApprovedRunKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-        private const string ConfigRegistryKey = @"Software\FerrisPulse";
+        internal static string ConfigRegistryKey = @"Software\FerrisPulse";
+        internal static bool DisableConfigSaveForTesting = false;
+
+        internal static bool IsConfigSaveDisabledForTesting()
+        {
+            return DisableConfigSaveForTesting ||
+                string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_TEST_MODE"), "1", StringComparison.OrdinalIgnoreCase);
+        }
 
 
 
         private bool lowBatteryAlertEnabled = true;
+        private bool lowBatteryNotifyEnabled = true;
+        private bool lowBatteryUiColorEnabled = true;
+        private bool lowBatteryTrayColorEnabled = false;
 
         private bool dpiOsdEnabled = true;
 
@@ -724,6 +821,14 @@ namespace RazerBatteryTray
         private float dpiScale = 1.0f;
 
         private MouseBatteryInfo lastInfo = null;
+
+        // [设备聚焦记忆] 上次用户主动选中的设备 ID（跨重启保持）。
+        // 嗜血教训：不记忆时每次启动都回落到键盘（GetPrimaryDevice），
+        // 而键盘视图下 DPI/回报率控件整块不渲染，用户会误以为“无法调整 DPI”。
+        private string lastSelectedDeviceId = null;
+
+        // 用户是否已手动指定过面板展示设备；未手动指定前，启动阶段允许自动纠正到有效设备。
+        private bool deviceSelectionPinnedByUser = false;
 
 
 
@@ -769,6 +874,19 @@ namespace RazerBatteryTray
 
         private DateTime lastFlyoutCloseTime = DateTime.MinValue;
 
+        private float systemDpiScale = 1.0f;
+
+        private float userZoomScale = 0.0f;
+
+        private bool isUserSizingDrag = false;
+
+        private System.Windows.Forms.Timer zoomTitleTimer = null;
+
+        public float UserZoomScale
+        {
+            get { return userZoomScale; }
+        }
+
 
 
         protected override CreateParams CreateParams
@@ -805,9 +923,11 @@ namespace RazerBatteryTray
 
             {
 
-                dpiScale = g.DpiX / 96.0f;
+                systemDpiScale = g.DpiX / 96.0f;
 
-                if (dpiScale < 1.0f) dpiScale = 1.0f;
+                if (systemDpiScale < 1.0f) systemDpiScale = 1.0f;
+
+                dpiScale = systemDpiScale;
 
             }
 
@@ -819,7 +939,7 @@ namespace RazerBatteryTray
 
             {
 
-                dpiScale = DpiScaleHelper.ClampScaleToScreen(dpiScale, primaryScrn, 748);
+                dpiScale = DpiScaleHelper.ClampScaleToScreen(dpiScale, primaryScrn, DpiScaleHelper.DefaultExpandedBaseHeight);
 
             }
 
@@ -873,6 +993,10 @@ namespace RazerBatteryTray
 
             SteelSeriesDeviceHelper.LoadHardwareCache();
 
+            CorsairDeviceHelper.LoadHardwareCache();
+
+            CorsairDeviceHelper.LoadMouseHardwareCache();
+
             InitializeFormUI();
 
             InitializeTray();
@@ -906,21 +1030,53 @@ namespace RazerBatteryTray
 
             updateTimer.Tick += (s, e) => RefreshBatteryStatus(false);
 
-            updateTimer.Start();
+            bool sandboxActive = HardwareCommandBus.IsHardwareSandboxActive;
+            if (!sandboxActive)
+            {
+                updateTimer.Start();
 
+                RefreshBatteryStatus(false);
 
+                StartBootPolling();
 
-            // 首轮刷新不再启动瞬间立即执行，统一交给 StartBootPolling 延迟 3 秒后触发（避开启动初期键鼠交互高峰，防止雷柏等私有协议查询抢占无线通道卡死鼠标）
+                StartDpiMonitor();
 
-            StartBootPolling();
+                StartGameMonitor();
 
-            StartDpiMonitor();
+                StartPeriodicUpdateCheck();
 
-            StartGameMonitor();
+                StartWakeupEventListener();
 
-            StartPeriodicUpdateCheck();
-
-            StartWakeupEventListener();
+                // 挂载操作系统会话注销、关机与电源睡眠/唤醒守护
+                try
+                {
+                    Microsoft.Win32.SystemEvents.SessionEnding += (s, e) => {
+                        RestoreDesktopSettingsSynchronous();
+                    };
+                    Microsoft.Win32.SystemEvents.PowerModeChanged += (s, e) => {
+                        if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
+                        {
+                            RestoreDesktopSettingsSynchronous();
+                        }
+                        else if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+                        {
+                        ThreadPool.QueueUserWorkItem(_ => {
+                            System.Threading.Thread.Sleep(1500);
+                            try
+                            {
+                                this.BeginInvoke(new Action(() => {
+                                    calibratedStartupDevices.Clear();
+                                    var activeMouse = GetActiveMouseDevice();
+                                    if (activeMouse != null) PerformStartupDesktopCalibration(activeMouse);
+                                }));
+                            }
+                            catch { }
+                        });
+                    }
+                };
+            }
+            catch { }
+            }
 
         }
 
@@ -1049,9 +1205,11 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+            float probedScale = DpiScaleHelper.GetDpiScaleForWindow(this.Handle);
+            if (probedScale >= 1.0f) this.systemDpiScale = probedScale;
             ApplyModernWin11Theme();
             RegisterUsbNotification();
-            if (isMouseSleeping)
+            if (!HardwareCommandBus.IsHardwareSandboxActive && ShouldMonitorMouseWakeInput())
             {
                 EnableMouseWakeDetector(true);
             }
@@ -1075,13 +1233,17 @@ namespace RazerBatteryTray
 
             if (newScale < 1.0f) newScale = 1.0f;
 
+            this.systemDpiScale = newScale;
+
 
 
             Screen screen = Screen.FromRectangle(!suggestedBounds.IsEmpty ? suggestedBounds : this.Bounds);
 
+            float requested = (userZoomScale >= DpiScaleHelper.MinScale) ? userZoomScale : newScale;
+
             // 屏幕自适应防溢出安全上限约束：无论系统缩放多大，确保窗口高度绝对容纳在工作区内，底部主按钮永不被截断
 
-            newScale = DpiScaleHelper.ClampScaleToScreen(newScale, screen, 748);
+            newScale = DpiScaleHelper.ClampScaleToScreen(requested, screen, DpiScaleHelper.DefaultExpandedBaseHeight);
 
 
 
@@ -1250,35 +1412,22 @@ namespace RazerBatteryTray
 
 
                 Rectangle targetRect = new Rectangle(savedWindowX, savedWindowY, this.Width, this.Height);
-
+                // 选择与保存位置交集最大的屏幕；若全部在屏幕外，则退回主屏 (PR #17 优化)
                 Screen targetScreen = null;
-
+                long bestIntersectionArea = -1;
                 foreach (var scr in Screen.AllScreens)
-
                 {
-
                     Rectangle intersection = Rectangle.Intersect(scr.WorkingArea, targetRect);
-
-                    if (intersection.Width >= 100 && intersection.Height >= 100)
-
+                    long area = (long)Math.Max(0, intersection.Width) * (long)Math.Max(0, intersection.Height);
+                    if (area > bestIntersectionArea)
                     {
-
+                        bestIntersectionArea = area;
                         targetScreen = scr;
-
-                        break;
-
                     }
-
                 }
-
-
-
                 if (targetScreen == null)
-
                 {
-
                     targetScreen = Screen.PrimaryScreen;
-
                 }
 
 
@@ -1323,7 +1472,7 @@ namespace RazerBatteryTray
 
                 RestoreWindowPosition();
 
-                var devToSelect = targetDev ?? GetPrimaryDevice();
+                var devToSelect = targetDev ?? GetPreferredStartupDevice();
 
                 if (devToSelect != null)
 
@@ -1341,6 +1490,17 @@ namespace RazerBatteryTray
                     {
                         this.RecreateHandle();
                         RestoreWindowPosition();
+                        float liveScale = DpiScaleHelper.GetDpiScaleForWindow(this.Handle);
+                        if (liveScale >= 1.0f && Math.Abs(liveScale - this.systemDpiScale) > 0.01f)
+                        {
+                            this.systemDpiScale = liveScale;
+                            if (this.userZoomScale < DpiScaleHelper.MinScale)
+                            {
+                                Screen scr = Screen.FromHandle(this.Handle);
+                                this.dpiScale = DpiScaleHelper.ClampScaleToScreen(liveScale, scr, DpiScaleHelper.DefaultExpandedBaseHeight);
+                            }
+                            ApplyDpiScaleToControls();
+                        }
                     }
                     catch { }
 
@@ -1373,37 +1533,30 @@ namespace RazerBatteryTray
 
 
         private void ToggleWindow()
-
         {
-
-            if (this.Visible && this.WindowState != FormWindowState.Minimized)
-
+            if (isTogglingWindow) return;
+            isTogglingWindow = true;
+            try
             {
-
-                if (this.WindowState == FormWindowState.Normal && this.Location.X > -3000 && this.Location.Y > -3000)
-
+                if (this.Visible && this.WindowState != FormWindowState.Minimized)
                 {
-
-                    savedWindowX = this.Location.X;
-
-                    savedWindowY = this.Location.Y;
-
-                    SaveConfig();
-
+                    if (this.WindowState == FormWindowState.Normal && this.Location.X > -3000 && this.Location.Y > -3000)
+                    {
+                        savedWindowX = this.Location.X;
+                        savedWindowY = this.Location.Y;
+                        SaveConfig();
+                    }
+                    this.Hide();
                 }
-
-                this.Hide();
-
+                else
+                {
+                    ShowWindow();
+                }
             }
-
-            else
-
+            finally
             {
-
-                ShowWindow();
-
+                isTogglingWindow = false;
             }
-
         }
 
 
@@ -1460,24 +1613,26 @@ namespace RazerBatteryTray
 
 
 
-            if (e.CloseReason == CloseReason.UserClosing)
+            bool isExplicitExit = (e.CloseReason == CloseReason.ApplicationExitCall ||
+                                   e.CloseReason == CloseReason.WindowsShutDown ||
+                                   e.CloseReason == CloseReason.TaskManagerClosing);
 
+            if (!isExplicitExit)
             {
-
                 e.Cancel = true;
-
                 this.Hide();
-
             }
-
             else
-
             {
+                try
+                {
+                    RestoreDesktopSettingsSynchronous();
+                }
+                catch { }
 
                 StopDpiMonitor();
 
                 base.OnFormClosing(e);
-
             }
 
         }
@@ -1500,6 +1655,22 @@ namespace RazerBatteryTray
 
                 singleInstanceWakeupEvent = null;
 
+            }
+
+            if (trayDeviceItemFont != null)
+
+            {
+
+                try { trayDeviceItemFont.Dispose(); } catch { }
+
+                trayDeviceItemFont = null;
+
+            }
+
+            if (multiTrayHost != null)
+            {
+                try { multiTrayHost.HideAll(); multiTrayHost.Dispose(); } catch { }
+                multiTrayHost = null;
             }
 
             base.OnFormClosed(e);
@@ -1635,19 +1806,17 @@ namespace RazerBatteryTray
 
 
             if (lastInfo != null)
-
             {
-
-                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected);
-
+                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+            }
+            else
+            {
+                UpdateTrayIcon(-1, false, false);
             }
 
-            else
-
+            if (multiTrayEnabled)
             {
-
-                UpdateTrayIcon(-1, false, false);
-
+                RefreshMultiTrayHost();
             }
 
         }
@@ -1888,27 +2057,7 @@ namespace RazerBatteryTray
 
 
 
-                        if (autoGameOptVal != null)
-
-                        {
-
-                            bool optMaster = (int)autoGameOptVal == 1;
-
-                            if (!optMaster)
-
-                            {
-
-                                autoGameRateEnabled = false;
-
-                                autoGameDpiEnabled = false;
-
-                            }
-
-                        }
-
-
-
-                        var gameRateVal = key.GetValue("GameTargetPollingRate");
+var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                         if (gameRateVal != null) gamePollingRate = (int)gameRateVal;
 
@@ -1922,7 +2071,8 @@ namespace RazerBatteryTray
 
                             gameDpiStage = (int)gameDpiStageVal;
 
-                            if (gameDpiStage < 1 || gameDpiStage > 5) gameDpiStage = 2;
+                            // 只做合法性下界兜底；上界在运行时按设备实际档位数收敛，绝不凭 2/5 造档。
+            if (gameDpiStage < 1) gameDpiStage = 1;
 
                         }
 
@@ -1931,6 +2081,13 @@ namespace RazerBatteryTray
                         var deskRateVal = key.GetValue("DesktopPollingRate");
 
                         if (deskRateVal != null) desktopPollingRate = (int)deskRateVal;
+
+                        var deskDpiStageVal = key.GetValue("DesktopDpiStage");
+                        if (deskDpiStageVal != null)
+                        {
+                            desktopDpiStage = (int)deskDpiStageVal;
+                            if (desktopDpiStage < 1 || desktopDpiStage > 5) desktopDpiStage = 0;
+                        }
 
 
 
@@ -1954,7 +2111,7 @@ namespace RazerBatteryTray
 
                         var procListVal = key.GetValue("MonitoredGameProcesses") as string;
 
-                        if (!string.IsNullOrEmpty(procListVal))
+                        if (procListVal != null)
 
                         {
 
@@ -1982,6 +2139,12 @@ namespace RazerBatteryTray
 
 
 
+                        var gameProfilesVal = key.GetValue("GameProfiles") as string;
+                        if (gameProfilesVal != null)
+                        {
+                            gameProfiles = GameProfile.DeserializeProfiles(gameProfilesVal);
+                        }
+
                         var fallbackVal = key.GetValue("FallbackFullscreenEnabled");
 
                         if (fallbackVal != null) fallbackFullscreenEnabled = (int)fallbackVal == 1;
@@ -1992,43 +2155,8 @@ namespace RazerBatteryTray
 
 
 
-                        var customDpiVal = key.GetValue("CustomDpiStages") as string;
-
-                        if (!string.IsNullOrEmpty(customDpiVal))
-
-                        {
-
-                            string[] parts = customDpiVal.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-
-                            List<int> loaded = new List<int>();
-
-                            for (int i = 0; i < parts.Length && loaded.Count < 5; i++)
-
-                            {
-
-                                int pDpi;
-
-                                if (int.TryParse(parts[i].Trim(), out pDpi) && pDpi >= 100 && pDpi <= 20000)
-
-                                {
-
-                                    loaded.Add(pDpi);
-
-                                }
-
-                            }
-
-                            if (loaded.Count > 0)
-
-                            {
-
-                                dpiStageList = loaded;
-
-                                dpiStageValues = dpiStageList.ToArray();
-
-                            }
-
-                        }
+                        // 注册表里的档位数量只作历史记录，绝不作为 UI 选项来源：
+                        // DPI 档位必须由设备板载实际配置决定——有多少档就显示多少。
 
 
 
@@ -2040,6 +2168,19 @@ namespace RazerBatteryTray
 
                         if (wyVal != null) savedWindowY = (int)wyVal;
 
+                        var zoomVal = key.GetValue("WindowZoomScale");
+                        if (zoomVal != null)
+                        {
+                            int rawZoom = (int)zoomVal;
+                            if (rawZoom >= 600 && rawZoom <= 2500)
+                            {
+                                userZoomScale = rawZoom / 1000.0f;
+                            }
+                        }
+                        var lsVal = key.GetValue("LastSelectedDevice");
+
+                        if (lsVal != null) lastSelectedDeviceId = lsVal as string;
+
                     }
 
                 }
@@ -2048,7 +2189,11 @@ namespace RazerBatteryTray
 
             catch { }
 
-
+            multiTrayEnabled = ConfigManager.GetMultiTrayEnabled();
+            multiTrayMaxCount = ConfigManager.GetMultiTrayMaxCount();
+            lowBatteryNotifyEnabled = ConfigManager.GetLowBatteryNotifyEnabled();
+            lowBatteryUiColorEnabled = ConfigManager.GetLowBatteryUiColorEnabled();
+            lowBatteryTrayColorEnabled = ConfigManager.GetLowBatteryTrayColorEnabled();
 
             CleanupLegacyAutoStart();
 
@@ -2163,12 +2308,17 @@ namespace RazerBatteryTray
                 UpdateGameDpiButtonSelection(gameDpiStage);
 
                 UpdateDesktopRateButtonSelection(desktopPollingRate);
+                if (desktopDpiStage > 0)
+                {
+                    HighlightDpiStage(desktopDpiStage);
+                }
 
                 UpdateManageGamesButtonText();
 
-                SetAutoGameRateEnabled(autoGameRateEnabled);
-
-                SetAutoGameDpiEnabled(autoGameDpiEnabled);
+                bool anyOptEnabled = (autoGameRateEnabled || autoGameDpiEnabled);
+                if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyOptEnabled;
+                UpdatePerformanceCardHeightForCurrentDevice();
+                UpdatePollingRateDisplayStates();
 
             }
 
@@ -2180,8 +2330,158 @@ namespace RazerBatteryTray
 
             }
 
+            SetMultiTrayEnabled(multiTrayEnabled, false);
             RelayoutDpiButtons();
 
+            Screen curScrn = Screen.PrimaryScreen;
+            float targetScale = (userZoomScale >= DpiScaleHelper.MinScale) ? userZoomScale : systemDpiScale;
+            if (curScrn != null)
+            {
+                targetScale = DpiScaleHelper.ClampScaleToScreen(targetScale, curScrn, DpiScaleHelper.DefaultExpandedBaseHeight);
+            }
+            this.dpiScale = targetScale;
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+            ApplyDpiScaleToControls();
+
+        }
+
+        public int GetCurrentBaseClientHeight()
+        {
+            var dev = selectedDevice;
+            int baseCard2H = 148;
+            if (dev != null)
+            {
+                if (dev.Category == DeviceCategory.Gamepad) baseCard2H = 168;
+                else if (dev.Category == DeviceCategory.Headset || dev.Category == DeviceCategory.Earbuds) baseCard2H = 196;
+                else if (dev.Category == DeviceCategory.Keyboard) baseCard2H = (dev.Brand == "NuPhy") ? 196 : 228;
+                else if (dev.Category == DeviceCategory.Dongle) baseCard2H = 120;
+                else if (IsSelectedDeviceSupportingAutoGameRate())
+                {
+                    baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+                }
+                else
+                {
+                    baseCard2H = (dev.Category == DeviceCategory.Mouse) ? 160 : 120;
+                }
+            }
+            else
+            {
+                baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+            }
+            return 572 + baseCard2H;
+        }
+
+        public float GetRecommendedDefaultScale()
+        {
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            float baseScale = this.systemDpiScale > 0.1f ? this.systemDpiScale : 1.0f;
+            return DpiScaleHelper.ClampScaleToScreen(baseScale, scr, DpiScaleHelper.DefaultExpandedBaseHeight);
+        }
+
+        public int GetRecommendedScalePercent() { float baseScale = this.systemDpiScale > 0.1f ? this.systemDpiScale : 1.0f; float rec = GetRecommendedDefaultScale(); return (int)Math.Round((rec / baseScale) * 100.0f); }
+        public void SetWindowScalePreset(float relativeMultiplier)
+        {
+            float rec = GetRecommendedDefaultScale();
+            SetUserWindowScale((float)Math.Round(rec * relativeMultiplier, 3), true);
+        }
+
+        internal void UpdateZoomPresetButtonSelection()
+        {
+            float rec = GetRecommendedDefaultScale();
+            if (rec <= 0.01f) rec = 1.0f;
+            float s80 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 0.80f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+            float s90 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 0.90f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+            float s115 = DpiScaleHelper.ClampScaleToScreen((float)Math.Round(rec * 1.15f, 3), this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen, GetCurrentBaseClientHeight() + 38);
+
+            bool isReset = (this.userZoomScale <= 0.01f) || (Math.Abs(this.dpiScale - rec) <= 0.015f);
+            bool isSmall = !isReset && (Math.Abs(this.dpiScale - s80) <= 0.015f);
+            bool isMed = !isReset && !isSmall && (Math.Abs(this.dpiScale - s90) <= 0.015f);
+            bool isLarge = !isReset && !isSmall && !isMed && (Math.Abs(this.dpiScale - s115) <= 0.015f);
+
+            if (btnZoomSmall != null) btnZoomSmall.Selected = isSmall;
+            if (btnZoomMedium != null) btnZoomMedium.Selected = isMed;
+            if (btnZoomLarge != null) btnZoomLarge.Selected = isLarge;
+            if (btnZoomReset != null) { string recText = string.Format("{0}%", GetRecommendedScalePercent()); if (btnZoomReset.Text != recText) btnZoomReset.Text = recText; btnZoomReset.Selected = isReset; }
+        }
+
+        private void ShowZoomTitleHint(float scale)
+        {
+            try
+            {
+                float rec = GetRecommendedDefaultScale();
+                int pct = (int)Math.Round((scale / (rec > 0.01f ? rec : 1.0f)) * 100.0f);
+                this.Text = string.Format("FerrisPulse · 灵脉 ({0}%)", pct);
+                if (zoomTitleTimer == null)
+                {
+                    zoomTitleTimer = new System.Windows.Forms.Timer();
+                    zoomTitleTimer.Interval = 1500;
+                    zoomTitleTimer.Tick += (s, e) =>
+                    {
+                        zoomTitleTimer.Stop();
+                        if (!this.IsDisposed)
+                        {
+                            this.Text = "FerrisPulse · 灵脉";
+                        }
+                    };
+                }
+                zoomTitleTimer.Stop();
+                zoomTitleTimer.Start();
+            }
+            catch { }
+        }
+
+        public void SetUserWindowScale(float newScale, bool saveConfig = true)
+        {
+            if (newScale < DpiScaleHelper.MinScale) newScale = DpiScaleHelper.MinScale;
+            if (newScale > DpiScaleHelper.MaxScale) newScale = DpiScaleHelper.MaxScale;
+
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            int frameH = Math.Max(36, this.Height - this.ClientSize.Height);
+            int curBaseTotalH = GetCurrentBaseClientHeight() + frameH;
+            newScale = DpiScaleHelper.ClampScaleToScreen(newScale, scr, curBaseTotalH);
+            newScale = (float)Math.Round(newScale, 3);
+
+            this.userZoomScale = newScale;
+            this.dpiScale = newScale;
+
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+
+            ApplyDpiScaleToControls();
+            ShowZoomTitleHint(this.dpiScale);
+
+            if (saveConfig)
+            {
+                SaveConfig();
+            }
+        }
+
+        public void StepWindowScale(float delta)
+        {
+            float target = (float)Math.Round(this.dpiScale + delta, 2);
+            SetUserWindowScale(target, true);
+        }
+
+        public void ResetWindowScale()
+        {
+            this.userZoomScale = 0.0f;
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.PrimaryScreen;
+            float defScale = GetRecommendedDefaultScale();
+            this.dpiScale = defScale;
+
+            if (osdForm != null && !osdForm.IsDisposed)
+            {
+                osdForm.UpdateDpiScale(this.dpiScale);
+            }
+
+            ApplyDpiScaleToControls();
+            ShowZoomTitleHint(this.dpiScale);
+            SaveConfig();
         }
 
 
@@ -2189,6 +2489,8 @@ namespace RazerBatteryTray
         private void SaveConfig()
 
         {
+
+            if (IsConfigSaveDisabledForTesting()) return;
 
             try
 
@@ -2226,6 +2528,8 @@ namespace RazerBatteryTray
 
                         key.SetValue("DesktopPollingRate", desktopPollingRate);
 
+                        key.SetValue("DesktopDpiStage", desktopDpiStage);
+
                         key.SetValue("GameRateNotifyOsd", gameRateNotifyOsd ? 1 : 0);
 
                         key.SetValue("GameRateNotifyToast", gameRateNotifyToast ? 1 : 0);
@@ -2242,6 +2546,16 @@ namespace RazerBatteryTray
 
                         }
 
+                        if (gameProfiles != null)
+
+                        {
+
+                            string profStr = GameProfile.SerializeProfiles(gameProfiles);
+
+                            key.SetValue("GameProfiles", profStr);
+
+                        }
+
                         key.SetValue("FallbackFullscreenEnabled", fallbackFullscreenEnabled ? 1 : 0);
                         key.SetValue("GameOptMode", gameOptMode);
 
@@ -2252,6 +2566,15 @@ namespace RazerBatteryTray
                             key.SetValue("WindowX", savedWindowX);
 
                             key.SetValue("WindowY", savedWindowY);
+
+                        }
+
+                        key.SetValue("WindowZoomScale", userZoomScale >= DpiScaleHelper.MinScale ? (int)Math.Round(userZoomScale * 1000.0f) : 0);
+                        if (!string.IsNullOrEmpty(lastSelectedDeviceId))
+
+                        {
+
+                            key.SetValue("LastSelectedDevice", lastSelectedDeviceId);
 
                         }
 
@@ -2356,11 +2679,97 @@ namespace RazerBatteryTray
 
 
 
+        public bool IsEffectiveLowBatteryNotifyEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryNotifyEnabled;
+        }
+
+        public bool IsEffectiveLowBatteryUiColorEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryUiColorEnabled;
+        }
+
+        public bool IsEffectiveLowBatteryTrayColorEnabled()
+        {
+            return lowBatteryAlertEnabled && lowBatteryTrayColorEnabled;
+        }
+
+        public void ApplyLowBatteryAlertOptions(bool notifyEnabled, bool uiColorEnabled, bool trayColorEnabled)
+        {
+            lowBatteryNotifyEnabled = notifyEnabled;
+            lowBatteryUiColorEnabled = uiColorEnabled;
+            lowBatteryTrayColorEnabled = trayColorEnabled;
+
+            if (!IsConfigSaveDisabledForTesting())
+            {
+                ConfigManager.SetLowBatteryNotifyEnabled(notifyEnabled);
+                ConfigManager.SetLowBatteryUiColorEnabled(uiColorEnabled);
+                ConfigManager.SetLowBatteryTrayColorEnabled(trayColorEnabled);
+            }
+
+            bool anyEnabled = notifyEnabled || uiColorEnabled || trayColorEnabled;
+            lowBatteryAlertEnabled = anyEnabled;
+
+            isUpdatingUI = true;
+            try
+            {
+                UpdateMenuStatusTexts();
+                if (chkLowAlert != null && chkLowAlert.Checked != lowBatteryAlertEnabled)
+                {
+                    chkLowAlert.Checked = lowBatteryAlertEnabled;
+                }
+            }
+            finally
+            {
+                isUpdatingUI = false;
+            }
+
+            SaveConfig();
+            RefreshLowBatteryAlertVisuals();
+        }
+
+        public void OpenLowBatteryAlertSettingsDialog()
+        {
+            using (var dlg = new LowBatteryAlertSettingsDialog(lowBatteryNotifyEnabled, lowBatteryUiColorEnabled, lowBatteryTrayColorEnabled, this.dpiScale))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    ApplyLowBatteryAlertOptions(dlg.ResultNotifyEnabled, dlg.ResultUiColorEnabled, dlg.ResultTrayColorEnabled);
+                }
+            }
+        }
+
+        private void RefreshLowBatteryAlertVisuals()
+        {
+            if (selectedDevice != null)
+            {
+                UpdateUI(selectedDevice, false);
+            }
+            if (multiTrayEnabled)
+            {
+                RefreshMultiTrayHost();
+            }
+            else if (lastInfo != null)
+            {
+                UpdateTrayIcon(lastInfo.BatteryPercent, lastInfo.IsCharging, lastInfo.IsConnected, lastInfo.IsSleeping, lastInfo.TrayAccentColor);
+            }
+        }
+
         private void SetLowBatteryAlert(bool enabled, bool showNotification = false)
 
         {
 
             lowBatteryAlertEnabled = enabled;
+            if (enabled && !lowBatteryNotifyEnabled && !lowBatteryUiColorEnabled && !lowBatteryTrayColorEnabled)
+            {
+                lowBatteryNotifyEnabled = true;
+                lowBatteryUiColorEnabled = true;
+                if (!IsConfigSaveDisabledForTesting())
+                {
+                    ConfigManager.SetLowBatteryNotifyEnabled(true);
+                    ConfigManager.SetLowBatteryUiColorEnabled(true);
+                }
+            }
 
 
 
@@ -2387,6 +2796,7 @@ namespace RazerBatteryTray
 
 
             SaveConfig();
+            RefreshLowBatteryAlertVisuals();
 
         }
 

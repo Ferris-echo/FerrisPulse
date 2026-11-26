@@ -443,9 +443,6 @@ namespace RazerBatteryTray
                         // --- 核心防线 1: 硬件 VID 穿透判断 (无论用户改名叫什么，硬件 VID 永生不变) ---
 
                         bool isAppleHardware = IsAppleVendorIdentity(instId, fn);
-
-
-
                         // --- 核心防线 2: 名字启发式辅助判定 (未捕获到 DID 节点时的兜底) ---
 
                         if (!isAppleHardware && !string.IsNullOrEmpty(fn))
@@ -1133,6 +1130,11 @@ namespace RazerBatteryTray
         public static bool IsAppleMagicDevice(string path, string name, int vid, int pid)
 
         {
+            // GS3108T-PRO reuses Apple VID/PID; its product identity takes precedence.
+            if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
+
+            // 公版 CompX 2.4G 无线键盘 (05AC:024F "2.4G Wireless Receiver") 同样借用 Apple VID/PID
+            if (CompxWirelessKeyboardHelper.IsRecognizedProduct(name, vid, pid)) return false;
 
             // GS3108T-PRO reuses Apple VID/PID; its product identity takes precedence.
             if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
@@ -1170,22 +1172,14 @@ namespace RazerBatteryTray
         }
 
         public static bool IsAppleVendorIdentity(string instanceId, string name)
-
         {
-
             if (GanssDeviceHelper.IsKnownKeyboardName(name)) return false;
-
             if (string.IsNullOrEmpty(instanceId)) return false;
-
             string upperId = instanceId.ToUpperInvariant();
-
             return upperId.Contains("VID&0001004C") || upperId.Contains("VID&000205AC") ||
                    upperId.Contains("VID_05AC") || upperId.Contains("VID_004C") ||
                    (upperId.Contains("004C") && upperId.Contains("APPLE"));
-
         }
-
-
 
         public static int QueryAppleMagicBattery(IntPtr handle)
 

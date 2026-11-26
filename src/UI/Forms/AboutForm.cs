@@ -8,8 +8,8 @@
 //   极致视听与动效系统：
 //   1. 八音阶纯内存即时并发水晶钢片琴（2.5s 空闲重置），急速连击零停顿、零掐音
 //   2. 正面作者署名交互：星芒迸发与金辉涟漪直接在正面面板绘制呈现
-//   3. 粒子破碎瓦解 ➔ 灵动汇聚重组（Quantum Shatter & Vortex Reassembly）终极过渡动效
-//   4. 真实物理级内聚霓虹柔光（5 层 Inward Bloom Aura）与 60fps 动态全彩流光
+//   3. 全屏极光漫融转场 + 黑曜石钛金镜面视差彩蛋卡（随鼠标扫光）与三层丝绸脉冲光波剧场
+//   4. 精密矢量脉冲星环徽章 + 现代电影字幕级渐显排版（保持进入彩蛋隐藏标题栏的纯正沉浸体验）
 //   5. 鼠标星尘拖尾流光（Stardust Trail）与水波涟漪动效（Water Ripples）
 //   6. 《写在代码之外》克制本真排版，彻底消除廉价感与文字截断
 // 依赖关系: ModernThemeHelper, ModernButton, ModernCheckBox, StatusPill, RoundedCard, UpdateManager, ConfigManager, NativeMethods, ChimeSynthesizer, DonateQrAssets
@@ -50,6 +50,25 @@ namespace RazerBatteryTray
         private ModernCheckBox chkAutoUpdate;
         private ModernButton btnCheckUpdate;
         private Label lblUpdateStatus;
+        private bool localCheckCompleted = false;
+        private bool localCheckFailed = false;
+
+        private float childDialogScale = 0f;
+        public float ChildDialogScale
+        {
+            get { return childDialogScale; }
+            set
+            {
+                if (Math.Abs(childDialogScale - value) > 0.001f)
+                {
+                    childDialogScale = value;
+                    if (modernChromeTitleBar != null && !this.IsDisposed)
+                    {
+                        ApplyAboutLayout();
+                    }
+                }
+            }
+        }
         private Label lblLogo;
         private Label lblAuthorPrefix;
         private Label lblAuthorName;
@@ -60,7 +79,10 @@ namespace RazerBatteryTray
         private Panel qrPanelWeChat;
         private Panel qrPanelAlipay;
         private LinkLabel lnkQQ;
+        private Label lblFooterDot;
         private LinkLabel lnkGithub;
+        private LinkLabel lnkResetApp;
+        private int footerRow1Y = 0;
 
         // 背面控件
         private RoundedCard cardQuote;
@@ -77,16 +99,7 @@ namespace RazerBatteryTray
             public float Phase;
         }
 
-        // 鼠标交互模型：星尘拖尾与水波纹
-        private class StardustParticle
-        {
-            public float X, Y;
-            public float Vx, Vy;
-            public float Alpha;
-            public float Size;
-            public Color Color = Color.White;
-        }
-
+        // 水波纹与转场粒子模型
         private class WaterRipple
         {
             public float X, Y;
@@ -128,8 +141,8 @@ namespace RazerBatteryTray
         private System.Collections.Generic.List<AmbientParticle> frontParticles = new System.Collections.Generic.List<AmbientParticle>();
         private System.Collections.Generic.List<WaterRipple> frontRipples = new System.Collections.Generic.List<WaterRipple>();
         private System.Collections.Generic.List<HeartParticle> heartParticles = new System.Collections.Generic.List<HeartParticle>();
+        private bool wasFrontParticlesActive = false;
         private System.Collections.Generic.List<AmbientParticle> backParticles = new System.Collections.Generic.List<AmbientParticle>();
-        private System.Collections.Generic.List<StardustParticle> stardustTrail = new System.Collections.Generic.List<StardustParticle>();
         private System.Collections.Generic.List<WaterRipple> waterRipples = new System.Collections.Generic.List<WaterRipple>();
         private System.Collections.Generic.List<EtherealMote> transitionMotes = new System.Collections.Generic.List<EtherealMote>();
         private System.Collections.Generic.List<ShatterShard> shatterShards = new System.Collections.Generic.List<ShatterShard>();
@@ -137,7 +150,6 @@ namespace RazerBatteryTray
         private Bitmap snapFront = null;
         private Bitmap snapBack = null;
 
-        private Point lastMouseTrailPos = Point.Empty;
         private Timer animationTimer = null;
         private Random rnd = new Random();
         private DateTime backOpenTime = DateTime.MinValue;
@@ -146,9 +158,27 @@ namespace RazerBatteryTray
         private int easterEggNoteIndex = 0;
         private Timer noteResetTimer = null;
 
-        // 全彩霓虹旋转流光循环系统 (Rotating Chroma with Inward Bloom)
+        // 背面黑曜石流光、丝绸脉冲光波与画布交互状态
         private bool isChromaActive = false;
         private float chromaHue = 0f;
+        private float pulsePhase = 0f;
+        private float smoothMouseX = 280f;
+        private float smoothMouseY = 260f;
+        private float targetMouseX = 280f;
+        private float targetMouseY = 260f;
+        private bool hasPointerInBack = false;
+        private float waveEnergy = 0f;
+        private float targetWaveEnergy = 0f;
+        private float wavePluckX = 0.5f;
+        private float targetWavePluckX = 0.5f;
+        private RectangleF backBtnRect = RectangleF.Empty;
+        private bool isBackBtnHovered = false;
+        private bool isBackBtnPressed = false;
+        private float backBtnHoverProgress = 0f;
+        private float clickBloomX = 0f;
+        private float clickBloomY = 0f;
+        private float clickBloomAlpha = 0f;
+        private float clickBloomRadius = 0f;
 
         // 柔和微光漫射过渡动效计时器 (Ethereal Luminescent Transition)
         private Timer shatterTimer = null;
@@ -167,12 +197,16 @@ namespace RazerBatteryTray
             }
         }
 
+        public float EffectiveScale { get { return dpiScale > 0f ? dpiScale : 1.0f; } }
+
         public AboutForm() : this(1.0f)
         {
         }
 
+
         public AboutForm(float scale) : base(scale)
         {
+
             InitializeAboutUI();
             UpdateManager.OnPendingUpdateChanged += OnPendingUpdateChangedHandler;
             UpdateAboutUpdateButtonState();
@@ -181,7 +215,7 @@ namespace RazerBatteryTray
         private void InitializeAboutUI()
         {
             this.Text = "关于 FerrisPulse";
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.FormBorderStyle = FormBorderStyle.None;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -213,9 +247,38 @@ namespace RazerBatteryTray
                 ChimeSynthesizer.StopAmbientMelody();
             };
 
-            // 1. 顶部标题栏由 Windows 11 原生沉浸式暗黑标题栏接管 (触发 Windows 自带弹性弹出与收回动画)
+            // 1. 统一接入纯净暗黑无图标自绘标题栏（保留 AboutForm 外框流光/细边框绘制）
             titleBar = new Panel();
             titleBar.Visible = false;
+            modernChromeDrawBorder = false;
+            modernChromeTitlePadLeftBase = 24;
+            AttachModernChrome("FerrisPulse · 灵脉", null, 0, false, false);
+            if (modernChromeTitleBar != null)
+            {
+                EnableDoubleBuffer(modernChromeTitleBar);
+                modernChromeTitleBar.Paint += delegate(object s, PaintEventArgs pe)
+                {
+                    if (pnlFront != null && pnlFront.Visible && flipContainer != null && (heartParticles.Count > 0 || frontParticles.Count > 0))
+                    {
+                        float ox = (flipContainer.Left + pnlFront.Left) - modernChromeTitleBar.Left;
+                        float oy = (flipContainer.Top + pnlFront.Top) - modernChromeTitleBar.Top;
+                        DrawFrontParticlesOverlay(pe.Graphics, ox, oy);
+                    }
+                };
+            }
+            if (modernChromeTitleLabel != null)
+            {
+                EnableDoubleBuffer(modernChromeTitleLabel);
+                modernChromeTitleLabel.Paint += delegate(object s, PaintEventArgs pe)
+                {
+                    if (pnlFront != null && pnlFront.Visible && flipContainer != null && modernChromeTitleBar != null && (heartParticles.Count > 0 || frontParticles.Count > 0))
+                    {
+                        float ox = (flipContainer.Left + pnlFront.Left) - modernChromeTitleBar.Left - modernChromeTitleLabel.Left;
+                        float oy = (flipContainer.Top + pnlFront.Top) - modernChromeTitleBar.Top - modernChromeTitleLabel.Top;
+                        DrawFrontParticlesOverlay(pe.Graphics, ox, oy);
+                    }
+                };
+            }
 
             // 2. 翻转主容器 (挂接正面面板、背面面板与粒子碎裂画布)
             flipContainer = new Panel();
@@ -282,6 +345,7 @@ namespace RazerBatteryTray
             lblAuthorSuffix.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) HandleAuthorHit(); };
             pnlFront.Controls.Add(lblAuthorSuffix);
 
+
             // Card 1: 软件在线更新卡片
             cardUpdate = new RoundedCard();
             cardUpdate.CardColor = Color.FromArgb(25, 27, 34);
@@ -345,7 +409,7 @@ namespace RazerBatteryTray
             cardDonate.Controls.Add(lblDonateTitle);
 
             lblDonateDesc = new Label();
-            lblDonateDesc.Text = "如果这款软件为您的游戏体验带来了便利，欢迎赞赏支持作者！";
+            lblDonateDesc.Text = "如果这款软件为您带来了便利，欢迎赞赏支持作者持续更新！";
             lblDonateDesc.Font = new Font("Microsoft YaHei UI", 8.8F);
             lblDonateDesc.ForeColor = Color.FromArgb(160, 168, 185);
             lblDonateDesc.BackColor = Color.Transparent;
@@ -381,15 +445,19 @@ namespace RazerBatteryTray
             lnkQQ.LinkColor = Color.FromArgb(77, 182, 252);
             lnkQQ.ActiveLinkColor = Color.FromArgb(129, 212, 250);
             lnkQQ.VisitedLinkColor = Color.FromArgb(77, 182, 252);
+            lnkQQ.LinkBehavior = LinkBehavior.NeverUnderline;
             lnkQQ.BackColor = Color.Transparent;
             lnkQQ.AutoSize = true;
+            lnkQQ.Cursor = Cursors.Hand;
+            lnkQQ.MouseEnter += delegate { lnkQQ.LinkColor = Color.FromArgb(140, 215, 255); };
+            lnkQQ.MouseLeave += delegate { lnkQQ.LinkColor = Color.FromArgb(77, 182, 252); };
             lnkQQ.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
                 try
                 {
                     Clipboard.SetText("580180452");
                     lnkQQ.Text = "QQ 交流群: 580180452 (已复制)";
-                    CenterControlHorizontally(lnkQQ, cardDonate.Width);
+                    LayoutAboutFooterRow();
 
                     Timer copyTimer = new Timer();
                     copyTimer.Interval = 2000;
@@ -400,7 +468,7 @@ namespace RazerBatteryTray
                         if (!lnkQQ.IsDisposed)
                         {
                             lnkQQ.Text = "QQ 交流群: 580180452";
-                            CenterControlHorizontally(lnkQQ, cardDonate.Width);
+                            LayoutAboutFooterRow();
                         }
                     };
                     copyTimer.Start();
@@ -410,7 +478,16 @@ namespace RazerBatteryTray
                 }
                 catch { }
             };
-            cardDonate.Controls.Add(lnkQQ);
+            pnlFront.Controls.Add(lnkQQ);
+
+            lblFooterDot = new Label();
+            lblFooterDot.Text = "·";
+            lblFooterDot.Font = new Font("Microsoft YaHei UI", 8.8F, FontStyle.Bold);
+            lblFooterDot.ForeColor = Color.FromArgb(88, 98, 118);
+            lblFooterDot.BackColor = Color.Transparent;
+            lblFooterDot.AutoSize = true;
+            lblFooterDot.MouseDown += OnDragMouseDown;
+            pnlFront.Controls.Add(lblFooterDot);
 
             lnkGithub = new LinkLabel();
             lnkGithub.Text = "GitHub: Ferris-echo/FerrisPulse";
@@ -418,13 +495,36 @@ namespace RazerBatteryTray
             lnkGithub.LinkColor = Color.FromArgb(0, 215, 115);
             lnkGithub.ActiveLinkColor = Color.FromArgb(0, 255, 130);
             lnkGithub.VisitedLinkColor = Color.FromArgb(0, 215, 115);
+            lnkGithub.LinkBehavior = LinkBehavior.NeverUnderline;
             lnkGithub.BackColor = Color.Transparent;
             lnkGithub.AutoSize = true;
+            lnkGithub.Cursor = Cursors.Hand;
+            lnkGithub.MouseEnter += delegate { lnkGithub.LinkColor = Color.FromArgb(60, 255, 160); };
+            lnkGithub.MouseLeave += delegate { lnkGithub.LinkColor = Color.FromArgb(0, 215, 115); };
             lnkGithub.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
             {
                 try { Process.Start("https://github.com/Ferris-echo/FerrisPulse"); } catch { }
             };
-            cardDonate.Controls.Add(lnkGithub);
+            pnlFront.Controls.Add(lnkGithub);
+
+            // 底部低调维护入口：深度重置（独立双行极简页脚第二行，保留 600x668 原生紧凑比例）
+            lnkResetApp = new LinkLabel();
+            lnkResetApp.Text = "故障排查与深度重置 (清空旧版残留)";
+            lnkResetApp.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lnkResetApp.LinkColor = Color.FromArgb(125, 134, 150);
+            lnkResetApp.ActiveLinkColor = Color.FromArgb(255, 130, 140);
+            lnkResetApp.VisitedLinkColor = Color.FromArgb(125, 134, 150);
+            lnkResetApp.LinkBehavior = LinkBehavior.NeverUnderline;
+            lnkResetApp.BackColor = Color.Transparent;
+            lnkResetApp.AutoSize = true;
+            lnkResetApp.Cursor = Cursors.Hand;
+            lnkResetApp.MouseEnter += delegate { lnkResetApp.LinkColor = Color.FromArgb(235, 150, 160); };
+            lnkResetApp.MouseLeave += delegate { lnkResetApp.LinkColor = Color.FromArgb(125, 134, 150); };
+            lnkResetApp.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
+            {
+                OpenResetDialog();
+            };
+            pnlFront.Controls.Add(lnkResetApp);
 
             pnlFront.Controls.Add(cardDonate);
             flipContainer.Controls.Add(pnlFront);
@@ -439,26 +539,23 @@ namespace RazerBatteryTray
             pnlBack.MouseDown += OnDragMouseDown;
 
             cardQuote = new RoundedCard();
-            cardQuote.CardColor = Color.FromArgb(20, 23, 32);
+            cardQuote.CardColor = Color.FromArgb(11, 13, 19);
             cardQuote.BorderColor = Color.Transparent;
             cardQuote.MouseDown += CardQuote_MouseDown;
+            cardQuote.MouseUp += CardQuote_MouseUp;
             cardQuote.MouseMove += CardQuote_MouseMove;
+            cardQuote.MouseLeave += delegate
+            {
+                hasPointerInBack = false;
+                isBackBtnHovered = false;
+                isBackBtnPressed = false;
+                if (cardQuote != null) cardQuote.Cursor = Cursors.Default;
+            };
             cardQuote.Paint += CardQuote_Paint;
 
+            // 返回交互已改为在背面黑曜石画布上直接绘制半透明玻璃胶囊，避免子控件切出四角黑边
             btnFlipBack = new ModernButton();
-            btnFlipBack.Text = "返  回";
-            btnFlipBack.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-            btnFlipBack.NormalColor = Color.FromArgb(28, 34, 46);
-            btnFlipBack.HoverColor = Color.FromArgb(42, 52, 72);
-            btnFlipBack.PressedColor = Color.FromArgb(20, 24, 32);
-            btnFlipBack.BorderColor = Color.FromArgb(60, 75, 100);
-            btnFlipBack.ForeColor = Color.FromArgb(200, 215, 235);
-            btnFlipBack.Click += delegate(object s, EventArgs e)
-            {
-                ChimeSynthesizer.StopAmbientMelody();
-                TriggerQuantumShatter(false);
-            };
-            cardQuote.Controls.Add(btnFlipBack);
+            btnFlipBack.Visible = false;
 
             pnlBack.Controls.Add(cardQuote);
             flipContainer.Controls.Add(pnlBack);
@@ -487,90 +584,149 @@ namespace RazerBatteryTray
             ApplyAboutLayout();
         }
 
+        private int S(int v) { return (int)Math.Round(v * EffectiveScale); }
+        private void SetAboutFont(Control ctrl, float basePt, FontStyle style) { if (ctrl != null) ctrl.Font = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", basePt, style, EffectiveScale, 1.0f); }
+
         private void ApplyAboutLayout()
         {
-            const int clientW = 600;
-            const int padX = 24;
-            const int cardWidth = clientW - (padX * 2); // 552
+            int clientW = S(600);
+            int padX = S(24);
+            int cardWidth = clientW - (padX * 2);
 
-            // 1. 顶部标题栏由 Windows 11 原生沉浸式暗黑标题栏接管
+            // 1. 顶部一体化大标题栏（与正文左边界 padX 严格同轨 + 统一 28×28 暗色胶囊矢量关闭按钮）
             if (titleBar != null)
             {
                 titleBar.Visible = false;
             }
-
-            // 2. 正面品牌与署名
-            const int topY = 14;
-            if (lblLogo != null)
+            if (modernChromeTitleBar != null)
             {
-                lblLogo.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
-                lblLogo.Location = new Point(padX, topY);
+                float closeScale = Math.Max(EffectiveScale, ResolveChildDialogScale());
+                int closeSize = Math.Min(S(46), Math.Max(22, (int)Math.Round(28 * closeScale)));
+                int closeRadius = Math.Max(5, (int)Math.Round(7 * closeScale));
+                int topInset = S(12);
+                int rowH = Math.Max(S(38), closeSize);
+                int barH = Math.Max(S(52), topInset + rowH + S(2));
+                int barW = Math.Max(40, clientW - 2);
+                int sidePad = Math.Max(8, padX - 1);
+                modernChromeTitleBar.BackColor = this.BackColor;
+                modernChromeTitleBar.Bounds = new Rectangle(1, 1, barW, barH);
+                if (modernChromeCloseButton != null)
+                {
+                    modernChromeCloseButton.IsCloseButton = true;
+                    modernChromeCloseButton.Text = "";
+                    modernChromeCloseButton.Size = new Size(closeSize, closeSize);
+                    modernChromeCloseButton.Location = new Point(Math.Max(0, barW - sidePad - closeSize), topInset + Math.Max(0, (rowH - closeSize) / 2));
+                    modernChromeCloseButton.CornerRadius = closeRadius;
+                    modernChromeCloseButton.NormalColor = Color.FromArgb(28, 32, 42);
+                    modernChromeCloseButton.BorderColor = Color.FromArgb(44, 50, 64);
+                    modernChromeCloseButton.HoverColor = Color.FromArgb(215, 45, 58);
+                    modernChromeCloseButton.PressedColor = Color.FromArgb(175, 28, 42);
+                    modernChromeCloseButton.ForeColor = Color.FromArgb(182, 192, 212);
+                }
+                if (modernChromeTitleLabel != null)
+                {
+                    modernChromeTitleLabel.Text = "FerrisPulse · 灵脉";
+                    SetAboutFont(modernChromeTitleLabel, 14.5F, FontStyle.Bold);
+                    modernChromeTitleLabel.ForeColor = Color.FromArgb(245, 248, 255);
+                    int rightLim = (modernChromeCloseButton != null ? modernChromeCloseButton.Left : barW) - S(10);
+                    modernChromeTitleLabel.Bounds = new Rectangle(sidePad, topInset, Math.Max(40, rightLim - sidePad), rowH);
+                }
+                modernChromeTitleBar.BringToFront();
             }
 
-            const int authorY = topY + 36; // 50
+            // 2. 正面署名 (主标题已融合至顶部一体化大标题栏，保留 lblLogo 隐藏尺寸契约避免重叠测试破坏)
+            int topY = S(12);
+            int logoH = S(30);
+            if (lblLogo != null)
+            {
+                SetAboutFont(lblLogo, 14.5F, FontStyle.Bold);
+                lblLogo.Location = new Point(padX, topY);
+                lblLogo.Visible = false;
+                logoH = Math.Max(S(24), TextRenderer.MeasureText(lblLogo.Text, lblLogo.Font).Height);
+            }
+
+            int heroBottom = (modernChromeTitleBar != null) ? modernChromeTitleBar.Bottom : S(52);
+            int authorY = Math.Max(heroBottom + S(2), topY + logoH + S(4));
+            int authorH = S(20);
             if (lblAuthorPrefix != null)
             {
-                lblAuthorPrefix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
+                SetAboutFont(lblAuthorPrefix, 9.2F, FontStyle.Regular);
                 lblAuthorPrefix.Location = new Point(padX, authorY);
                 Size prefixSize = TextRenderer.MeasureText(lblAuthorPrefix.Text, lblAuthorPrefix.Font);
+                authorH = Math.Max(S(18), prefixSize.Height);
                 if (lblAuthorName != null)
                 {
-                    lblAuthorName.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold);
-                    lblAuthorName.Location = new Point(padX + prefixSize.Width - 6, authorY);
+                    SetAboutFont(lblAuthorName, 9.2F, FontStyle.Bold);
+                    lblAuthorName.Location = new Point(padX + prefixSize.Width - S(6), authorY);
                     Size nameSize = TextRenderer.MeasureText(AuthorName, lblAuthorName.Font);
                     if (lblAuthorSuffix != null)
                     {
-                        lblAuthorSuffix.Font = new Font("Microsoft YaHei UI", 9.2F, FontStyle.Regular);
-                        lblAuthorSuffix.Location = new Point(lblAuthorName.Left + nameSize.Width - 4, authorY);
+                        SetAboutFont(lblAuthorSuffix, 9.2F, FontStyle.Regular);
+                        lblAuthorSuffix.Location = new Point(lblAuthorName.Left + nameSize.Width - S(4), authorY);
                         lblAuthorName.SizeChanged += delegate
                         {
                             if (lblAuthorSuffix != null && !lblAuthorSuffix.IsDisposed)
                             {
-                                lblAuthorSuffix.Location = new Point(lblAuthorName.Right - 4, authorY);
+                                lblAuthorSuffix.Location = new Point(lblAuthorName.Right - S(4), authorY);
                             }
                         };
                     }
                 }
             }
 
-            // Card 1: 软件在线更新卡片 (原始设计高度 114)
-            const int card1Y = topY + 70; // 84
-            const int card1H = 114;
+            // Card 1: 软件在线更新卡片 (基于实测字高绝对平分上下内边距与行间间距，任何 DPI 均严格等距)
+            int card1Y = Math.Max(S(92), authorY + authorH + S(14));
+            int card1H = S(116);
             if (cardUpdate != null)
             {
+                if (lblCardUpdateTitle != null) SetAboutFont(lblCardUpdateTitle, 9.5F, FontStyle.Bold);
+                if (chkAutoUpdate != null) SetAboutFont(chkAutoUpdate, 8.8F, FontStyle.Regular);
+                if (lblUpdateStatus != null) SetAboutFont(lblUpdateStatus, 8.5F, FontStyle.Regular);
+
+                int h1 = (lblCardUpdateTitle != null) ? TextRenderer.MeasureText(lblCardUpdateTitle.Text, lblCardUpdateTitle.Font).Height : S(18);
+                int h2 = (chkAutoUpdate != null) ? Math.Max(S(22), TextRenderer.MeasureText(chkAutoUpdate.Text, chkAutoUpdate.Font).Height + S(2)) : S(24);
+                int h3 = (lblUpdateStatus != null) ? TextRenderer.MeasureText(string.IsNullOrEmpty(lblUpdateStatus.Text) ? "当前版本" : lblUpdateStatus.Text, lblUpdateStatus.Font).Height : S(18);
+                int padV = S(14);
+                int minNeededH = (padV * 2) + h1 + h2 + h3 + S(12);
+                if (card1H < minNeededH) card1H = minNeededH;
+
                 cardUpdate.Location = new Point(padX, card1Y);
                 cardUpdate.Size = new Size(cardWidth, card1H);
                 cardUpdate.CornerRadius = 8;
 
+                int rowGap = Math.Max(S(4), (card1H - (padV * 2) - h1 - h2 - h3) / 2);
+                int y1 = padV;
+                int y2 = y1 + h1 + rowGap;
+                int y3 = y2 + h2 + rowGap;
+
                 if (lblCardUpdateTitle != null)
                 {
-                    lblCardUpdateTitle.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-                    lblCardUpdateTitle.Location = new Point(20, 15);
+                    lblCardUpdateTitle.Location = new Point(S(20), y1);
                 }
                 if (btnCheckUpdate != null)
                 {
-                    btnCheckUpdate.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
-                    btnCheckUpdate.Size = new Size(110, 32);
-                    btnCheckUpdate.Location = new Point(cardWidth - 20 - 110, 44);
+                    SetAboutFont(btnCheckUpdate, 9F, FontStyle.Bold);
+                    btnCheckUpdate.Size = new Size(S(112), S(34));
+                    btnCheckUpdate.Location = new Point(cardWidth - S(20) - btnCheckUpdate.Width, (card1H - btnCheckUpdate.Height) / 2);
                     btnCheckUpdate.CornerRadius = 6;
                 }
                 if (chkAutoUpdate != null)
                 {
-                    chkAutoUpdate.Font = new Font("Microsoft YaHei UI", 8.8F);
-                    int chkMaxW = (btnCheckUpdate != null ? btnCheckUpdate.Left : cardWidth) - 40;
-                    chkAutoUpdate.Location = new Point(20, 47);
-                    chkAutoUpdate.Size = new Size(chkMaxW, 26);
+                    int chkMaxW = (btnCheckUpdate != null ? btnCheckUpdate.Left : cardWidth) - S(40);
+                    chkAutoUpdate.Location = new Point(S(20), y2);
+                    chkAutoUpdate.Size = new Size(chkMaxW, h2);
                 }
                 if (lblUpdateStatus != null)
                 {
-                    lblUpdateStatus.Font = new Font("Microsoft YaHei UI", 8.5F);
-                    lblUpdateStatus.Location = new Point(20, 81);
+                    lblUpdateStatus.Location = new Point(S(20), y3);
                 }
             }
 
-            // Card 2: 赞赏支持卡片 (原始设计高度 432)
-            const int card2Y = card1Y + card1H + 14; // 212
-            const int card2H = 432;
+            // Card 2: 纯粹赞赏支持卡片 (14px 卡间间距，按 668 总高自适应留足底部双行页脚呼吸边距)
+            int containerH = S(668);
+            int card2Y = card1Y + card1H + S(14);
+            int footerReserve = S(84);
+            int card2H = Math.Min(S(314), Math.Max(S(260), containerH - card2Y - footerReserve));
             if (cardDonate != null)
             {
                 cardDonate.Location = new Point(padX, card2Y);
@@ -578,29 +734,28 @@ namespace RazerBatteryTray
                 cardDonate.CornerRadius = 8;
             }
 
-            const int qrCardW = 176;
-            const int qrCardH = 216;
-            const int qrGap = 36;
-            const int qrTotalW = qrCardW * 2 + qrGap; // 388
-            const int qrStartX = (cardWidth - qrTotalW) / 2; // 82
-
             if (lblDonateTitle != null)
             {
-                lblDonateTitle.Font = new Font("Microsoft YaHei UI", 9.8F, FontStyle.Bold);
-                lblDonateTitle.Location = new Point(20, 16);
+                SetAboutFont(lblDonateTitle, 9.8F, FontStyle.Bold);
+                lblDonateTitle.Location = new Point(S(20), S(14));
             }
             if (lblDonateDesc != null)
             {
-                lblDonateDesc.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lblDonateDesc.Location = new Point(20, 42);
-                lblDonateDesc.MaximumSize = new Size(cardWidth - 40, 0);
+                SetAboutFont(lblDonateDesc, 8.8F, FontStyle.Regular);
+                int donateTitleBottom = (lblDonateTitle != null) ? (S(14) + TextRenderer.MeasureText(lblDonateTitle.Text, lblDonateTitle.Font).Height) : S(34);
+                lblDonateDesc.Location = new Point(S(20), Math.Max(S(40), donateTitleBottom + S(6)));
+                lblDonateDesc.MaximumSize = new Size(cardWidth - S(40), 0);
                 lblDonateDesc.AutoSize = true;
                 lblDonateDesc.BackColor = Color.Transparent;
             }
 
-            // 动态流式布局：严格基于 lblDonateDesc 实际文本渲染底边界计算二维码卡片起始 Y 轴，彻底根绝重叠与截断
-            int descBottom = (lblDonateDesc != null && lblDonateDesc.Height > 0) ? lblDonateDesc.Bottom : 64;
-            int qrY = Math.Max(descBottom + 14, 76);
+            int descBottom = (lblDonateDesc != null && lblDonateDesc.Height > 0) ? (lblDonateDesc.Top + lblDonateDesc.Height) : S(60);
+            int qrY = Math.Max(descBottom + S(12), S(74));
+            int qrCardW = S(172);
+            int qrCardH = Math.Min(S(210), Math.Max(S(184), card2H - qrY - S(16)));
+            int qrGap = S(40);
+            int qrTotalW = qrCardW * 2 + qrGap;
+            int qrStartX = (cardWidth - qrTotalW) / 2;
 
             if (qrPanelWeChat != null)
             {
@@ -615,66 +770,57 @@ namespace RazerBatteryTray
                 qrPanelAlipay.BringToFront();
             }
 
-            int qrBottom = qrY + qrCardH;
-            if (lnkQQ != null)
-            {
-                lnkQQ.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lnkQQ.Top = qrBottom + 16;
-                CenterControlHorizontally(lnkQQ, cardWidth);
-                lnkQQ.BringToFront();
-            }
-            if (lnkGithub != null)
-            {
-                lnkGithub.Font = new Font("Microsoft YaHei UI", 8.8F);
-                lnkGithub.Top = (lnkQQ != null ? lnkQQ.Bottom : qrBottom + 16) + 8;
-                CenterControlHorizontally(lnkGithub, cardWidth);
-                lnkGithub.BringToFront();
-            }
-
-            // 3. 计算窗体与主容器总高度 (固定 600x668 客户端尺寸)
-            const int containerH = 668;
+            // 3. 计算窗体与主容器总高度 (严格保持 600x668，赞赏卡外独立双行极简页脚)
 
             this.ClientSize = new Size(clientW, containerH);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             if (flipContainer != null)
             {
-                flipContainer.Location = new Point(0, 0);
-                flipContainer.Size = new Size(clientW, containerH);
+                flipContainer.Location = new Point(1, 1);
+                flipContainer.Size = new Size(Math.Max(40, clientW - 2), Math.Max(40, containerH - 2));
             }
             if (shatterCanvas != null)
             {
-                shatterCanvas.Size = new Size(clientW, containerH);
+                shatterCanvas.Size = new Size(Math.Max(40, clientW - 2), Math.Max(40, containerH - 2));
             }
             if (pnlFront != null)
             {
-                pnlFront.Size = new Size(clientW, containerH);
+                pnlFront.Size = new Size(Math.Max(40, clientW - 2), Math.Max(40, containerH - 2));
             }
+            footerRow1Y = card2Y + card2H + S(24);
+            LayoutAboutFooterRow();
             if (pnlBack != null)
             {
-                pnlBack.Size = new Size(clientW, containerH);
+                pnlBack.Size = new Size(Math.Max(40, clientW - 2), Math.Max(40, containerH - 2));
             }
             if (cardQuote != null)
             {
-                const int backCardY = 16;
-                const int backCardH = containerH - (backCardY * 2) - 8; // 628
-                cardQuote.Location = new Point(padX, backCardY);
-                cardQuote.Size = new Size(cardWidth, backCardH);
-                cardQuote.CornerRadius = 12;
+                int backW = (pnlBack != null && pnlBack.Width > 40) ? pnlBack.Width : Math.Max(40, clientW - 2);
+                int backH = (pnlBack != null && pnlBack.Height > 40) ? pnlBack.Height : Math.Max(40, containerH - 2);
+                cardQuote.Location = new Point(0, 0);
+                cardQuote.Size = new Size(backW, backH);
+                cardQuote.CornerRadius = 0;
 
                 if (btnFlipBack != null)
                 {
-                    btnFlipBack.Font = new Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold);
-                    btnFlipBack.Size = new Size(160, 38);
-                    btnFlipBack.CornerRadius = 6;
-                    btnFlipBack.Location = new Point((cardWidth - btnFlipBack.Width) / 2, backCardH - 62);
+                    btnFlipBack.Visible = false;
+                }
+            }
+            if (modernChromeTitleBar != null)
+            {
+                bool showFrontChrome = (pnlBack == null || !pnlBack.Visible) && (shatterCanvas == null || !shatterCanvas.Visible);
+                modernChromeTitleBar.Visible = showFrontChrome;
+                if (showFrontChrome)
+                {
+                    modernChromeTitleBar.BringToFront();
                 }
             }
         }
 
         protected override void OnApplyDpiScale(float scale)
         {
-            base.OnApplyDpiScale(scale);
+            if (scale > 0f) this.dpiScale = scale;
             ApplyAboutLayout();
             this.Invalidate(true);
         }
@@ -688,6 +834,48 @@ namespace RazerBatteryTray
                     .SetValue(c, true, null);
             }
             catch { }
+        }
+
+        private void LayoutAboutFooterRow()
+        {
+            int surfaceW = (pnlFront != null && pnlFront.Width > 0) ? pnlFront.Width : (S(600) - 2);
+            int row1Y = footerRow1Y > 0 ? footerRow1Y : S(578);
+
+            if (lnkQQ != null && lnkGithub != null)
+            {
+                SetAboutFont(lnkQQ, 8.8F, FontStyle.Regular);
+                SetAboutFont(lnkGithub, 8.8F, FontStyle.Regular);
+                Size qqSz = TextRenderer.MeasureText(lnkQQ.Text, lnkQQ.Font);
+                Size gitSz = TextRenderer.MeasureText(lnkGithub.Text, lnkGithub.Font);
+                int gap = S(10);
+                int dotW = S(8);
+                if (lblFooterDot != null)
+                {
+                    SetAboutFont(lblFooterDot, 8.8F, FontStyle.Bold);
+                    dotW = TextRenderer.MeasureText(lblFooterDot.Text, lblFooterDot.Font).Width;
+                }
+                int totalW = qqSz.Width + gap + dotW + gap + gitSz.Width;
+                int startX = Math.Max(S(16), (surfaceW - totalW) / 2);
+
+                lnkQQ.Location = new Point(startX, row1Y);
+                if (lblFooterDot != null)
+                {
+                    lblFooterDot.Location = new Point(startX + qqSz.Width + gap, row1Y);
+                    lblFooterDot.BringToFront();
+                }
+                lnkGithub.Location = new Point(startX + qqSz.Width + gap + dotW + gap, row1Y);
+                lnkQQ.BringToFront();
+                lnkGithub.BringToFront();
+            }
+
+            if (lnkResetApp != null)
+            {
+                SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
+                lnkResetApp.Top = row1Y + S(28);
+                Size rstSz = TextRenderer.MeasureText(lnkResetApp.Text, lnkResetApp.Font);
+                lnkResetApp.Left = (surfaceW - rstSz.Width) / 2;
+                lnkResetApp.BringToFront();
+            }
         }
 
         private static void CenterControlHorizontally(Control ctrl, int containerWidth)
@@ -721,10 +909,10 @@ namespace RazerBatteryTray
             }
 
             // 2. 内部扫码视窗 (152x152, 6px 微圆角, 浅色高对比度基底确保 100% 极速识别)
-            int innerW = 152;
-            int innerH = 152;
+            int innerW = S(152);
+            int innerH = S(152);
             int innerX = (w - innerW) / 2;
-            int innerY = 10;
+            int innerY = S(10);
             Rectangle innerRect = new Rectangle(innerX, innerY, innerW, innerH);
 
             Color qrBgColor = isWeChat ? Color.FromArgb(243, 250, 246) : Color.FromArgb(243, 246, 252);
@@ -757,7 +945,7 @@ namespace RazerBatteryTray
             // 3. 下方通道引导提示文案 (垂直居中与水平中轴线双向居中，舒展克制)
             string titleText = isWeChat ? "微信赞赏码" : "支付宝赞赏码";
 
-            using (Font titleFont = new Font("Microsoft YaHei UI", 9.0F, FontStyle.Bold))
+            using (Font titleFont = DpiScaleHelper.CreateScaledFont("Microsoft YaHei UI", 9.0F, FontStyle.Bold, EffectiveScale, 1.0f))
             using (SolidBrush titleBrush = new SolidBrush(textAccent))
             {
                 StringFormat sf = new StringFormat();
@@ -793,9 +981,38 @@ namespace RazerBatteryTray
             animationTimer.Interval = 16;
             animationTimer.Tick += delegate(object s, EventArgs e)
             {
-                // 1. 旋转 RGB 色相递增 (真·全彩霓虹流光，每帧旋转)
-                chromaHue += 1.6f;
+                // 1. 相位、丝绸光波二阶阻尼、按钮悬停插值与点击柔雾平滑演化
+                chromaHue += 0.9f;
                 if (chromaHue >= 360f) chromaHue -= 360f;
+                pulsePhase += 0.024f;
+                if (pulsePhase > 10000f) pulsePhase -= 10000f;
+
+                float restPluck = hasPointerInBack ? targetWavePluckX : 0.5f;
+                wavePluckX += (restPluck - wavePluckX) * 0.045f;
+                waveEnergy += (targetWaveEnergy - waveEnergy) * 0.055f;
+                targetWaveEnergy *= 0.972f;
+                if (targetWaveEnergy < 0.002f) targetWaveEnergy = 0f;
+                if (waveEnergy < 0.001f && targetWaveEnergy == 0f) waveEnergy = 0f;
+
+                float targetBtnHover = isBackBtnHovered ? 1f : 0f;
+                backBtnHoverProgress += (targetBtnHover - backBtnHoverProgress) * 0.16f;
+
+                if (clickBloomAlpha > 0.005f)
+                {
+                    clickBloomRadius += 1.4f * EffectiveScale;
+                    clickBloomAlpha *= 0.945f;
+                }
+                else
+                {
+                    clickBloomAlpha = 0f;
+                }
+
+                float cardW = (cardQuote != null && cardQuote.Width > 0) ? cardQuote.Width : 598f;
+                float cardH = (cardQuote != null && cardQuote.Height > 0) ? cardQuote.Height : 666f;
+                float goalX = hasPointerInBack ? targetMouseX : (cardW * 0.5f + (float)Math.Cos(pulsePhase * 0.42f) * cardW * 0.28f);
+                float goalY = hasPointerInBack ? targetMouseY : (cardH * 0.38f + (float)Math.Sin(pulsePhase * 0.31f) * cardH * 0.20f);
+                smoothMouseX += (goalX - smoothMouseX) * 0.08f;
+                smoothMouseY += (goalY - smoothMouseY) * 0.08f;
 
                 // 2. 背面浮动星芒粒子微动与微光呼吸
                 for (int i = 0; i < backParticles.Count; i++)
@@ -813,23 +1030,7 @@ namespace RazerBatteryTray
                     }
                 }
 
-                // 3. 鼠标星尘拖尾微粒演化 (空灵优雅消融，留存约 1.1 秒，绝无堆叠与毛毛虫感)
-                for (int i = stardustTrail.Count - 1; i >= 0; i--)
-                {
-                    StardustParticle sp = stardustTrail[i];
-                    sp.X += sp.Vx;
-                    sp.Y += sp.Vy;
-                    sp.Vx *= 0.985f;
-                    sp.Vy = (sp.Vy - 0.008f) * 0.985f; // 轻柔如星尘缓慢微升
-                    sp.Alpha -= 0.015f; // 优雅轻柔消散，存活约 1.1 秒 (46帧)
-                    sp.Size *= 0.995f;
-                    if (sp.Alpha <= 0f || sp.Size <= 0.4f)
-                    {
-                        stardustTrail.RemoveAt(i);
-                    }
-                }
-
-                // 4. 水波纹扩散与衰减 (物理流体波包演进)
+                // 3. 兼容旧水波列表清理
                 for (int i = waterRipples.Count - 1; i >= 0; i--)
                 {
                     WaterRipple wr = waterRipples[i];
@@ -900,21 +1101,21 @@ namespace RazerBatteryTray
                     }
                 }
 
-                // 7. 刷新界面呈现
-                if (pnlFront.Visible && (hasFrontParticles || hasFrontRipples || hasHeartParticles))
+                // 7. 刷新界面呈现（含标题栏图层叠加同步刷新与消散末帧清屏）
+                bool isFrontOverlayActive = hasFrontParticles || hasHeartParticles;
+                if (pnlFront.Visible && (hasFrontParticles || hasFrontRipples || hasHeartParticles || wasFrontParticlesActive))
                 {
                     pnlFront.Invalidate();
+                    if (isFrontOverlayActive || wasFrontParticlesActive)
+                    {
+                        InvalidateFrontOverlayControls();
+                    }
                 }
-
+                wasFrontParticlesActive = pnlFront.Visible && isFrontOverlayActive;
 
                 if (pnlBack.Visible && cardQuote != null)
                 {
                     cardQuote.Invalidate();
-                }
-
-                if (isChromaActive)
-                {
-                    this.Invalidate();
                 }
             };
             animationTimer.Start();
@@ -927,55 +1128,104 @@ namespace RazerBatteryTray
 
         private void CardQuote_MouseMove(object sender, MouseEventArgs e)
         {
-            // 空灵稀疏微光星尘拖尾：位移节流 22px、上限 12 颗、微小细腻 (1.8~2.8px)，绝不堆积成毛毛虫
-            if (lastMouseTrailPos != Point.Empty)
+            targetMouseX = e.X;
+            targetMouseY = e.Y;
+            hasPointerInBack = true;
+
+            bool hovered = backBtnRect != RectangleF.Empty && backBtnRect.Contains(e.X, e.Y);
+            if (hovered != isBackBtnHovered)
             {
-                float dx = e.X - lastMouseTrailPos.X;
-                float dy = e.Y - lastMouseTrailPos.Y;
-                if (dx * dx + dy * dy < 484f) // 22px 节流
+                isBackBtnHovered = hovered;
+                if (cardQuote != null)
                 {
-                    return;
+                    cardQuote.Cursor = hovered ? Cursors.Hand : Cursors.Default;
                 }
             }
-            lastMouseTrailPos = e.Location;
 
-            if (stardustTrail.Count >= 12)
+            // 鼠标轻拂下方丝绸脉冲光波时施加极柔缓低通阻尼能量（无任何生硬位移）
+            if (!hovered && cardQuote != null && cardQuote.Height > 0)
             {
-                stardustTrail.RemoveAt(0);
+                float waveCenterY = 534f * EffectiveScale;
+                if (Math.Abs(e.Y - waveCenterY) < 60f * EffectiveScale)
+                {
+                    targetWavePluckX = Math.Max(0.20f, Math.Min(0.80f, e.X / (float)Math.Max(1, cardQuote.Width)));
+                    targetWaveEnergy = Math.Min(0.32f, targetWaveEnergy + 0.008f);
+                }
             }
-
-            Color[] stardustColors = new Color[]
-            {
-                Color.FromArgb(100, 220, 255), // 晨曦极光蓝
-                Color.FromArgb(120, 255, 200), // 灵脉浅翡翠
-                Color.FromArgb(255, 235, 170), // 香槟星芒金
-                Color.FromArgb(200, 180, 255)  // 梦幻薰衣草
-            };
-
-            StardustParticle sp = new StardustParticle();
-            sp.X = e.X;
-            sp.Y = e.Y;
-            sp.Vx = (float)((rnd.NextDouble() - 0.5) * 0.3);
-            sp.Vy = (float)(-rnd.NextDouble() * 0.35 - 0.1); // 轻柔如星尘缓慢微升
-            sp.Size = (float)(rnd.NextDouble() * 1.0 + 1.8);  // 1.8 ~ 2.8px 极细星尘
-            sp.Alpha = 0.70f;
-            sp.Color = stardustColors[rnd.Next(stardustColors.Length)];
-            stardustTrail.Add(sp);
         }
 
         private void CardQuote_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
-                // 鼠标在背面点击时，激发出静谧拟真水光微折射波纹 (Realistic Caustic Water Ripples)
-                SpawnRealisticWaterRipple(waterRipples, e.X, e.Y, 130f, 2.5f);
+                if (backBtnRect != RectangleF.Empty && backBtnRect.Contains(e.X, e.Y))
+                {
+                    isBackBtnPressed = true;
+                    return;
+                }
+
+                // 无边框模式下顶部留白区域支持直接拖拽移动窗口
+                if (e.Y <= 44f * EffectiveScale)
+                {
+                    OnDragMouseDown(sender, e);
+                    return;
+                }
+
+                // 点击正片区域激发极轻柔无硬边体积柔雾晕散，并轻微拨动丝绸波纹
+                targetMouseX = e.X;
+                targetMouseY = e.Y;
+                hasPointerInBack = true;
+                float curW = (cardQuote != null && cardQuote.Width > 0) ? cardQuote.Width : 598f;
+                targetWavePluckX = Math.Max(0.20f, Math.Min(0.80f, e.X / curW));
+                targetWaveEnergy = Math.Min(0.45f, targetWaveEnergy + 0.16f);
+
+                clickBloomX = e.X;
+                clickBloomY = e.Y;
+                clickBloomRadius = 18f * EffectiveScale;
+                clickBloomAlpha = 1.0f;
+            }
+        }
+
+        private void CardQuote_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && isBackBtnPressed)
+            {
+                isBackBtnPressed = false;
+                if (backBtnRect != RectangleF.Empty && backBtnRect.Contains(e.X, e.Y))
+                {
+                    ChimeSynthesizer.StopAmbientMelody();
+                    TriggerQuantumShatter(false);
+                }
+            }
+        }
+
+        private void InvalidateFrontOverlayControls()
+        {
+            if (modernChromeTitleBar != null && !modernChromeTitleBar.IsDisposed && modernChromeTitleBar.Visible)
+            {
+                modernChromeTitleBar.Invalidate();
+            }
+            if (modernChromeTitleLabel != null && !modernChromeTitleLabel.IsDisposed && modernChromeTitleLabel.Visible)
+            {
+                modernChromeTitleLabel.Invalidate();
             }
         }
 
         private void PnlFront_Paint(object sender, PaintEventArgs e)
         {
-            Graphics g = e.Graphics;
+            DrawFrontParticlesOverlay(e.Graphics, 0f, 0f);
+        }
+
+        private void DrawFrontParticlesOverlay(Graphics g, float offsetX, float offsetY)
+        {
+            if (heartParticles.Count == 0 && frontParticles.Count == 0) return;
+
+            GraphicsState savedState = g.Save();
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            if (offsetX != 0f || offsetY != 0f)
+            {
+                g.TranslateTransform(offsetX, offsetY);
+            }
 
             // 绘制正面漂浮的浪漫爱心粒子 (Real Vector Hearts with Soft Neon Bloom)
             for (int i = 0; i < heartParticles.Count; i++)
@@ -1018,6 +1268,7 @@ namespace RazerBatteryTray
                 }
             }
 
+            g.Restore(savedState);
         }
 
         private void CardQuote_Paint(object sender, PaintEventArgs e)
@@ -1028,80 +1279,89 @@ namespace RazerBatteryTray
 
             int w = cardQuote.Width;
             int h = cardQuote.Height;
+            float es = EffectiveScale;
 
-            Rectangle cardRect = new Rectangle(0, 0, w - 1, h - 1);
-            using (GraphicsPath cardPath = RoundedCard.GetRoundedRectangle(cardRect, 12))
+            // Layer 1: 无边框全画幅黑曜石深空基底 + 天顶柔翡翠微光 + 跟随光标镜面扫光
+            Rectangle cardRect = new Rectangle(0, 0, Math.Max(1, w), Math.Max(1, h));
+            using (LinearGradientBrush bgBrush = new LinearGradientBrush(cardRect, Color.FromArgb(11, 13, 19), Color.FromArgb(9, 11, 16), 90f))
             {
-                // 1. 深邃暗黑微晶底色
-                using (LinearGradientBrush bgBrush = new LinearGradientBrush(cardRect, Color.FromArgb(16, 18, 24), Color.FromArgb(10, 12, 16), 90f))
-                {
-                    g.FillPath(bgBrush, cardPath);
-                }
-
-                // 2. 绘制背部浮动微光星河背景粒子
-                for (int i = 0; i < backParticles.Count; i++)
-                {
-                    AmbientParticle p = backParticles[i];
-                    int a = Math.Max(0, Math.Min(255, (int)(p.Alpha * 255)));
-                    if (a > 0)
-                    {
-                        using (SolidBrush pb = new SolidBrush(Color.FromArgb(a, p.Color)))
-                        {
-                            g.FillEllipse(pb, p.X, p.Y, p.Size, p.Size);
-                        }
-                    }
-                }
-
-                // 3. 绘制鼠标交互拟真水波纹涟漪 (Realistic Caustic Water Ripples)
-                for (int i = 0; i < waterRipples.Count; i++)
-                {
-                    WaterRipple wr = waterRipples[i];
-                    DrawRealisticCausticRipple(g, wr.X, wr.Y, wr.Radius, wr.Alpha, wr.Wavelength, wr.Age);
-                }
-
-                // 4. 绘制鼠标移动星尘拖尾 (Luminous Stardust Trail: 柔和外晕 + 鲜艳星核 + 中心白光)
-                for (int i = 0; i < stardustTrail.Count; i++)
-                {
-                    StardustParticle sp = stardustTrail[i];
-                    int a = Math.Max(0, Math.Min(255, (int)(sp.Alpha * 255)));
-                    if (a > 0)
-                    {
-                        // Tier 1: 外部弥散柔光晕 (Diffuse Aura)
-                        int haloA = (int)(a * 0.35f);
-                        if (haloA > 0)
-                        {
-                            float haloSize = sp.Size * 2.5f;
-                            using (SolidBrush hb = new SolidBrush(Color.FromArgb(haloA, sp.Color)))
-                            {
-                                g.FillEllipse(hb, sp.X - haloSize / 2f, sp.Y - haloSize / 2f, haloSize, haloSize);
-                            }
-                        }
-
-                        // Tier 2: 主体鲜艳星芒 (Core Stardust)
-                        using (SolidBrush tb = new SolidBrush(Color.FromArgb(a, sp.Color)))
-                        {
-                            g.FillEllipse(tb, sp.X - sp.Size / 2f, sp.Y - sp.Size / 2f, sp.Size, sp.Size);
-                        }
-
-                        // Tier 3: 中心高亮纯白星辉 (White Hot Center)
-                        int coreA = (int)(a * 0.90f);
-                        if (coreA > 0 && sp.Size > 4.5f)
-                        {
-                            float coreSize = sp.Size * 0.42f;
-                            using (SolidBrush cb = new SolidBrush(Color.FromArgb(coreA, 255, 255, 255)))
-                            {
-                                g.FillEllipse(cb, sp.X - coreSize / 2f, sp.Y - coreSize / 2f, coreSize, coreSize);
-                            }
-                        }
-                    }
-                }
-
-                // 5. 《写在代码之外》克制本真排版自主渲染
-                DrawPoeticManifesto(g, w, h);
-
-                // 6. 绘制【真·物理级内聚霓虹柔光 (Inward Bloom Aura)】(向内深度羽化，绝无被控件裁剪缺陷)
-                DrawInwardBloomBorder(g, cardRect, 12, chromaHue);
+                ColorBlend bgBlend = new ColorBlend();
+                bgBlend.Colors = new Color[] { Color.FromArgb(11, 13, 19), Color.FromArgb(15, 19, 28), Color.FromArgb(9, 11, 16) };
+                bgBlend.Positions = new float[] { 0f, 0.48f, 1f };
+                bgBrush.InterpolationColors = bgBlend;
+                g.FillRectangle(bgBrush, cardRect);
             }
+
+            float zenithR = Math.Max(140f, w * 0.58f);
+            using (GraphicsPath zPath = new GraphicsPath())
+            {
+                zPath.AddEllipse(w / 2f - zenithR, -zenithR * 0.58f, zenithR * 2f, zenithR * 1.40f);
+                using (PathGradientBrush zBrush = new PathGradientBrush(zPath))
+                {
+                    zBrush.CenterColor = Color.FromArgb(24, 0, 220, 135);
+                    zBrush.SurroundColors = new Color[] { Color.FromArgb(0, 11, 13, 19) };
+                    g.FillPath(zBrush, zPath);
+                }
+            }
+
+            float sheenR = Math.Max(150f, w * 0.44f);
+            using (GraphicsPath sPath = new GraphicsPath())
+            {
+                sPath.AddEllipse(smoothMouseX - sheenR, smoothMouseY - sheenR, sheenR * 2f, sheenR * 2f);
+                using (PathGradientBrush sBrush = new PathGradientBrush(sPath))
+                {
+                    sBrush.CenterColor = Color.FromArgb(hasPointerInBack ? 24 : 14, 110, 235, 195);
+                    sBrush.SurroundColors = new Color[] { Color.FromArgb(0, 11, 13, 19) };
+                    g.FillPath(sBrush, sPath);
+                }
+            }
+
+            // Layer 2: 视差深空微星粒子 (柔和纵深微光，无鼠标拖尾噪点)
+            float paraX = -(smoothMouseX - w / 2f) * 0.015f;
+            float paraY = -(smoothMouseY - h / 2f) * 0.012f;
+            for (int i = 0; i < backParticles.Count; i++)
+            {
+                AmbientParticle p = backParticles[i];
+                float px = (p.X / 550f) * w + paraX * (0.6f + (i % 3) * 0.35f);
+                float py = (p.Y / 580f) * h + paraY * (0.6f + (i % 3) * 0.35f);
+                int a = Math.Max(0, Math.Min(160, (int)(p.Alpha * 145)));
+                if (a > 0)
+                {
+                    using (SolidBrush pb = new SolidBrush(Color.FromArgb(a, p.Color)))
+                    {
+                        g.FillEllipse(pb, px, py, p.Size, p.Size);
+                    }
+                }
+            }
+
+            // Layer 3: 点击轻柔无硬边体积雾光晕 (取代廉价线框圆环)
+            if (clickBloomAlpha > 0.01f && clickBloomRadius > 4f)
+            {
+                int bloomA = Math.Max(0, Math.Min(28, (int)(clickBloomAlpha * 28f)));
+                if (bloomA > 0)
+                {
+                    using (GraphicsPath bPath = new GraphicsPath())
+                    {
+                        bPath.AddEllipse(clickBloomX - clickBloomRadius, clickBloomY - clickBloomRadius, clickBloomRadius * 2f, clickBloomRadius * 2f);
+                        using (PathGradientBrush bBrush = new PathGradientBrush(bPath))
+                        {
+                            bBrush.CenterColor = Color.FromArgb(bloomA, 80, 235, 185);
+                            bBrush.SurroundColors = new Color[] { Color.FromArgb(0, 11, 13, 19) };
+                            g.FillPath(bBrush, bPath);
+                        }
+                    }
+                }
+            }
+
+            // Layer 4: 舒展剧场级排版 + 三层渐隐丝绸流体光波 + 画布一体化半透明返回胶囊 + 贴边钛金镜面流光框
+            DrawSilkPulseWaveform(g, w, 534f * es, es);
+            DrawPoeticManifesto(g, w, h);
+            DrawBackPillButton(g, w, h, es);
+
+            float rimX = hasPointerInBack ? smoothMouseX : (w * 0.5f + (float)Math.Cos(pulsePhase * 0.65f) * w * 0.48f);
+            float rimY = hasPointerInBack ? smoothMouseY : (h * 0.5f + (float)Math.Sin(pulsePhase * 0.65f) * h * 0.48f);
+            Rectangle borderRect = new Rectangle(2, 2, Math.Max(10, w - 5), Math.Max(10, h - 5));
+            DrawTitaniumSpecularBorder(g, borderRect, Math.Max(6, (int)Math.Round(8 * es)), rimX, rimY, 1.0f);
         }
 
         #region 浪漫唯美矢量爱心渲染 (Romantic Vector Heart Graphics)
@@ -1237,7 +1497,7 @@ namespace RazerBatteryTray
 
         private static Font GetArtisticFont(float size, FontStyle style)
         {
-            string[] preferred = new string[] { "STKaiti", "KaiTi", "华文楷体", "楷体", "STFangsong", "FangSong", "仿宋", "Microsoft YaHei UI Light", "Microsoft YaHei UI" };
+            string[] preferred = new string[] { "Microsoft YaHei UI", "Segoe UI", "PingFang SC" };
             for (int i = 0; i < preferred.Length; i++)
             {
                 try
@@ -1313,7 +1573,6 @@ namespace RazerBatteryTray
             if (alpha <= 0) return;
             alpha = Math.Max(0, Math.Min(255, alpha));
 
-            // 计算逐行漫生动效进度 (0.0 -> 1.0)
             float tTitle = Math.Max(0f, Math.Min(1f, elapsedSec / 0.45f));
             float tL1 = Math.Max(0f, Math.Min(1f, (elapsedSec - 0.25f) / 0.50f));
             float tL2 = Math.Max(0f, Math.Min(1f, (elapsedSec - 0.65f) / 0.50f));
@@ -1321,40 +1580,36 @@ namespace RazerBatteryTray
             float tSign = Math.Max(0f, Math.Min(1f, (elapsedSec - 1.45f) / 0.50f));
 
             float cx = offsetX + w / 2f;
-            float maxAllowedTextW = w - 120f;
+            float es = EffectiveScale;
+            float maxAllowedTextW = w - 96f * es;
 
             using (StringFormat sfCenter = new StringFormat())
-            using (StringFormat sfRight = new StringFormat())
             {
                 sfCenter.Alignment = StringAlignment.Center;
                 sfCenter.LineAlignment = StringAlignment.Center;
                 sfCenter.FormatFlags |= StringFormatFlags.NoWrap;
 
-                sfRight.Alignment = StringAlignment.Far;
-                sfRight.LineAlignment = StringAlignment.Center;
-                sfRight.FormatFlags |= StringFormatFlags.NoWrap;
-
-                // 1. 主标题: 《写  在  代  码  之  外》
+                // 1. 现代排版主标题《写 在 代 码 之 外》（剔除多余英文 AI 眉标，留足天顶留白）
                 int aTitle = (int)(alpha * (tTitle * tTitle * (3f - 2f * tTitle)));
                 if (aTitle > 0)
                 {
                     float floatTitle = (1f - tTitle) * 6f;
-                    using (Font titleFont = GetFittedArtisticFont(g, "写  在  代  码  之  外", 14.5F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font titleFont = GetFittedArtisticFont(g, "写 在 代 码 之 外", DpiScaleHelper.GetScaledFontSize(16.2F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "写  在  代  码  之  外", titleFont, Color.FromArgb(aTitle, 245, 250, 255), Color.FromArgb(Math.Min(aTitle, 140), 0, 230, 118), cx, offsetY + 60f, sfCenter, aTitle, floatTitle);
+                        DrawGlowString(g, "写 在 代 码 之 外", titleFont, Color.FromArgb(aTitle, 244, 247, 255), Color.FromArgb(Math.Min(aTitle, 95), 110, 242, 176), cx, offsetY + 122f * es, sfCenter, aTitle, floatTitle);
                     }
 
-                    // 极细微光渐变分割线与中心晶体锚点
-                    int divY = (int)(offsetY + 110);
-                    int divW = 160;
+                    // 极细 76px 银翠渐隐分割线 + 中心微钻
+                    int divY = (int)(offsetY + 162 * es);
+                    int divW = Math.Max(40, (int)(76 * es));
                     int divX = (int)(offsetX + (w - divW) / 2);
-                    int aLine = Math.Min(aTitle, 130);
+                    int aLine = Math.Min(aTitle, 110);
                     using (LinearGradientBrush lineBrush = new LinearGradientBrush(
                         new Point(divX, divY), new Point(divX + divW, divY),
-                        Color.FromArgb(0, 0, 230, 118), Color.FromArgb(aLine, 0, 230, 118)))
+                        Color.FromArgb(0, 110, 242, 176), Color.FromArgb(aLine, 110, 242, 176)))
                     {
                         ColorBlend cb = new ColorBlend();
-                        cb.Colors = new Color[] { Color.FromArgb(0, 0, 230, 118), Color.FromArgb(aLine, 0, 230, 118), Color.FromArgb(0, 0, 230, 118) };
+                        cb.Colors = new Color[] { Color.FromArgb(0, 110, 242, 176), Color.FromArgb(aLine, 110, 242, 176), Color.FromArgb(0, 110, 242, 176) };
                         cb.Positions = new float[] { 0f, 0.5f, 1f };
                         lineBrush.InterpolationColors = cb;
 
@@ -1363,65 +1618,302 @@ namespace RazerBatteryTray
                             g.DrawLine(linePen, divX, divY, divX + divW, divY);
                         }
                     }
-                    int aDot = Math.Min(aTitle, 200);
-                    using (SolidBrush dotBrush = new SolidBrush(Color.FromArgb(aDot, 240, 250, 255)))
+                    int aDot = Math.Min(aTitle, 190);
+                    using (SolidBrush dotBrush = new SolidBrush(Color.FromArgb(aDot, 232, 248, 240)))
                     {
                         PointF[] diamond = new PointF[]
                         {
-                            new PointF(offsetX + w / 2f, divY - 3f),
-                            new PointF(offsetX + w / 2f + 3f, divY),
-                            new PointF(offsetX + w / 2f, divY + 3f),
-                            new PointF(offsetX + w / 2f - 3f, divY)
+                            new PointF(offsetX + w / 2f, divY - 2.2f),
+                            new PointF(offsetX + w / 2f + 2.2f, divY),
+                            new PointF(offsetX + w / 2f, divY + 2.2f),
+                            new PointF(offsetX + w / 2f - 2.2f, divY)
                         };
                         g.FillPolygon(dotBrush, diamond);
                     }
                 }
 
-                // 2. 诗篇正文 (原版经典三句文案，采用现代诗篇句读分行，大字号清晰舒展排版，兼具张力与艺术呼吸感)
-                // 第一段 (序章): 拂去所有冗余与喧嚣，\n只将最纯净的秩序赠予你。
+                // 2. 诗篇正文 (舒展呼吸行距与段落留白)
                 int aL1 = (int)(alpha * (tL1 * tL1 * (3f - 2f * tL1)));
                 if (aL1 > 0)
                 {
                     float floatL1 = (1f - tL1) * 5f;
-                    using (Font f1 = GetFittedArtisticFont(g, "拂去所有冗余与喧嚣，", 13.0F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f1 = GetFittedArtisticFont(g, "拂去所有冗余与喧嚣，", DpiScaleHelper.GetScaledFontSize(11.8F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "拂去所有冗余与喧嚣，", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 140f, sfCenter, aL1, floatL1);
-                        DrawGlowString(g, "只将最纯净的秩序赠予你。", f1, Color.FromArgb(aL1, 235, 242, 255), Color.FromArgb(Math.Min(aL1, 90), 100, 210, 255), cx, offsetY + 172f, sfCenter, aL1, floatL1);
+                        DrawGlowString(g, "拂去所有冗余与喧嚣，", f1, Color.FromArgb(aL1, 220, 230, 246), Color.FromArgb(Math.Min(aL1, 65), 100, 210, 255), cx, offsetY + 218f * es, sfCenter, aL1, floatL1);
+                        DrawGlowString(g, "只将最纯净的秩序赠予你。", f1, Color.FromArgb(aL1, 220, 230, 246), Color.FromArgb(Math.Min(aL1, 65), 100, 210, 255), cx, offsetY + 250f * es, sfCenter, aL1, floatL1);
                     }
                 }
 
-                // 第二段 (核心): 灵脉初醒，微光致意。(翡翠灵动脉冲高亮)
                 int aL2 = (int)(alpha * (tL2 * tL2 * (3f - 2f * tL2)));
                 if (aL2 > 0)
                 {
                     float floatL2 = (1f - tL2) * 5f;
-                    using (Font f2 = GetFittedArtisticFont(g, "灵脉初醒，微光致意。", 14.5F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f2 = GetFittedArtisticFont(g, "灵脉初醒，微光致意。", DpiScaleHelper.GetScaledFontSize(14.2F, es, 1.0f), maxAllowedTextW, FontStyle.Bold))
                     {
-                        DrawGlowString(g, "灵脉初醒，微光致意。", f2, Color.FromArgb(aL2, 74, 222, 128), Color.FromArgb(Math.Min(aL2, 160), 0, 230, 118), cx, offsetY + 235f, sfCenter, aL2, floatL2);
+                        DrawGlowString(g, "灵脉初醒，微光致意。", f2, Color.FromArgb(aL2, 110, 242, 176), Color.FromArgb(Math.Min(aL2, 120), 0, 230, 118), cx, offsetY + 314f * es, sfCenter, aL2, floatL2);
                     }
                 }
 
-                // 第三段 (祝愿): 愿你在属于自己的战场上，\n永远专注、自由、无可阻挡。
                 int aL3 = (int)(alpha * (tL3 * tL3 * (3f - 2f * tL3)));
                 if (aL3 > 0)
                 {
                     float floatL3 = (1f - tL3) * 5f;
-                    using (Font f3 = GetFittedArtisticFont(g, "永远专注、自由、无可阻挡。", 13.0F, maxAllowedTextW, FontStyle.Regular))
+                    using (Font f3 = GetFittedArtisticFont(g, "愿你在属于自己的战场上，", DpiScaleHelper.GetScaledFontSize(11.8F, es, 1.0f), maxAllowedTextW, FontStyle.Regular))
                     {
-                        DrawGlowString(g, "愿你在属于自己的战场上，", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 298f, sfCenter, aL3, floatL3);
-                        DrawGlowString(g, "永远专注、自由、无可阻挡。", f3, Color.FromArgb(aL3, 235, 242, 255), Color.FromArgb(Math.Min(aL3, 90), 180, 215, 255), cx, offsetY + 330f, sfCenter, aL3, floatL3);
+                        DrawGlowString(g, "愿你在属于自己的战场上，", f3, Color.FromArgb(aL3, 220, 230, 246), Color.FromArgb(Math.Min(aL3, 65), 140, 210, 255), cx, offsetY + 378f * es, sfCenter, aL3, floatL3);
+                        DrawGlowString(g, "永远专注、自由、无可阻挡。", f3, Color.FromArgb(aL3, 220, 230, 246), Color.FromArgb(Math.Min(aL3, 65), 140, 210, 255), cx, offsetY + 410f * es, sfCenter, aL3, floatL3);
                     }
                 }
 
-                // 3. 独立开发者署名 (置于文案右下方，大号香槟金斜体，右对齐锚定)
+                // 3. 诗篇右下角经典落款署名
                 int aSign = (int)(alpha * (tSign * tSign * (3f - 2f * tSign)));
                 if (aSign > 0)
                 {
-                    float floatSign = (1f - tSign) * 5f;
-                    using (Font fSign = GetFittedArtisticFont(g, "——   Ferris-echo", 12.0F, 220f, FontStyle.Italic))
+                    float floatSign = (1f - tSign) * 4f;
+                    using (StringFormat sfRight = new StringFormat())
                     {
-                        DrawGlowString(g, "——   Ferris-echo", fSign, Color.FromArgb(aSign, 212, 175, 55), Color.FromArgb(Math.Min(aSign, 100), 255, 230, 150), offsetX + w - 68f, offsetY + 382f, sfRight, aSign, floatSign);
+                        sfRight.Alignment = StringAlignment.Far;
+                        sfRight.LineAlignment = StringAlignment.Center;
+                        sfRight.FormatFlags |= StringFormatFlags.NoWrap;
+                        using (Font fSign = new Font("Georgia", Math.Max(9.0f, DpiScaleHelper.GetScaledFontSize(11.2F, es, 1.0f)), FontStyle.Italic))
+                        {
+                            DrawGlowString(g, "—  Ferris-echo", fSign, Color.FromArgb(aSign, 223, 194, 120), Color.FromArgb(Math.Min(aSign, 80), 255, 225, 145), offsetX + w - 92f * es, offsetY + 468f * es, sfRight, aSign, floatSign);
+                        }
                     }
+                }
+            }
+        }
+
+        private void DrawBackPillButton(Graphics g, int w, int h, float es)
+        {
+            float btnW = 114f * es;
+            float btnH = 34f * es;
+            float btnX = (w - btnW) / 2f;
+            float btnY = h - 62f * es;
+            backBtnRect = new RectangleF(btnX, btnY, btnW, btnH);
+
+            float t = Math.Max(0f, Math.Min(1f, backBtnHoverProgress));
+            int fillA = isBackBtnPressed ? 190 : (int)Math.Round(110 + (165 - 110) * t);
+            int fillR = isBackBtnPressed ? 18 : (int)Math.Round(22 + (26 - 22) * t);
+            int fillG = isBackBtnPressed ? 28 : (int)Math.Round(27 + (40 - 27) * t);
+            int fillB = isBackBtnPressed ? 36 : (int)Math.Round(38 + (50 - 38) * t);
+
+            int bdrA = isBackBtnPressed ? 155 : (int)Math.Round(68 + (135 - 68) * t);
+            int bdrR = (int)Math.Round(120 + (110 - 120) * t);
+            int bdrG = (int)Math.Round(140 + (242 - 140) * t);
+            int bdrB = (int)Math.Round(175 + (176 - 175) * t);
+
+            int txtR = (int)Math.Round(172 + (236 - 172) * t);
+            int txtG = (int)Math.Round(186 + (248 - 186) * t);
+            int txtB = (int)Math.Round(212 + (242 - 212) * t);
+
+            Rectangle pillRect = Rectangle.Round(backBtnRect);
+            int radius = Math.Max(4, (int)Math.Round(pillRect.Height / 2f));
+            using (GraphicsPath pillPath = RoundedCard.GetRoundedRectangle(pillRect, radius))
+            {
+                using (SolidBrush fillBrush = new SolidBrush(Color.FromArgb(fillA, fillR, fillG, fillB)))
+                {
+                    g.FillPath(fillBrush, pillPath);
+                }
+                using (Pen borderPen = new Pen(Color.FromArgb(bdrA, bdrR, bdrG, bdrB), 1.0f))
+                {
+                    g.DrawPath(borderPen, pillPath);
+                }
+            }
+
+            Font pillFont = DpiScaleHelper.GetCachedScaledFont("Microsoft YaHei UI", 8.8F, FontStyle.Bold, es, 1.0f);
+            using (SolidBrush txtBrush = new SolidBrush(Color.FromArgb(255, txtR, txtG, txtB)))
+            using (StringFormat sf = new StringFormat())
+            {
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+                g.DrawString("返  回", pillFont, txtBrush, backBtnRect, sf);
+            }
+        }
+
+        private void DrawSilkPulseWaveform(Graphics g, int w, float baseY, float es)
+        {
+            if (w < 8) return;
+            int samples = 64;
+            float span = (float)w;
+
+            float[] ampFactors = new float[] { 1.0f, 0.72f, 0.48f };
+            float[] freqFactors = new float[] { 1.0f, 1.42f, 1.92f };
+            float[] speedFactors = new float[] { 1.0f, -0.76f, 1.22f };
+            Color[] colors = new Color[]
+            {
+                Color.FromArgb(0, 230, 118),
+                Color.FromArgb(76, 216, 255),
+                Color.FromArgb(223, 194, 120)
+            };
+
+            float gradH = Math.Max(40f, 44f * es);
+            RectangleF gradRect = new RectangleF(0f, baseY - gradH / 2f, span, gradH);
+
+            for (int layer = 0; layer < 3; layer++)
+            {
+                PointF[] pts = new PointF[samples];
+                float baseAmp = (4.5f + waveEnergy * 6.0f) * ampFactors[layer] * es;
+                for (int i = 0; i < samples; i++)
+                {
+                    float u = i / (float)(samples - 1);
+                    float x = u * span;
+                    float edgeWin = (float)Math.Exp(-Math.Pow((u - 0.5) / 0.36, 2.0));
+                    float pluckDist = (u - wavePluckX) / 0.36f;
+                    float pluckEnv = 0.86f + 0.26f * (float)Math.Exp(-pluckDist * pluckDist);
+                    float carrier = (float)Math.Sin(u * Math.PI * 2.5 * freqFactors[layer] + pulsePhase * speedFactors[layer]);
+                    float harmonic = (float)Math.Sin(u * Math.PI * 4.4 * freqFactors[layer] - pulsePhase * 1.15f * speedFactors[layer]) * 0.28f;
+                    float y = baseY + (carrier + harmonic) * baseAmp * edgeWin * pluckEnv;
+                    pts[i] = new PointF(x, y);
+                }
+
+                Color c = colors[layer];
+                int bloomA = Math.Max(0, Math.Min(75, (int)((layer == 0 ? 28 : 18) + waveEnergy * 24f)));
+                int coreA = Math.Max(0, Math.Min(195, (int)((layer == 0 ? 128 : (layer == 1 ? 96 : 68)) + waveEnergy * 42f)));
+
+                Color bloomZero = Color.FromArgb(0, c);
+                Color bloomFull = Color.FromArgb(bloomA, c);
+                using (LinearGradientBrush bloomBrush = new LinearGradientBrush(gradRect, bloomZero, bloomFull, 0f))
+                {
+                    ColorBlend cbBloom = new ColorBlend();
+                    cbBloom.Colors = new Color[] { bloomZero, bloomFull, bloomFull, bloomZero };
+                    cbBloom.Positions = new float[] { 0f, 0.18f, 0.82f, 1f };
+                    bloomBrush.InterpolationColors = cbBloom;
+                    using (Pen bloomPen = new Pen(bloomBrush, Math.Max(2.2f, (layer == 0 ? 4.4f : 3.0f) * es)))
+                    {
+                        bloomPen.LineJoin = LineJoin.Round;
+                        g.DrawCurve(bloomPen, pts, 0.5f);
+                    }
+                }
+
+                Color coreZero = Color.FromArgb(0, c);
+                Color coreFull = Color.FromArgb(coreA, c);
+                using (LinearGradientBrush coreBrush = new LinearGradientBrush(gradRect, coreZero, coreFull, 0f))
+                {
+                    ColorBlend cbCore = new ColorBlend();
+                    cbCore.Colors = new Color[] { coreZero, coreFull, coreFull, coreZero };
+                    cbCore.Positions = new float[] { 0f, 0.18f, 0.82f, 1f };
+                    coreBrush.InterpolationColors = cbCore;
+                    using (Pen corePen = new Pen(coreBrush, Math.Max(1.0f, (layer == 0 ? 1.45f : 1.05f) * es)))
+                    {
+                        corePen.LineJoin = LineJoin.Round;
+                        g.DrawCurve(corePen, pts, 0.5f);
+                    }
+                }
+            }
+        }
+
+        private void DrawTitaniumSpecularBorder(Graphics g, Rectangle bounds, int radius, float lightX, float lightY, float alphaMultiplier)
+        {
+            int safeA = Math.Max(0, Math.Min(255, (int)(255 * alphaMultiplier)));
+            if (safeA <= 0 || bounds.Width < 10 || bounds.Height < 10) return;
+
+            using (GraphicsPath path = RoundedCard.GetRoundedRectangle(bounds, radius))
+            {
+                // 1. 精密拉丝钛金基础四边外框
+                int topA = Math.Max(0, Math.Min(255, (int)(205 * alphaMultiplier)));
+                int midA = Math.Max(0, Math.Min(255, (int)(170 * alphaMultiplier)));
+                int botA = Math.Max(0, Math.Min(255, (int)(185 * alphaMultiplier)));
+                using (LinearGradientBrush baseBrush = new LinearGradientBrush(bounds, Color.FromArgb(topA, 128, 148, 178), Color.FromArgb(botA, 96, 112, 140), 90f))
+                {
+                    ColorBlend baseBlend = new ColorBlend();
+                    baseBlend.Colors = new Color[]
+                    {
+                        Color.FromArgb(topA, 128, 148, 178),
+                        Color.FromArgb(midA, 78, 92, 118),
+                        Color.FromArgb(botA, 96, 112, 140)
+                    };
+                    baseBlend.Positions = new float[] { 0f, 0.5f, 1f };
+                    baseBrush.InterpolationColors = baseBlend;
+                    using (Pen basePen = new Pen(baseBrush, 1.2f))
+                    {
+                        basePen.LineJoin = LineJoin.Round;
+                        g.DrawPath(basePen, path);
+                    }
+                }
+
+                // 2. 径向聚焦液态金属主掠光晕 + 高光脊线 (PathGradientBrush 真二维边缘高光)
+                float specR = Math.Max(40f, Math.Max(bounds.Width, bounds.Height) * 0.52f);
+                using (GraphicsPath specPath = new GraphicsPath())
+                {
+                    specPath.AddEllipse(lightX - specR, lightY - specR, specR * 2f, specR * 2f);
+
+                    int auraCenterA = Math.Max(0, Math.Min(255, (int)(95 * alphaMultiplier)));
+                    int auraMidA = Math.Max(0, Math.Min(255, (int)(35 * alphaMultiplier)));
+                    using (PathGradientBrush auraBrush = new PathGradientBrush(specPath))
+                    {
+                        auraBrush.CenterPoint = new PointF(lightX, lightY);
+                        ColorBlend cbAura = new ColorBlend();
+                        cbAura.Colors = new Color[]
+                        {
+                            Color.FromArgb(0, 76, 210, 245),
+                            Color.FromArgb(auraMidA, 76, 210, 245),
+                            Color.FromArgb(auraCenterA, 0, 235, 148)
+                        };
+                        cbAura.Positions = new float[] { 0f, 0.55f, 1f };
+                        auraBrush.InterpolationColors = cbAura;
+                        using (Pen auraPen = new Pen(auraBrush, 4.0f))
+                        {
+                            auraPen.LineJoin = LineJoin.Round;
+                            g.DrawPath(auraPen, path);
+                        }
+                    }
+
+                    int crestCenterA = Math.Max(0, Math.Min(255, (int)(245 * alphaMultiplier)));
+                    int crestMidA = Math.Max(0, Math.Min(255, (int)(125 * alphaMultiplier)));
+                    using (PathGradientBrush crestBrush = new PathGradientBrush(specPath))
+                    {
+                        crestBrush.CenterPoint = new PointF(lightX, lightY);
+                        ColorBlend cbCrest = new ColorBlend();
+                        cbCrest.Colors = new Color[]
+                        {
+                            Color.FromArgb(0, 100, 228, 195),
+                            Color.FromArgb(crestMidA, 100, 228, 195),
+                            Color.FromArgb(crestCenterA, 224, 255, 242)
+                        };
+                        cbCrest.Positions = new float[] { 0f, 0.55f, 1f };
+                        crestBrush.InterpolationColors = cbCrest;
+                        using (Pen crestPen = new Pen(crestBrush, 1.6f))
+                        {
+                            crestPen.LineJoin = LineJoin.Round;
+                            g.DrawPath(crestPen, path);
+                        }
+                    }
+                }
+
+                // 3. 对角冰银环境反光呼应
+                float oppX = bounds.Right - (lightX - bounds.Left);
+                float oppY = bounds.Bottom - (lightY - bounds.Top);
+                float oppR = specR * 0.72f;
+                using (GraphicsPath oppPath = new GraphicsPath())
+                {
+                    oppPath.AddEllipse(oppX - oppR, oppY - oppR, oppR * 2f, oppR * 2f);
+                    int oppCenterA = Math.Max(0, Math.Min(255, (int)(115 * alphaMultiplier)));
+                    using (PathGradientBrush oppBrush = new PathGradientBrush(oppPath))
+                    {
+                        oppBrush.CenterPoint = new PointF(oppX, oppY);
+                        oppBrush.CenterColor = Color.FromArgb(oppCenterA, 165, 212, 255);
+                        oppBrush.SurroundColors = new Color[] { Color.FromArgb(0, 165, 212, 255) };
+                        using (Pen oppPen = new Pen(oppBrush, 1.3f))
+                        {
+                            oppPen.LineJoin = LineJoin.Round;
+                            g.DrawPath(oppPen, path);
+                        }
+                    }
+                }
+            }
+
+            // 4. 极细内嵌玻璃倒角微光 (1px inset)
+            Rectangle innerR = bounds;
+            innerR.Inflate(-1, -1);
+            if (innerR.Width > 8 && innerR.Height > 8)
+            {
+                int innerRad = Math.Max(2, radius - 1);
+                int bevelA = Math.Max(0, Math.Min(255, (int)(26 * alphaMultiplier)));
+                using (GraphicsPath innerPath = RoundedCard.GetRoundedRectangle(innerR, innerRad))
+                using (Pen bevelPen = new Pen(Color.FromArgb(bevelA, 255, 255, 255), 1.0f))
+                {
+                    g.DrawPath(bevelPen, innerPath);
                 }
             }
         }
@@ -1554,10 +2046,12 @@ namespace RazerBatteryTray
             heartParticles.Clear();
             frontParticles.Clear();
             frontRipples.Clear();
+            wasFrontParticlesActive = false;
             if (pnlFront != null && !pnlFront.IsDisposed)
             {
                 pnlFront.Invalidate();
             }
+            InvalidateFrontOverlayControls();
 
             // 截取当前处于可见状态的面板快照以供全屏平滑渐变
             try
@@ -1603,7 +2097,11 @@ namespace RazerBatteryTray
                 transitionMotes.Add(m);
             }
 
-            // 激活全屏转场画布
+            // 激活全屏转场画布并立即隐藏顶部标题栏，保证全屏彩蛋沉浸视觉
+            if (modernChromeTitleBar != null)
+            {
+                modernChromeTitleBar.Visible = false;
+            }
             pnlFront.Visible = false;
             pnlBack.Visible = false;
             shatterCanvas.Visible = true;
@@ -1637,20 +2135,39 @@ namespace RazerBatteryTray
             {
                 shatterTimer.Stop();
 
-                // 动效完毕：隐藏全屏画布，恢复目标面板
+                // 动效完毕：隐藏全屏画布，恢复目标面板与对应标题栏状态
                 shatterCanvas.Visible = false;
                 if (isShatteringToBack)
                 {
                     pnlBack.Visible = true;
                     pnlFront.Visible = false;
+                    if (modernChromeTitleBar != null) modernChromeTitleBar.Visible = false;
                     backOpenTime = DateTime.UtcNow;
+                    waveEnergy = 0.25f;
+                    targetWaveEnergy = 0.25f;
+                    wavePluckX = 0.5f;
+                    targetWavePluckX = 0.5f;
+                    clickBloomAlpha = 0f;
+                    isBackBtnHovered = false;
+                    isBackBtnPressed = false;
+                    backBtnHoverProgress = 0f;
                     ChimeSynthesizer.StartAmbientMelody();
                 }
                 else
                 {
+                    isChromaActive = false;
+                    isBackBtnHovered = false;
+                    isBackBtnPressed = false;
+                    backBtnHoverProgress = 0f;
                     pnlFront.Visible = true;
                     pnlBack.Visible = false;
+                    if (modernChromeTitleBar != null)
+                    {
+                        modernChromeTitleBar.Visible = true;
+                        modernChromeTitleBar.BringToFront();
+                    }
                     ChimeSynthesizer.StopAmbientMelody();
+                    this.Invalidate();
                 }
                 transitionMotes.Clear();
                 return;
@@ -1669,14 +2186,8 @@ namespace RazerBatteryTray
             float cx = w / 2f;
             float cy = h / 2f;
 
-            // 全屏深空画布基底
-            g.Clear(Color.FromArgb(18, 19, 23));
-
-            int padX = 24;
-            int cardW = w - padX * 2;
-            int cardY = 16;
-            int cardH = h - (cardY * 2) - 8;
-            Rectangle bRect = new Rectangle(padX, cardY, cardW, cardH);
+            // 全屏无边框深空画布基底
+            g.Clear(Color.FromArgb(11, 13, 19));
 
             float p = shatterProgress; // 0.0 -> 1.0
 
@@ -1704,7 +2215,7 @@ namespace RazerBatteryTray
                         using (PathGradientBrush pgb = new PathGradientBrush(aPath))
                         {
                             pgb.CenterColor = Color.FromArgb(auroraAlpha, 0, 230, 140);
-                            pgb.SurroundColors = new Color[] { Color.FromArgb(0, 18, 19, 23) };
+                            pgb.SurroundColors = new Color[] { Color.FromArgb(0, 11, 13, 19) };
                             g.FillPath(pgb, aPath);
                         }
                     }
@@ -1717,30 +2228,24 @@ namespace RazerBatteryTray
                         using (PathGradientBrush subPgb = new PathGradientBrush(subPath))
                         {
                             subPgb.CenterColor = Color.FromArgb((int)(auroraAlpha * 0.7f), 80, 210, 255);
-                            subPgb.SurroundColors = new Color[] { Color.FromArgb(0, 18, 19, 23) };
+                            subPgb.SurroundColors = new Color[] { Color.FromArgb(0, 11, 13, 19) };
                             g.FillPath(subPgb, subPath);
                         }
                     }
                 }
 
-                // 3. 背面诗篇信笺平滑渐显 (Cross-Dissolve: 0.35 -> 1.0)
+                // 3. 全画幅黑曜石背景与贴边钛金流光框平滑渐显 (Cross-Dissolve: 0.35 -> 1.0)
                 if (p >= 0.35f)
                 {
                     float appearT = (p - 0.35f) / 0.65f;
                     float smoothAlpha = appearT * appearT * (3f - 2f * appearT);
-                    int targetAlpha = Math.Max(0, Math.Min(255, (int)(smoothAlpha * 255)));
-
-                    // 背面卡底微晶填充
-                    using (GraphicsPath cardPath = RoundedCard.GetRoundedRectangle(bRect, 12))
+                    using (SolidBrush bgB = new SolidBrush(Color.FromArgb((int)(smoothAlpha * 245), 11, 13, 19)))
                     {
-                        using (SolidBrush bgB = new SolidBrush(Color.FromArgb((int)(smoothAlpha * 230), 16, 18, 24)))
-                        {
-                            g.FillPath(bgB, cardPath);
-                        }
+                        g.FillRectangle(bgB, 0, 0, w, h);
                     }
-
-                    // 5 层物理内聚 Bloom 柔光 (文字不在此处提前全显，待转场结束由卡片生命周期优雅逐行展开)
-                    DrawInwardBloomBorderWithAlpha(g, bRect, 12, chromaHue, smoothAlpha);
+                    float rimX = hasPointerInBack ? smoothMouseX : (w * 0.5f + (float)Math.Cos(pulsePhase * 0.65f) * w * 0.48f);
+                    float rimY = hasPointerInBack ? smoothMouseY : (h * 0.5f + (float)Math.Sin(pulsePhase * 0.65f) * h * 0.48f);
+                    DrawTitaniumSpecularBorder(g, new Rectangle(2, 2, Math.Max(10, w - 5), Math.Max(10, h - 5)), Math.Max(6, (int)Math.Round(8 * EffectiveScale)), rimX, rimY, smoothAlpha);
                 }
 
                 // 4. 全屏飞扬的浪漫爱心与微晶浮粒 (Floating Vector Hearts & Stardust Motes)
@@ -1780,15 +2285,11 @@ namespace RazerBatteryTray
                     }
                     else
                     {
-                        using (GraphicsPath cardPath = RoundedCard.GetRoundedRectangle(bRect, 12))
+                        using (SolidBrush bgB = new SolidBrush(Color.FromArgb((int)(smoothBack * 235), 11, 13, 19)))
                         {
-                            using (SolidBrush bgB = new SolidBrush(Color.FromArgb((int)(smoothBack * 230), 16, 18, 24)))
-                            {
-                                g.FillPath(bgB, cardPath);
-                            }
+                            g.FillRectangle(bgB, 0, 0, w, h);
                         }
-                        DrawInwardBloomBorderWithAlpha(g, bRect, 12, chromaHue, smoothBack);
-                        DrawPoeticManifestoWithAlpha(g, cardW, cardH, padX, cardY, backAlpha, 999f);
+                        DrawPoeticManifestoWithAlpha(g, w, h, 0, 0, backAlpha, 999f);
                     }
                 }
 
@@ -1930,6 +2431,18 @@ namespace RazerBatteryTray
             UpdateAboutUpdateButtonState();
         }
 
+        private float ResolveChildDialogScale()
+        {
+            if (ChildDialogScale >= DpiScaleHelper.MinScale)
+            {
+                return ChildDialogScale;
+            }
+            IntPtr hWnd = this.IsHandleCreated ? this.Handle : IntPtr.Zero;
+            float sysDpi = DpiScaleHelper.GetDpiScaleForWindow(hWnd);
+            Screen scr = this.IsHandleCreated ? Screen.FromHandle(this.Handle) : Screen.FromPoint(Cursor.Position);
+            return DpiScaleHelper.ClampScaleToScreen(sysDpi * EffectiveScale, scr, 680);
+        }
+
         private void UpdateAboutUpdateButtonState()
         {
             if (this.IsDisposed || btnCheckUpdate == null || lblUpdateStatus == null) return;
@@ -1950,6 +2463,25 @@ namespace RazerBatteryTray
                 lblUpdateStatus.Text = "当前版本: " + AppVersion + "  ➔  发现新版本: v" + cleanVer;
                 lblUpdateStatus.ForeColor = Color.FromArgb(0, 230, 118);
             }
+            else if (localCheckCompleted || UpdateManager.HasCompletedCheck)
+            {
+                btnCheckUpdate.Text = "更新日志";
+                btnCheckUpdate.NormalColor = Color.FromArgb(36, 40, 52);
+                btnCheckUpdate.HoverColor = Color.FromArgb(48, 54, 70);
+                btnCheckUpdate.PressedColor = Color.FromArgb(28, 30, 40);
+                btnCheckUpdate.BorderColor = Color.FromArgb(0, 200, 83);
+
+                if (localCheckFailed || (UpdateManager.HasCompletedCheck && !UpdateManager.LastCheckSucceeded))
+                {
+                    lblUpdateStatus.Text = "检查更新失败，可点击查看内置更新日志";
+                    lblUpdateStatus.ForeColor = Color.FromArgb(255, 171, 0);
+                }
+                else
+                {
+                    lblUpdateStatus.Text = "当前已是最新版本 (" + AppVersion + ")";
+                    lblUpdateStatus.ForeColor = Color.FromArgb(0, 230, 118);
+                }
+            }
             else
             {
                 btnCheckUpdate.Text = "检查更新";
@@ -1963,13 +2495,81 @@ namespace RazerBatteryTray
             }
         }
 
+        private void OpenResetDialog()
+        {
+            using (ResetConfirmDialog dlg = new ResetConfirmDialog(ResolveChildDialogScale()))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK || dlg.SelectedMode == ResetActionMode.None)
+                {
+                    return;
+                }
+
+                bool removeShortcuts = (dlg.SelectedMode == ResetActionMode.CleanAndExit);
+                string errMsg;
+                AppResetManager.PerformFullReset(removeShortcuts, out errMsg);
+
+                if (dlg.SelectedMode == ResetActionMode.ResetAndRestart)
+                {
+                    try
+                    {
+                        StartupManager.EnsureAppShortcutWithAumid();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        Program.ReleaseSingleInstanceMutex();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        string exePath = StartupManager.GetApplicationExecutablePath();
+                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                        {
+                            ProcessStartInfo psi = new ProcessStartInfo(exePath);
+                            psi.WorkingDirectory = Path.GetDirectoryName(exePath);
+                            psi.UseShellExecute = true;
+                            Process.Start(psi);
+                        }
+                    }
+                    catch { }
+
+                    Environment.Exit(0);
+                }
+                else if (dlg.SelectedMode == ResetActionMode.CleanAndExit)
+                {
+                    MessageBox.Show(
+                        this,
+                        "已彻底清空所有历史版本的注册表配置、开机启动项、设备缓存与快捷方式。\n\n点击“确定”后程序将立即退出，您现在可以直接删除软件文件或重新开始。",
+                        "清理完成 - FerrisPulse · 灵脉",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    try
+                    {
+                        Program.ReleaseSingleInstanceMutex();
+                    }
+                    catch { }
+
+                    Environment.Exit(0);
+                }
+            }
+        }
+
         private void BtnCheckUpdate_Click(object sender, EventArgs e)
         {
             var pending = UpdateManager.PendingUpdate;
             if (pending != null && UpdateManager.IsNewerVersion(pending.LatestVersion, AppVersion))
             {
                 // 0ms 秒开：发现新版本直接从内存打开弹窗，弹窗内部 SWR 自行静默复检
-                UpdateNoticeForm.ShowUpdateDialog(this, pending, AppVersion);
+                UpdateNoticeForm.ShowUpdateDialog(this, pending, AppVersion, ResolveChildDialogScale());
+                return;
+            }
+
+            if (localCheckCompleted || UpdateManager.HasCompletedCheck)
+            {
+                ChangelogHistoryForm.ShowHistoryDialog(this, ResolveChildDialogScale());
                 return;
             }
 
@@ -1988,23 +2588,25 @@ namespace RazerBatteryTray
 
                     if (!success)
                     {
-                        btnCheckUpdate.Text = "检查更新";
-                        lblUpdateStatus.Text = "连接更新服务器失败，请检查网络后重试";
-                        lblUpdateStatus.ForeColor = Color.FromArgb(255, 171, 0);
+                        localCheckCompleted = true;
+                        localCheckFailed = true;
+                        UpdateAboutUpdateButtonState();
                         return;
                     }
 
                     if (info != null && UpdateManager.IsNewerVersion(info.LatestVersion, AppVersion))
                     {
+                        localCheckCompleted = true;
+                        localCheckFailed = false;
                         UpdateAboutUpdateButtonState();
                         // 弹出新版本提示与更新对话框
-                        UpdateNoticeForm.ShowUpdateDialog(this, info, AppVersion);
+                        UpdateNoticeForm.ShowUpdateDialog(this, info, AppVersion, ResolveChildDialogScale());
                     }
                     else
                     {
-                        btnCheckUpdate.Text = "检查更新";
-                        lblUpdateStatus.Text = "当前已是最新版本 (" + AppVersion + ")";
-                        lblUpdateStatus.ForeColor = Color.FromArgb(0, 230, 118);
+                        localCheckCompleted = true;
+                        localCheckFailed = false;
+                        UpdateAboutUpdateButtonState();
                     }
                 });
             });
@@ -2055,23 +2657,10 @@ namespace RazerBatteryTray
 
             if (isChromaActive)
             {
-                // 窗体外框全彩流光
-                Color c1 = ColorFromHsv(chromaHue, 0.85f, 1.0f);
-                Color c2 = ColorFromHsv((chromaHue + 120f) % 360f, 0.85f, 1.0f);
-                Color c3 = ColorFromHsv((chromaHue + 240f) % 360f, 0.85f, 1.0f);
-
-                Rectangle borderRect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
-                using (LinearGradientBrush brush = new LinearGradientBrush(borderRect, c1, c2, chromaHue))
+                // 无边框沉浸模式：外缘 1px 与深空黑曜石背景无缝融为一体
+                using (Pen seamlessPen = new Pen(Color.FromArgb(11, 13, 19), 1.0f))
                 {
-                    ColorBlend blend = new ColorBlend();
-                    blend.Colors = new Color[] { c1, c2, c3, c1 };
-                    blend.Positions = new float[] { 0f, 0.33f, 0.67f, 1.0f };
-                    brush.InterpolationColors = blend;
-
-                    using (Pen chromaPen = new Pen(brush, 2.0f))
-                    {
-                        g.DrawRectangle(chromaPen, borderRect);
-                    }
+                    g.DrawRectangle(seamlessPen, 0, 0, this.Width - 1, this.Height - 1);
                 }
             }
             else
