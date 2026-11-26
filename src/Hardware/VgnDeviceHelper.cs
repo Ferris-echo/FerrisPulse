@@ -74,6 +74,67 @@ namespace RazerBatteryTray
         public static bool HasValidHardwareReading = false;
         public static int CachedBatteryVoltageMv = -1;
 
+        // 上次成功读到的回报率与 Zaopin Z2 身份记忆：鼠标休眠时 CID/PID/PollingRate 探测不到，
+        // 若直接回退默认值 1000Hz / MaxPollingRate 8000Hz，会导致休眠期间档位与上限误跳。
+        private static int lastKnownPollingRate = -1;
+        private static bool lastKnownIsZaopin = false;
+
+        // 电压->百分比 6mV 滞回状态与异常读数自愈闸门 (from PR #69)
+        private static int lastAcceptedPct = -1;
+        private static int lastAcceptedMv = -1;
+        private static int stuckCount = 0;
+
+        private static int PercentWithHysteresis(int mv)
+        {
+            // 电压合理性闸门：单节锂电池不可能低于 2.8V 或高于 4.3V，丢弃错位/半包脏读数
+            if (mv < 2800 || mv > 4300)
+            {
+                return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            }
+
+            int pct = VoltageToPercent(mv);
+            if (pct < 0) return pct;
+
+            // 轨值合理性：避免中间电压意外算出 100%/0% 并锁死滞回基准
+            if (pct >= 100 && mv < 4050) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            if (pct <= 0 && mv > 3100) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            if (lastAcceptedPct < 0)
+            {
+                lastAcceptedPct = pct;
+                lastAcceptedMv = mv;
+                return pct;
+            }
+            if (pct == lastAcceptedPct)
+            {
+                lastAcceptedMv = mv;
+                stuckCount = 0;
+                return pct;
+            }
+
+            // 突变保护与 6mV 噪声抑制
+            bool rejected =
+                (Math.Abs(pct - lastAcceptedPct) > 10 && Math.Abs(mv - lastAcceptedMv) < 60)
+                || (Math.Abs(mv - lastAcceptedMv) < 6);
+
+            if (rejected)
+            {
+                // 自愈闸门：连续 20 次被拒绝说明基准可能异常，强制采纳当前读数
+                if (++stuckCount >= 20)
+                {
+                    lastAcceptedPct = pct;
+                    lastAcceptedMv = mv;
+                    stuckCount = 0;
+                    return pct;
+                }
+                return lastAcceptedPct;
+            }
+
+            lastAcceptedPct = pct;
+            lastAcceptedMv = mv;
+            stuckCount = 0;
+            return pct;
+        }
+
         // 锂电池电压（mV）→ 电量百分比：复刻官方驱动 Config.ini 的 BatteryParam 表
         // （21 个阈值对应 0%~100%，每档 5%），档间线性插值，保证与官方读数口径一致
         private static readonly int[] OfficialVoltageTable = new int[]
@@ -148,7 +209,19 @@ namespace RazerBatteryTray
                         }
 
                         var dn = key.GetValue("DeviceName") as string;
-                        if (!string.IsNullOrEmpty(dn)) CachedDeviceName = dn;
+                        if (!string.IsNullOrEmpty(dn))
+                        {
+                            CachedDeviceName = dn;
+                            if (dn.IndexOf("Z2", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                lastKnownIsZaopin = true;
+                            }
+                        }
+                        var izObj = key.GetValue("IsZaopin");
+                        if (izObj != null && Convert.ToInt32(izObj) == 1)
+                        {
+                            lastKnownIsZaopin = true;
+                        }
 
                         var chg = key.GetValue("IsCharging");
                         if (chg != null) CachedIsCharging = (Convert.ToInt32(chg) != 0);
@@ -179,6 +252,7 @@ namespace RazerBatteryTray
                             key.SetValue("IsValid", HasValidHardwareReading ? 1 : 0);
                         }
                         if (!string.IsNullOrEmpty(CachedDeviceName)) key.SetValue("DeviceName", CachedDeviceName);
+                        key.SetValue("IsZaopin", lastKnownIsZaopin ? 1 : 0, RegistryValueKind.DWord);
                         key.SetValue("IsCharging", CachedIsCharging ? 1 : 0);
                         if (CachedLastUpdated != DateTime.MinValue) key.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                     }
@@ -1493,7 +1567,12 @@ namespace RazerBatteryTray
                     int displayVoltageMv = (foundVoltageMv > 0) ? foundVoltageMv : CachedBatteryVoltageMv;
 
                     // 品牌与能力动态派生：皂品 Z2 (cid=7 / pid 0xF526 / 0xF527，接收器多 PID 变体) 与 VGN 蜻蜓同属 CompX 方案
-                    bool isZaopin = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    // 休眠时探测不到 PID/CID，结合 lastKnownIsZaopin 与缓存设备名兜底，避免 MaxPollingRate 跳回 8000Hz
+                    bool isZaopinNow = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    if (isZaopinNow) lastKnownIsZaopin = true;
+                    bool isZaopinByName = !string.IsNullOrEmpty(CachedDeviceName)
+                        && CachedDeviceName.IndexOf("Z2", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool isZaopin = isZaopinNow || lastKnownIsZaopin || isZaopinByName;
                     string brandName = isZaopin ? "Zaopin" : "VGN";
                     int[] defaultStages = isZaopin
                         ? new int[] { 400, 800, 1600, 2400, 3200, 6400 }
@@ -1540,7 +1619,7 @@ namespace RazerBatteryTray
                     // 官方驱动查表前会先扣掉约 12mV 的负载压降补偿（实测：3858mV 官方显示 46%，
                     // 而 3858mV 直接查表为 47%；3858-12=3846 查表正好 46%，3863 同理）
                     int calibratedMv = displayVoltageMv > 0 ? Math.Max(0, displayVoltageMv - 12) : displayVoltageMv;
-                    int vPct = displayVoltageMv > 0 ? VoltageToPercent(calibratedMv) : -1;
+                    int vPct = displayVoltageMv > 0 ? PercentWithHysteresis(calibratedMv) : -1;
                     bool useVoltageAsMain = isZaopin && !displayCharging && vPct >= 0 && vPct <= 100;
                     int coulombPct = displayBattery;
 
@@ -1560,6 +1639,15 @@ namespace RazerBatteryTray
                         {
                             batteryTooltip = string.Format("电池电压: {0}.{1:D3}V (换算参考 {2}%)", displayVoltageMv / 1000, displayVoltageMv % 1000, vPct);
                         }
+                    }
+
+                    if (foundPollingRate > 0)
+                    {
+                        lastKnownPollingRate = foundPollingRate;
+                    }
+                    if (isZaopinNow)
+                    {
+                        SaveHardwareCache();
                     }
 
                     return new MouseBatteryInfo
@@ -1582,7 +1670,9 @@ namespace RazerBatteryTray
                         DpiStage = (foundStage >= 1 && foundStage <= dpiStages.Length) ? foundStage : 2,
                         DpiStageCount = dpiStages.Length,
                         DpiStages = dpiStages,
-                        PollingRate = (foundPollingRate > 0) ? foundPollingRate : 1000,
+                        PollingRate = (foundPollingRate > 0)
+                            ? foundPollingRate
+                            : (lastKnownPollingRate > 0 ? lastKnownPollingRate : 1000),
                         MaxPollingRate = isZaopin ? 4000 : 8000,
                         SupportedPollingRates = pollRates
                     };
