@@ -4,13 +4,30 @@
 
 ---
 
-## 🧩 [未发布] - 社区 PR 融合与硬件生态扩容 (CompX 识别修复 / ATK 烈空 / 京造 JZ M5 / 一键清除缓存)
+## 🚀 [v2.4.2] - 2026-11-27 (8K 高刷鼠标卡死根治、雷蛇 8K 接收器与公版固件冲突修复)
+
+### 🔥 核心稳定性与 8K 高刷鼠标卡死根治
+- **彻底解决 8KHz 高刷鼠标（如雷蛇毒蝰 Viper V3 Pro `1532:00C1`）导致主窗口卡死与 CPU 钉满的问题（感谢 `@yamlling` `#110`）**：
+  - 将 `WM_INPUT` 原始输入唤醒探测收口为仅在鼠标休眠态按需订阅（活跃态零开销），叠加硬件句柄路径缓存、200ms 查询节流与跨帧批量排空，彻底消除 8000Hz 移动引发的窗口卡死，同时完整保留有线/无线充电状态识别。
+- **全品牌驱动异步 `OVERLAPPED` 内存安全与 UI 并发加固**：
+  - 统一升级 VGN / 罗技 / Endgame Gear / 通用设备 / 海盗船 / HyperX / 赛睿驱动的异步 HID I/O，使用 `GCHandleType.Pinned` 固定收发缓冲区并规范 `ResetEvent`、`CancelIo` 与 `GetOverlappedResult(..., true)` 完成同步，杜绝超时后内核写悬空堆内存与句柄关闭竞争；
+  - 补齐 UI 层 `RefreshBatteryStatus` 并发扫描合并、`DpiMonitorWorker` 集合快照遍历、修复键盘休眠误置 `isMouseSleeping` 及 `GenericHidHelper` 缓冲区 `finally` 释放守卫。
+
+### 🛠️ 硬件识别与协议修复
+- **雷蛇巴塞利斯蛇 V3 Pro 35K + 8K 接收器协议与档位修复**：
+  - 修正 `0x00A4`（Razer Mouse Dock Pro）被误判为经典 1K 眼镜蛇（`0x85/0x05`）导致降回 1K 后 2K/4K/8K 档位丢失的问题，将其纳入现代 8K 协议 (`125..8000Hz`)、接收器判定与 Focus Pro 35K 传感器支持；
+  - 修正独立 8K 接收器 `0x00B3`（Razer HyperPolling Wireless Dongle）被折叠进 `0x00B2` 误标的问题；
+  - 完善现代 `0x00/0xC0` 读取 `offset + 8` 回退，并按先 `{ 0x01, rateByte }` 持久态、再 `{ 0x00, rateByte }` 实时态顺序下发 `0x00/0x40`，确保巴蛇 35K 与毒蝰 V3 Pro 均零回退稳定切换。
+- **彻底解决 `3554:FA09` 公版固件跨品牌误标与被 VGN 误吞问题（`#57` / `#109`）**：
+  - [VgnDeviceHelper.cs](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/src/Hardware/VgnDeviceHelper.cs) 全部 5 处 HID 扫描/读写入口统一收口调用 `IsVgnProtocolEndpoint`（严格 17/17B 且排除 `0xFA09`），[CompxFa09KeyboardHelper.cs](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/src/Hardware/CompxFa09KeyboardHelper.cs) 补充外部脚本独占过滤，彻底根治狼蛛 AULA F75 / LEOBOG 等公版键盘被吞为 VGN 鼠标的问题。
+- **皂品 Zaopin Z2 电量滞回防抖与休眠兜底增强（感谢 `@WrongMemory` `#69`）**：
+  - 为 [VgnDeviceHelper.cs](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/src/Hardware/VgnDeviceHelper.cs) 电压查表引入 6mV 滞回防抖（`PercentWithHysteresis`）、`2800~4300mV` 越界与轨值防锁死闸门、20 轮异常自愈以及休眠期 `IsZaopin` / `lastKnownPollingRate` 兜底记忆，避免待机界面电量抖动或上限跳回 `8000Hz`。
 
 ### 🖱️ 新增鼠标支持
 - **ATK 烈空 Phantom Ultimate** (`373B:12CD` 有线 / 2.4G 无线接收器，感谢 `@ertutio` `#101`)：新增 `AtkPhantomDeviceHelper`（16B Feature 0x00 专属协议读取电量与充电状态），隔离通用 64B 引擎盲扫。
 - **京造 JZ M5 三模鼠标** (`362D:D107` Wireless Link-KM 2.4G 接收器，感谢 `@ertutio` `#106`)：新增 `JzM5Helper` + `JzM5Driver` 内置只读电量引擎与 [jz_m5.fp-adapter.json](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/examples/adapters/jz_m5.fp-adapter.json)（基于官方 WebHID `wukong.jd.com` 与 `wukong-driver` 协议：`FFC1/0001` 64B `B5 02` 身份握手、`B3 06` `[19]` 低 7 位电量 / `bit7` 充电位，关闭未验证写能力并隔离 `FF60/0061` 键盘端点与通用引擎）。
 
-### 🛠️ 硬件识别修复
+### 🛠️ CompX `0x3554:0xFA09` 键盘族细粒度识别修复（感谢 `@yamlling` `#109`）
 - **修复 LEOBOG Hi98 Pro 被误标为 MCHOSE G75 PRO（社区反馈）**：
   - **根因**：`0xFA09` 是 CompX（康普讯）公版参考固件 PID，MCHOSE G75 PRO / KZZI K75 / LEOBOG Hi98 Pro / MARVO / AULA / YUNZII 共用同一套接收器——产品串恒为 `2.4G Wireless Receiver`、制造商 `CX`、私有端点恒为 `FF02/0002` 且 20/20 字节、`0x4A` 电量帧逐字节同质（实测 RX `13 4A 01 00 02 5E 01 ... BF` = 94% 电池供电）。旧实现把该 PID 硬编码为 `MCHOSE G75 PRO`，因此任何同方案键盘都被整机型误标。
   - **修复**：新增 `CompxFa09KeyboardHelper` + `CompxFa09KeyboardDriver`，改用固件 `0x05` 状态帧的子型号字节 `RX[5]` 判定归属——`0x02` = KZZI K75（沿用既有离线口径）；由于 `0x03` 在实测中被 LEOBOG Hi98 Pro 与同代工系狼蛛 (AULA) 键盘共用，因此除 `0x02` 外（含 `0x03` 及其余无应答）一律回退中性名 `CompX 2.4G 无线键盘`，**绝不跨品牌猜测误标**；`MchoseDeviceHelper` 仅保留 `BuildG75BatteryFrame` / `ParseG75BatteryResponse` 兼容别名并删除 FA09 品牌硬编码。电量读取、离线记忆（绑定接收器实例路径，避免同 PID 记忆串机）与「不宣称未验证的充电位」语义一并落地。
