@@ -594,5 +594,7 @@ Invoke-TestCase "Razer.Basilisk35kAnd8kReceivers" {
     Assert-True ($qPollBody.Contains("DecodeModernPollingRateByte(pollResp[offset + 8])")) "Modern polling query falls back to offset + 8"
     $sPollIdx = $rzSrc.IndexOf("private static bool TrySetRazerPollingRateByHandle(")
     $sPollBody = $rzSrc.Substring($sPollIdx)
-    Assert-True ($sPollBody.Contains("new byte[] { 0x00, rateByte }") -and $sPollBody.Contains("new byte[] { 0x01, rateByte }")) "Modern polling write sends both 0x00 live and 0x01 persistent"
+    $idxPersist = $sPollBody.IndexOf("new byte[] { 0x01, rateByte }")
+    $idxLive = $sPollBody.IndexOf("new byte[] { 0x00, rateByte }")
+    Assert-True ($idxPersist -gt 0 -and $idxLive -gt $idxPersist) "Modern polling write sends 0x01 persistent before 0x00 live to avoid 0x05 short-circuit"
 }

@@ -3320,19 +3320,20 @@ namespace RazerBatteryTray
                 }
                 else
                 {
-                    byte statusLive;
-                    byte[] reqLive = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { 0x00, rateByte });
-                    bool okLive = SendAndReadRazerFeature(handle, reqLive, reportLength, prepended, 0x00, cmdId, 4, out statusLive) != null;
-                    if (statusLive == 0x05 && !okLive) break;
-
+                    // 先发已验证的 0x01（持久态，部分车型含 Viper V3 Pro 对 0x00 可能返回 0x05），
+                    // 再补发 0x00（实时生效寄存器），避免 0x00 返回 0x05 时阻断 0x01。
                     byte statusPersist;
                     byte[] reqPersist = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { 0x01, rateByte });
                     bool okPersist = SendAndReadRazerFeature(handle, reqPersist, reportLength, prepended, 0x00, cmdId, 4, out statusPersist) != null;
-                    if (okLive || okPersist)
+
+                    byte statusLive;
+                    byte[] reqLive = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { 0x00, rateByte });
+                    bool okLive = SendAndReadRazerFeature(handle, reqLive, reportLength, prepended, 0x00, cmdId, okPersist ? 2 : 4, out statusLive) != null;
+                    if (okPersist || okLive)
                     {
                         return true;
                     }
-                    if (statusPersist == 0x05) break;
+                    if (statusPersist == 0x05 && statusLive == 0x05) break;
                 }
             }
             return false;
