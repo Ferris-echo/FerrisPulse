@@ -305,7 +305,8 @@ namespace RazerBatteryTray
                 HidDeviceDescriptor selected = null;
                 for (int i = 0; i < descriptors.Count; i++)
                 {
-                    if (IsVendorEndpoint(descriptors[i]))
+                    if (IsVendorEndpoint(descriptors[i]) &&
+                        !HardwareDriverRegistry.IsExternallyOwnedPath(descriptors[i].DevicePath))
                     {
                         selected = descriptors[i];
                         break;

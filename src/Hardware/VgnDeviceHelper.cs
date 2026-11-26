@@ -890,7 +890,8 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                if (devicePath != null && devicePath.ToLower().Contains("vid_3554"))
+                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
+                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -904,7 +905,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -982,7 +987,8 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                if (devicePath != null && devicePath.ToLower().Contains("vid_3554"))
+                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
+                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -996,7 +1002,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -1125,7 +1135,8 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                if (devicePath != null && devicePath.ToLower().Contains("vid_3554"))
+                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
+                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -1139,7 +1150,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -1274,7 +1289,8 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null && (devicePath.ToLower().Contains("vid_3554") || devicePath.ToLower().Contains("vgn")))
+                            string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
+                            if ((pathLower.Contains("vid_3554") || pathLower.Contains("vgn")) && !pathLower.Contains("pid_fa09"))
                             {
                                 IntPtr probeHandle = RazerDeviceHelper.CreateFile(
                                     devicePath,
@@ -1297,10 +1313,14 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out probeCaps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                            if (probeCaps.UsagePage == 0xFF02 && probeCaps.Usage == 0x0002 &&
-                                                probeCaps.InputReportByteLength >= 17 && probeCaps.OutputReportByteLength >= 17)
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            bool hasProbeAttr = RazerDeviceHelper.HidD_GetAttributes(probeHandle, ref attr);
+
+                                            if (hasProbeAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, probeCaps.UsagePage, probeCaps.Usage, probeCaps.InputReportByteLength, probeCaps.OutputReportByteLength))
                                             {
                                                 isTargetEndpoint = true;
+                                                if (attr.ProductID != 0) foundPid = attr.ProductID;
                                                 if (string.IsNullOrEmpty(foundName))
                                                 {
                                                     StringBuilder sb = new StringBuilder(256);
@@ -1309,13 +1329,6 @@ namespace RazerBatteryTray
                                                         string pStr = sb.ToString().Trim();
                                                         if (!string.IsNullOrEmpty(pStr)) foundName = pStr;
                                                     }
-                                                }
-
-                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                                attr.Size = Marshal.SizeOf(attr);
-                                                if (RazerDeviceHelper.HidD_GetAttributes(probeHandle, ref attr))
-                                                {
-                                                    if (attr.ProductID != 0) foundPid = attr.ProductID;
                                                 }
                                             }
                                         }
@@ -1352,8 +1365,12 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                            // Target communication endpoint: UsagePage == 0xFF02 && Usage == 0x0002
-                                            if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES rwAttr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            rwAttr.Size = Marshal.SizeOf(rwAttr);
+                                            bool hasRwAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref rwAttr);
+
+                                            // Target communication endpoint: UsagePage == 0xFF02 && Usage == 0x0002 (exact 17/17B, excludes 0xFA09)
+                                            if (hasRwAttr && IsVgnProtocolEndpoint(rwAttr.VendorID, rwAttr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                             {
                                                 foundVgnDongle = true;
                                                 IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);

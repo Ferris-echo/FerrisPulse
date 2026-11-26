@@ -556,3 +556,43 @@ Invoke-TestCase "Razer.V3ProPollingProtocolLockAndZeroStatusCap" {
     $idxSetupDi = $fBody.IndexOf("SetupDiGetClassDevs(")
     Assert-True ($idxOpenFail -gt 0 -and $idxSetupDi -gt $idxOpenFail) "FastQueryDpiCore returns on !pathOpenFailed before SetupDiGetClassDevs"
 }
+
+Invoke-TestCase "Razer.Basilisk35kAnd8kReceivers" {
+    $mNorm = $rzType.GetMethod("NormalizeRazerPid", $bfPubStatic)
+    $mClassic = $rzType.GetMethod("IsClassicPollingProtocolPid", $bfPubStatic)
+    $mModern = $rzType.GetMethod("IsKnownModernPollingProtocolPid", $bfPubStatic)
+    $mDongle = $rzType.GetMethod("DetermineIsDongle", $bfPubStatic)
+    $mName = $rzType.GetMethod("GetRazerOfficialModelName", $bfPubStatic, $null, @([int], [string]), $null)
+    $mRates = $rzType.GetMethod("GetSupportedPollingRatesForModel", $bfPubStatic)
+    $mMaxRate = $rzType.GetMethod("GetMaxPollingRateForModel", $bfPubStatic)
+    $mCap = $rzType.GetMethod("GetDpiCapability", $bfPubStatic)
+
+    # 0x00A4 Mouse Dock Pro (8K receiver)
+    Assert-True (-not [bool]$mClassic.Invoke($null, @([int]0x00A4))) "0x00A4 Mouse Dock Pro must not be classic 1K protocol"
+    Assert-True ([bool]$mModern.Invoke($null, @([int]0x00A4))) "0x00A4 Mouse Dock Pro is modern 8K protocol"
+    Assert-True ([bool]$mDongle.Invoke($null, @([int]0x00A4, "", 0, $false))) "0x00A4 recognized as dongle/dock"
+    Assert-Equal "Razer Mouse Dock Pro" ([string]$mName.Invoke($null, @([int]0x00A4, ""))) "0x00A4 model name"
+    $ratesA4 = [int[]]$mRates.Invoke($null, @([int]0x00A4, "Razer Mouse Dock Pro"))
+    Assert-True ($ratesA4 -contains 1000 -and $ratesA4 -contains 2000 -and $ratesA4 -contains 4000 -and $ratesA4 -contains 8000) "0x00A4 supports 1K..8K"
+    Assert-Equal 8000 ([int]$mMaxRate.Invoke($null, @([int]0x00A4, "Razer Mouse Dock Pro"))) "0x00A4 max 8K"
+    Assert-Equal 35000 ($mCap.Invoke($null, @("Razer Mouse Dock Pro", [int]0x00A4))).MaxDpi "0x00A4 supports 35K sensor"
+
+    # 0x00B3 HyperPolling Wireless Dongle (8K standalone)
+    Assert-Equal 0x00B3 ([int]$mNorm.Invoke($null, @([int]0x00B3))) "0x00B3 must stay 0x00B3 (not merged into 0x00B2)"
+    Assert-True (-not [bool]$mClassic.Invoke($null, @([int]0x00B3))) "0x00B3 must not be classic 1K protocol"
+    Assert-True ([bool]$mModern.Invoke($null, @([int]0x00B3))) "0x00B3 is modern 8K protocol"
+    Assert-True ([bool]$mDongle.Invoke($null, @([int]0x00B3, "", 0, $false))) "0x00B3 recognized as dongle"
+    Assert-Equal "Razer HyperPolling Wireless Dongle" ([string]$mName.Invoke($null, @([int]0x00B3, ""))) "0x00B3 model name"
+    $ratesB3 = [int[]]$mRates.Invoke($null, @([int]0x00B3, "Razer HyperPolling Wireless Dongle"))
+    Assert-True ($ratesB3 -contains 1000 -and $ratesB3 -contains 2000 -and $ratesB3 -contains 4000 -and $ratesB3 -contains 8000) "0x00B3 supports 1K..8K"
+    Assert-Equal 35000 ($mCap.Invoke($null, @("Razer HyperPolling Wireless Dongle", [int]0x00B3))).MaxDpi "0x00B3 supports 35K sensor"
+
+    # Protocol guard: QuerySinglePollingRate offset+8 fallback & TrySetRazerPollingRateByHandle writes both 0x00 live and 0x01 persistent
+    $rzSrc = [System.IO.File]::ReadAllText((Join-Path $root "src\Hardware\RazerDeviceHelper.cs"), [System.Text.Encoding]::UTF8)
+    $qPollIdx = $rzSrc.IndexOf("private static int QuerySinglePollingRate(")
+    $qPollBody = $rzSrc.Substring($qPollIdx, $rzSrc.IndexOf("private static void QueryRazerDpiAndPolling(") - $qPollIdx)
+    Assert-True ($qPollBody.Contains("DecodeModernPollingRateByte(pollResp[offset + 8])")) "Modern polling query falls back to offset + 8"
+    $sPollIdx = $rzSrc.IndexOf("private static bool TrySetRazerPollingRateByHandle(")
+    $sPollBody = $rzSrc.Substring($sPollIdx)
+    Assert-True ($sPollBody.Contains("new byte[] { 0x00, rateByte }") -and $sPollBody.Contains("new byte[] { 0x01, rateByte }")) "Modern polling write sends both 0x00 live and 0x01 persistent"
+}

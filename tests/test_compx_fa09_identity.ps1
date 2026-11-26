@@ -203,3 +203,19 @@ Invoke-TestCase "CompXFa09.StaleHiddenMarkerDoesNotHideRenamedIdentity" {
         }
     }
 }
+
+Invoke-TestCase "CompXFa09.VgnEndpointStrictIsolationAndExternalOwnership" {
+    Assert-True (-not [RazerBatteryTray.VgnDeviceHelper]::IsVgnProtocolEndpoint(0x3554, 0xFA09, 0xFF02, 0x0002, 20, 20)) "VGN helper must reject 3554:FA09 20/20B CompX keyboard endpoint"
+    Assert-True (-not [RazerBatteryTray.VgnDeviceHelper]::IsVgnProtocolEndpoint(0x3554, 0xFA09, 0xFF02, 0x0002, 17, 17)) "VGN helper must reject 0xFA09 even at 17/17B"
+    Assert-True ([RazerBatteryTray.VgnDeviceHelper]::IsVgnProtocolEndpoint(0x3554, 0xF527, 0xFF02, 0x0002, 17, 17)) "VGN helper accepts real VGN/Zaopin 17/17B endpoint"
+
+    $root = Get-FerrisPulseRoot
+    $vgnSrc = [System.IO.File]::ReadAllText((Join-Path $root "src\Hardware\VgnDeviceHelper.cs"), [System.Text.Encoding]::UTF8)
+    $callCount = ([regex]::Matches($vgnSrc, "IsVgnProtocolEndpoint\(")).Count
+    Assert-True ($callCount -ge 6) ("All 5 VGN scan/write sites must call IsVgnProtocolEndpoint (found $callCount occurrences including def)")
+    Assert-True (-not $vgnSrc.Contains("InputReportByteLength >= 17")) "VGN helper must not retain loose >= 17 input length check"
+    Assert-True (-not $vgnSrc.Contains("OutputReportByteLength >= 17")) "VGN helper must not retain loose >= 17 output length check"
+
+    $fa09Src = [System.IO.File]::ReadAllText((Join-Path $root "src\Hardware\CompxFa09KeyboardHelper.cs"), [System.Text.Encoding]::UTF8)
+    Assert-True ($fa09Src.Contains("IsExternallyOwnedPath")) "CompxFa09KeyboardHelper respects external driver path ownership"
+}

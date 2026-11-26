@@ -82,7 +82,6 @@ namespace RazerBatteryTray
                 case 0x00DF: return 0x00DE; // Viper V3 Pro SE Dongle -> Viper V3 Pro SE Wired
                 case 0x00AD: return 0x00AC; // Viper V3 HyperSpeed Dongle -> Wired
                 case 0x00B7: return 0x00B6; // DeathAdder V3 Pro Dongle -> Wired
-                case 0x00B3: return 0x00B2; // DeathAdder V3 HyperSpeed Dongle -> Wired
                 case 0x00B5: return 0x00B4; // Viper V2 Pro Dongle -> Wired
                 case 0x00A6: return 0x00A5; // Viper V2 Pro Dongle -> Wired
                 case 0x009B: return 0x009A; // Basilisk V3 Pro Dongle -> Wired
@@ -313,7 +312,8 @@ namespace RazerBatteryTray
                     case 0x00B6: case 0x00B7: // DeathAdder V3 Pro
                     case 0x00EF: case 0x00F0: // DeathAdder V4 Pro Carbon
                     case 0x00BE: case 0x00BF: // DeathAdder V4 Pro
-                    case 0x00B2: case 0x00B3: // DeathAdder V3 HyperSpeed
+                    case 0x00B2:              // DeathAdder V3 HyperSpeed
+                    case 0x00B3:              // HyperPolling Wireless Dongle (8K Standalone)
                     case 0x00B4: case 0x00B5: // Viper V2 Pro
                     case 0x00C0: case 0x00C1: case 0x00C2: case 0x00C3: // Viper V3 Pro
                     case 0x00DE: case 0x00DF: // Viper V3 Pro SE
@@ -327,6 +327,7 @@ namespace RazerBatteryTray
                     case 0x00C4: case 0x00C5: // Basilisk V3 35K
                     case 0x008F: case 0x0090: // Naga V2 Pro
                     case 0x0095: // Naga V2 HyperSpeed
+                    case 0x00A4: // Mouse Dock Pro (8K Wireless Receiver)
                     case 0x00B9: // HyperPolling Wireless Dongle
                     case 0x02CF: case 0x02D0: case 0x02D1: case 0x02D8:
                     case 0x02E4: case 0x02E5: case 0x02E6: case 0x02EA: // Huntsman 8KHz keyboards
@@ -342,7 +343,7 @@ namespace RazerBatteryTray
                 if (name.Contains("8k") || name.Contains("8000") ||
                     name.Contains("v4 pro") || name.Contains("v3 pro") ||
                     name.Contains("signature edition") || name.Contains("35k") ||
-                    name.Contains("hyperpolling"))
+                    name.Contains("hyperpolling") || name.Contains("mouse dock pro"))
                 {
                     is8k = true;
                 }
@@ -381,7 +382,6 @@ namespace RazerBatteryTray
                     case 0x0094: case 0x0099: // Orochi V2
                     case 0x009C:              // DeathAdder V2 X HyperSpeed
                     case 0x00A2: case 0x00A3: // DeathAdder V2 Pro alt
-                    case 0x00A4:              // Cobra
                     case 0x00A5: case 0x00A6: // Viper V2 Pro (1K Dongle / Wired)
                         return true;
                 }
@@ -407,7 +407,8 @@ namespace RazerBatteryTray
                     case 0x00B6: case 0x00B7: // DeathAdder V3 Pro
                     case 0x00EF: case 0x00F0: // DeathAdder V4 Pro Carbon
                     case 0x00BE: case 0x00BF: // DeathAdder V4 Pro
-                    case 0x00B2: case 0x00B3: // DeathAdder V3 HyperSpeed
+                    case 0x00B2:              // DeathAdder V3 HyperSpeed
+                    case 0x00B3:              // HyperPolling Wireless Dongle (8K Standalone)
                     case 0x00B4: case 0x00B5: // Viper V2 Pro (8K)
                     case 0x00C0: case 0x00C1: case 0x00C2: case 0x00C3: // Viper V3 Pro
                     case 0x00DE: case 0x00DF: // Viper V3 Pro SE
@@ -421,6 +422,7 @@ namespace RazerBatteryTray
                     case 0x00C4: case 0x00C5: // Basilisk V3 35K
                     case 0x008F: case 0x0090: // Naga V2 Pro
                     case 0x0095:              // Naga V2 HyperSpeed
+                    case 0x00A4:              // Mouse Dock Pro (8K Wireless Receiver)
                     case 0x00B9:              // HyperPolling Wireless Dongle
                     case 0xB007: case 0xB005: // V4 HyperSpeed
                         return true;
@@ -506,6 +508,8 @@ namespace RazerBatteryTray
             { 0x0070, "Razer Viper" },
 
             // Accessories & Dongles
+            { 0x00A4, "Razer Mouse Dock Pro" },
+            { 0x00B3, "Razer HyperPolling Wireless Dongle" },
             { 0x00B9, "Razer HyperPolling Wireless Dongle" },
 
             // DeathAdder series
@@ -516,7 +520,6 @@ namespace RazerBatteryTray
             { 0x00B6, "Razer DeathAdder V3 Pro" },
             { 0x00B7, "Razer DeathAdder V3 Pro" },
             { 0x00B2, "Razer DeathAdder V3 HyperSpeed" },
-            { 0x00B3, "Razer DeathAdder V3 HyperSpeed" },
             { 0x00B0, "Razer DeathAdder V3" },
             { 0x00A2, "Razer DeathAdder V2 Pro" },
             { 0x00A3, "Razer DeathAdder V2 Pro" },
@@ -546,10 +549,9 @@ namespace RazerBatteryTray
             { 0x0088, "Razer Basilisk Ultimate" },
             { 0x0064, "Razer Basilisk" },
 
-            // Viper V2 Pro and Cobra
+            // Viper V2 Pro
             { 0x00A5, "Razer Viper V2 Pro" },
             { 0x00A6, "Razer Viper V2 Pro" },
-            { 0x00A4, "Razer Cobra" },
 
             // Naga series
             { 0x008F, "Razer Naga V2 Pro" },
@@ -861,7 +863,7 @@ namespace RazerBatteryTray
                 curPid == 0x007D || curPid == 0x009B || curPid == 0x00AD || curPid == 0x00A8 ||
                 curPid == 0x00C5 || curPid == 0x00C1 || curPid == 0x00C3 || curPid == 0x0088 ||
                 curPid == 0x0072 || curPid == 0x0090 || curPid == 0x00A3 || curPid == 0x00B3 ||
-                curPid == 0x0008 || curPid == 0x007B || curPid == 0x0092 || curPid == 0x00B9 ||
+                curPid == 0x0008 || curPid == 0x007B || curPid == 0x0092 || curPid == 0x00A4 || curPid == 0x00B9 ||
                 curPid == 0x00E6 || curPid == 0x00DF || curPid == 0x00CD || curPid == 0x00D7 || curPid == 0x00AB)
             {
                 return true;
@@ -1448,7 +1450,12 @@ namespace RazerBatteryTray
                 }
                 return rate;
             }
-            return DecodeModernPollingRateByte(pollResp[offset + 9]);
+            int modernRate = DecodeModernPollingRateByte(pollResp[offset + 9]);
+            if (modernRate == 0 && offset + 8 < pollResp.Length)
+            {
+                modernRate = DecodeModernPollingRateByte(pollResp[offset + 8]);
+            }
+            return modernRate;
         }
 
         private static void QueryRazerDpiAndPolling(
@@ -2625,10 +2632,12 @@ namespace RazerBatteryTray
                 return cap;
             }
 
-            // 4. Focus Pro 35K Gen-2: Viper V3 Pro SE, Basilisk V3 Pro 35K, Basilisk V3 35K
+            // 4. Focus Pro 35K Gen-2: Viper V3 Pro SE, Basilisk V3 Pro 35K, Basilisk V3 35K, plus standalone 8K receivers
             if (pid == 0x00DF || pid == 0x00DE || pid == 0x00CC || pid == 0x00CD ||
                 pid == 0x00D6 || pid == 0x00D7 || pid == 0x00C4 || pid == 0x00C5 ||
-                name.Contains("viper v3 pro") || name.Contains("35k"))
+                pid == 0x00A4 || pid == 0x00B3 ||
+                name.Contains("viper v3 pro") || name.Contains("35k") ||
+                name.Contains("mouse dock pro") || name.Contains("hyperpolling"))
             {
                 var cap = new RazerDpiCapability();
                 cap.MinDpi = 100;
@@ -3295,18 +3304,36 @@ namespace RazerBatteryTray
         {
             byte cmdId = useClassicPolling ? (byte)0x05 : (byte)0x40;
             byte dataSize = useClassicPolling ? (byte)0x01 : (byte)0x02;
-            byte[] args = useClassicPolling ? new byte[] { rateByte } : new byte[] { 0x01, rateByte };
             byte[] tids = GetAdaptiveTransactionIds(preferredTid);
 
             foreach (byte tid in tids)
             {
-                byte[] req = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, args);
-                byte status;
-                if (SendAndReadRazerFeature(handle, req, reportLength, prepended, 0x00, cmdId, 4, out status) != null)
+                if (useClassicPolling)
                 {
-                    return true;
+                    byte[] req = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { rateByte });
+                    byte status;
+                    if (SendAndReadRazerFeature(handle, req, reportLength, prepended, 0x00, cmdId, 4, out status) != null)
+                    {
+                        return true;
+                    }
+                    if (status == 0x05) break;
                 }
-                if (status == 0x05) break;
+                else
+                {
+                    byte statusLive;
+                    byte[] reqLive = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { 0x00, rateByte });
+                    bool okLive = SendAndReadRazerFeature(handle, reqLive, reportLength, prepended, 0x00, cmdId, 4, out statusLive) != null;
+                    if (statusLive == 0x05 && !okLive) break;
+
+                    byte statusPersist;
+                    byte[] reqPersist = CreateRazerReport(tid, 0x00, cmdId, dataSize, reportLength, prepended, new byte[] { 0x01, rateByte });
+                    bool okPersist = SendAndReadRazerFeature(handle, reqPersist, reportLength, prepended, 0x00, cmdId, 4, out statusPersist) != null;
+                    if (okLive || okPersist)
+                    {
+                        return true;
+                    }
+                    if (statusPersist == 0x05) break;
+                }
             }
             return false;
         }
