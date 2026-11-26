@@ -685,6 +685,77 @@ namespace RazerBatteryTray
 
         private string lastWakeMouseDeviceId = null;
 
+        // 原始输入 (WM_INPUT) 重入闸门：8K 回报率鼠标每秒可产生数千个报文，
+        // 处理链内一旦触发嵌套消息派发必须立即退出，避免同一次输入被反复重入。
+        private bool isHandlingMouseWakeInput = false;
+
+        // 唤醒后的界面重建合并位：0 = 空闲，1 = 已排队。
+        // 唤醒瞬间只允许存在一个待执行的 UpdateUI，后续报文全部折叠进这一次刷新。
+        private int pendingWakeUiRefresh = 0;
+        private MouseBatteryInfo pendingWakeUiTarget = null;
+
+        /// <summary>
+        /// 零分配的廉价闸门：整个桌面没有任何休眠/离线鼠标候选时，WM_INPUT 直接返回。
+        /// 在线且清醒时每次报文只做若干字段判读，绝不进入字符串匹配与硬件查询。
+        /// </summary>
+        private bool HasSleepingOrOfflineMouseCandidate()
+        {
+            if (lastInfo != null && lastInfo.Category == DeviceCategory.Mouse && (lastInfo.IsSleeping || !lastInfo.IsConnected)) return true;
+            if (selectedDevice != null && selectedDevice.Category == DeviceCategory.Mouse && (selectedDevice.IsSleeping || !selectedDevice.IsConnected)) return true;
+            if (activeDevices != null)
+            {
+                for (int i = 0; i < activeDevices.Count; i++)
+                {
+                    var d = activeDevices[i];
+                    if (d != null && d.Category == DeviceCategory.Mouse && (d.IsSleeping || !d.IsConnected)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 该原始输入设备路径是否真的存在待唤醒目标。
+        /// 返回 false 表示目标鼠标已在线且清醒——此时只刷新活动时间戳，绝不触发界面重建。
+        /// </summary>
+        private bool IsWakeNeededForPath(string devPath, List<MouseBatteryInfo> candidates)
+        {
+            if (string.IsNullOrEmpty(devPath) || candidates == null) return false;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                if (c == null || c.Category != DeviceCategory.Mouse) continue;
+                if (!c.IsSleeping && c.IsConnected) continue;
+                if (IsTargetMouseHardwarePath(devPath, c)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 把唤醒后的全量界面重建合并成一次异步刷新。
+        /// UpdateUI 会执行 FDAS 适配包磁盘扫描、PnP 注册表查询与整窗布局重建，
+        /// 属于重活，绝不能在内核输入回调 (WndProc/WM_INPUT) 里按报文频次同步执行。
+        /// </summary>
+        private void QueueWakeUiRefresh(MouseBatteryInfo target)
+        {
+            if (target == null) return;
+            pendingWakeUiTarget = target;
+            if (System.Threading.Interlocked.CompareExchange(ref pendingWakeUiRefresh, 1, 0) != 0) return;
+            try
+            {
+                this.BeginInvoke(new Action(delegate
+                {
+                    System.Threading.Interlocked.Exchange(ref pendingWakeUiRefresh, 0);
+                    MouseBatteryInfo t = pendingWakeUiTarget;
+                    if (t == null || this.IsDisposed) return;
+                    try { UpdateUI(t, false); } catch { }
+                }));
+            }
+            catch
+            {
+                System.Threading.Interlocked.Exchange(ref pendingWakeUiRefresh, 0);
+            }
+        }
+
         internal bool TryProcessMouseWakePath(string devPath)
         {
             if (string.IsNullOrEmpty(devPath)) return false;
@@ -709,15 +780,33 @@ namespace RazerBatteryTray
 
                 bool isPrimaryCand = cand.IsPrimary || (lastInfo != null && AreSameWakeMouse(cand, lastInfo));
                 bool wasOnline = cand.IsConnected;
-                bool wasSleeping = cand.IsSleeping || (!wasOnline && cand.IsDonglePresent) || (isPrimaryCand && isMouseSleeping);
+
+                // 【唤醒判定铁律】必须以「该物理鼠标自身的全部镜像」为唯一依据。
+                // 严禁用窗体级聚合标记 isMouseSleeping 代表当前设备：只要桌面上还挂着任意一台
+                // 离线/休眠的鼠标（含同接收器重复建卡的幽灵条目），聚合标记就会长期为 true，
+                // 于是 8K 回报率鼠标的每一个 WM_INPUT 报文都被误判成「刚被唤醒」，
+                // 触发全量 UpdateUI（FDAS 适配包磁盘扫描 + PnP 注册表查询 + 整窗布局重建），
+                // UI 线程被输入流彻底淹没 —— 表现为开启软件数秒后界面卡死、CPU 100%。
+                var mirrors = new List<MouseBatteryInfo>();
+                if (lastInfo != null) mirrors.Add(lastInfo);
+                if (selectedDevice != null) mirrors.Add(selectedDevice);
+                if (activeDevices != null) mirrors.AddRange(activeDevices);
+
+                bool anyMirrorSleeping = cand.IsSleeping;
+                if (!anyMirrorSleeping)
+                {
+                    for (int mi = 0; mi < mirrors.Count; mi++)
+                    {
+                        var m = mirrors[mi];
+                        if (m != null && m.IsSleeping && AreSameWakeMouse(m, cand)) { anyMirrorSleeping = true; break; }
+                    }
+                }
+
+                bool wasSleeping = anyMirrorSleeping || (!wasOnline && cand.IsDonglePresent);
 
                 if (wasSleeping || !wasOnline)
                 {
                     // 同步清零同设备在 lastInfo / selectedDevice / activeDevices 上的所有副本，避免切换窗口或状态栏刷新时读到旧睡眠态
-                    var mirrors = new List<MouseBatteryInfo>();
-                    if (lastInfo != null) mirrors.Add(lastInfo);
-                    if (selectedDevice != null) mirrors.Add(selectedDevice);
-                    if (activeDevices != null) mirrors.AddRange(activeDevices);
                     for (int mi = 0; mi < mirrors.Count; mi++)
                     {
                         var m = mirrors[mi];
@@ -773,7 +862,8 @@ namespace RazerBatteryTray
             }
             if (anySelectedWoken && selectedToRender != null && !this.IsDisposed)
             {
-                UpdateUI(selectedToRender, false);
+                // 合并异步刷新：唤醒瞬间只排队一次全量界面重建，杜绝按报文频次同步重建
+                QueueWakeUiRefresh(selectedToRender);
             }
 
             if (!HardwareCommandBus.IsHardwareSandboxActive)
@@ -786,8 +876,20 @@ namespace RazerBatteryTray
 
         private void HandleMouseWakeInput(IntPtr hRawInput)
         {
+            // 重入闸门：处理链内部触发的嵌套消息派发立即退出，杜绝同一次输入被反复重入
+            if (isHandlingMouseWakeInput) return;
+            isHandlingMouseWakeInput = true;
             try
             {
+                // 【性能闸门】桌面上没有任何休眠/离线鼠标候选时直接返回：
+                // 8K 回报率鼠标每秒可投递数千个 WM_INPUT，本路径必须是零分配、零字符串匹配的。
+                if (!HasSleepingOrOfflineMouseCandidate())
+                {
+                    // 仍需用一次 O(1) 判定把可能挂起的 DPI 监听线程唤醒（至多触发一次事件 syscall）
+                    if (isDpiMonitorSleeping) MarkTargetMouseActivity();
+                    return;
+                }
+
                 var candidates = CollectWakeCandidateMice();
                 if (candidates.Count == 0) return;
 
@@ -859,21 +961,36 @@ namespace RazerBatteryTray
 
                         if (anyTargetMatched && !string.IsNullOrEmpty(cachedPath))
                         {
-                            bool woke = TryProcessMouseWakePath(cachedPath);
-                            if (!woke)
+                            // 只有该物理设备确实存在「休眠/离线」目标时才进入唤醒处理；
+                            // 目标已在线清醒时仅刷新活动时间戳，绝不触发界面重建。
+                            if (IsWakeNeededForPath(cachedPath, candidates) && TryProcessMouseWakePath(cachedPath))
                             {
-                                System.Threading.Interlocked.Exchange(ref lastTargetMouseActivityTicks, DateTime.UtcNow.Ticks);
-                                if (isDpiMonitorSleeping)
-                                {
-                                    isDpiMonitorSleeping = false;
-                                    try { dpiMonitorWakeEvent.Set(); } catch { }
-                                }
+                                return;
                             }
+                            MarkTargetMouseActivity();
                         }
                     }
                 }
             }
             catch { }
+            finally
+            {
+                isHandlingMouseWakeInput = false;
+            }
+        }
+
+        /// <summary>
+        /// 记录目标鼠标最近一次活动时间戳，并顺带唤醒休眠中的 DPI 监听线程。
+        /// 仅在 O(1) 内存操作范围内，可安全地在原始输入回调中执行。
+        /// </summary>
+        private void MarkTargetMouseActivity()
+        {
+            System.Threading.Interlocked.Exchange(ref lastTargetMouseActivityTicks, DateTime.UtcNow.Ticks);
+            if (isDpiMonitorSleeping)
+            {
+                isDpiMonitorSleeping = false;
+                try { dpiMonitorWakeEvent.Set(); } catch { }
+            }
         }
 
 

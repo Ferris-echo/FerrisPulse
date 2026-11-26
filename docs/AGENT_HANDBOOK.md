@@ -63,6 +63,15 @@
 7. **同一设备双形态 PID 合并仲裁**：当同一外设在 USB 充电与 2.4G 接收器下呈现不同 PID（如 ROG PELTA 充电 `0x1B82` 与接收器 `0x1B84`）时，应合并至单一规范 `DeviceId` 呈现，避免卡片裂变或插线失联。
 8. **同一设备的不同连接形态是不同身份，能力必须按形态如实分流**：同一鼠标在 2.4G 接收器 / USB 有线直连 / 蓝牙 BLE 下可能是三个互不相同的 PID，能力集完全不同（如蓝牙形态走 HID over GATT，通常**没有**厂商通道，只能读电量）。必须按实际命中的接口 PID 判定形态并如实降级能力，严禁只认一个 PID，也严禁把某形态的缓存值冒充另一形态的实时值。具体 PID 清单、端点优先级与各形态协议差异见 `docs/HARDWARE_PROTOCOLS.md`。
 
+### 3.5 UI 线程与原始输入回调铁律（8K 高回报率鼠标卡死血泪沉淀）
+> 现象：8K 鼠标（如实测 Viper V3 Pro `1532:00C1`）在软件启动后只要一动鼠标，主窗口数秒内整窗卡死、CPU 飙到 100%，点哪里都没反应。
+
+1. **禁止在内核输入回调里做全量界面重建**：`WM_INPUT` / `WndProc` 内只允许做 O(1) 的内存判读与时间戳更新。`UpdateUI` 会执行 FDAS 适配包磁盘扫描（`FdasRuntimeHelper.ReloadAdapters`）、PnP 注册表查询（`QueryPnpDeviceDesc`）、整窗布局重建（`RelayoutRateButtons` / `RelayoutDpiButtons`）与 `SetWindowPos` 嵌套消息派发，单次实测 **约 6ms**；1000Hz 鼠标每秒产生 1000 个报文，8K 鼠标每秒可产生 8000 个，消息队列永远无法清空，UI 线程被彻底淹没。
+2. **唤醒判定必须以「该物理设备自身的全部镜像」为唯一依据，严禁使用窗体级跨设备聚合标记**：`isMouseSleeping = HasAnySleepingMouse()` 是**整个桌面**的聚合量，只要还挂着任意一台离线/休眠鼠标（含同接收器重复建卡的幽灵条目），它就长期为 `true`。旧实现把它当作主鼠标的唤醒判据（`wasSleeping = ... || (isPrimaryCand && isMouseSleeping)`），于是每个输入报文都被误判成「刚被唤醒」，触发重活 -> 卡死。正确做法：只聚合 `lastInfo` / `selectedDevice` / `activeDevices` 中 `AreSameWakeMouse` 命中的同机镜像。
+3. **重活必须合并为一次异步刷新**：唤醒后只允许存在一个待执行的 `UpdateUI`（`pendingWakeUiRefresh` 合并位 + `BeginInvoke`），后续报文全部折叠进这一次刷新；原始输入回调本身要有重入闸门（`isHandlingMouseWakeInput`）。
+4. **零分配廉价闸门优先**：进入任何字符串/路径匹配前，先用字段判读确认「桌面上是否真有休眠/离线鼠标候选」（`HasSleepingOrOfflineMouseCandidate`），再按路径确认「本设备是否真的待唤醒」（`IsWakeNeededForPath`）。
+5. **回归测试必须红绿可验**：`tests/test_mouse_wake_input_storm.ps1` 以真实现场状态（在线清醒的 Viper + `3554:FA09` 幽灵休眠卡）断言「50 个连续报文伪唤醒次数必须为 0」。修复前该用例 50/50 命中且耗时 307ms，修复后 0 命中、8ms。
+
 ---
 
 ## 4. 社区贡献代码评估与架构融合五步守则 (Contributor Integration SOP)
