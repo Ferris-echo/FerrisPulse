@@ -21,6 +21,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── Program.cs          [应用入口、全局 Mutex 防多开、目录重置、异常兜底]
     │   ├── StartupManager.cs   [高鲁棒性自启动引擎：Run/StartupApproved 双键协同与快捷方式]
     │   ├── ConfigManager.cs    [统一注册表配置持久化管理]
+    │   ├── CacheResetManager.cs [清除缓存：先备份 .reg 再清设备/设置树与图标缓存，强制保留 adapters/自启动/快捷方式；含测试注入点]
     │   └── NativeMethods.cs    [Win32 P/Invoke API、COM 接口与 TaskbarCreated 消息定义]
     │
     ├── Models\                 [数据模型层（无副作用纯净模型）]
@@ -126,7 +127,8 @@ D:\FerrisPulse · 灵脉\
             ├── DevicePriorityForm.cs     [外设优先级排序调整窗口]
             ├── AddDeviceWizardForm.cs    [手动添加新设备向导]
             ├── PromptDialog.cs           [通用输入提示对话框]
-            └── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
+            ├── CacheClearConfirmDialog.cs [清除缓存二次确认：列明清理范围/备份位置/保留项]
+            ├── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
 ```
 
 ---
@@ -146,6 +148,7 @@ D:\FerrisPulse · 灵脉\
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |
+| **清除缓存 / 外设重新识别（含备份还原）** | `src/Core/CacheResetManager.cs` / `src/UI/Forms/CacheClearConfirmDialog.cs` | 备份 .reg → 清设备与设置注册表树 + 图标缓存，强制保留 adapters/自启动/快捷方式 |
 | **按钮、滑块、分段选项卡外观** | `src/UI/Controls/*.cs` | 独立的原子自定义双缓冲 GDI+ 控件 |
 
 ---

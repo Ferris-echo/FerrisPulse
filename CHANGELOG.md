@@ -14,6 +14,19 @@
   - **隐藏标记迁移**：新增 `DeviceManager.IsHiddenExplicitly`（精确键判定），修正「用户隐藏过那张错标卡片 → 30 个命名空间变体全部写入隐藏标记 → 身份修正后新卡片仍被连带隐藏」的问题；用户重新隐藏时写入的正是精确键，语义不受影响。
   - **回归测试**：新增 `tests/test_compx_fa09_identity.ps1`（6 个用例：真实抓包回放、魔数/校验和/截断拒绝、越界电量拒绝、驱动与 KZZI 及另一套 CompX 公版互斥、命名空间去重、旧隐藏标记迁移），零实机 I/O。
 
+### ✨ 新增功能：一键清除缓存与识别状态
+- **入口**：「关于」页底部维护行新增绿色链接 **「清除缓存 (重新识别外设)」**，与既有「故障排查与深度重置」并排。
+- **二次确认**：点击后弹出 `CacheClearConfirmDialog`，逐条列明将清除的范围、备份位置与保留项；点「取消」/Esc 不做任何改动，点「清除缓存并重启」才执行。
+- **清理范围（`CacheResetManager`）**：
+  - `HKCU\Software\RazerBatteryTray`：设备识别与电量缓存、`CustomDevices`、`HiddenDevices` 隐藏黑名单、`PriorityOrder` / `PrimaryDeviceId`、各品牌专属缓存（`CompXFa09Cache` / `MchoseCache` / `VgnCache` 等）；
+  - `HKCU\Software\FerrisPulse`：应用设置与设备外观（窗口位置、托盘数量、低电量提醒等回到出厂默认）；
+  - `%LOCALAPPDATA%\FerrisPulse`：`GameIcons` / `GameTitles` 图标与标题缓存；
+  - `%APPDATA%\FerrisPulse`：扩展包与脚本运行缓存。
+- **强制保留**：`adapters\` 自定义驱动脚本（两处：安装目录与 `%APPDATA%`）、`Run` 自启动项、快捷方式与 AppUserModelId 键——清理缓存不该打掉安装态。
+- **先备份后清理**：执行前把两棵注册表树导出为 `HKCU_RazerBatteryTray.reg` / `HKCU_FerrisPulse.reg`，连同图标缓存复制到 `%LOCALAPPDATA%\FerrisPulse-Backup\<yyyyMMdd_HHmmss>\`，并写入 `README.txt` 说明「双击 .reg 即可还原」；备份目录刻意放在被清理目录之外。
+- **执行后自动重启**：内存中的设备列表与配置回写会重建注册表树，因此清理完立即复用共享的 `AppResetManager.RestartApplicationAndExit()` 重启（同时消除了 `AboutForm` 与重置流程里重复的重启代码）。
+- **测试隔离**：`CacheResetManager` 提供 `RegistryRootOverride` / `LocalCacheRootOverride` / `RoamingCacheRootOverride` / `BackupRootOverride` 注入点，新增 `tests/test_cache_clear_feature.ps1` 在临时注册表树 + 临时目录里完整验证「备份产物 / 树删除 / adapters 保留 / 报告契约 / UI 契约」，真实用户数据零触碰。
+
 ---
 ## 🚀 [v2.4.1] - 2026-11-26 (全新界面与交互设计、历史版本切换与多项 Bug 修复)
 
