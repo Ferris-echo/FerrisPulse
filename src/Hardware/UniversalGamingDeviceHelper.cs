@@ -972,10 +972,12 @@ namespace RazerBatteryTray
 
             // 373B:111F 的 ATK A87 PRO 为键盘（FF60/0x61 33 字节 VIA 私有协议），
             // 373B:1216 的 VXE R1 星闪版为 BITMOUSE（FF05/0x01 64 字节 NearLink 协议，由 VxeNearLinkDeviceHelper 接管），
+            // 373B:12CD 由 AtkPhantomDeviceHelper 通过 BITMOUSE 识别下游设备。
             // 与 ATK Beken 鼠标共用公版 VID 0x373B，必须按 PID 精确隔离，严禁向它们盲发 Beken 查询。
             if (vid == VID_ATK && !string.IsNullOrEmpty(path) &&
                 (path.IndexOf("pid_111f", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 path.IndexOf("pid_1216", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+                 path.IndexOf("pid_1216", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 path.IndexOf("pid_12cd", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
 
             // MCHOSE 全系键鼠 (含 G87 V2 pid_3033 与 G75 PRO pid_fa09) 与 SteelSeries 耳机由专属独立驱动接管，禁止通用引擎越界拦截
             if (vid == VID_MCHOSE || vid == VID_STEELSERIES)

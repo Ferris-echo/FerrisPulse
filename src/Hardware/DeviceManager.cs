@@ -1789,13 +1789,15 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.88 Query VXE Dragonfly R1 NearLink (373B:1216 BITMOUSE 64B, by 冻干咸鱼)
+            // 2.88 Query VXE Dragonfly R1 NearLink & ATK Phantom Ultimate (BITMOUSE 64B, by 冻干咸鱼 & @ertutio)
             try
             {
-                var vxeNearLinkDevs = VxeNearLinkDeviceHelper.QueryAllDevices();
-                if (vxeNearLinkDevs != null && vxeNearLinkDevs.Count > 0)
+                var bitMouseDevices = VxeNearLinkDeviceHelper.QueryAllDevices();
+                if (bitMouseDevices == null) bitMouseDevices = new List<MouseBatteryInfo>();
+                bitMouseDevices.AddRange(AtkPhantomDeviceHelper.QueryAllDevices());
+                if (bitMouseDevices.Count > 0)
                 {
-                    foreach (var dev in vxeNearLinkDevs)
+                    foreach (var dev in bitMouseDevices)
                     {
                         if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
                         {

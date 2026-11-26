@@ -104,6 +104,8 @@
 - **VXE 蜻蜓 R1 星闪版 (`373B:1216`, `VxeNearLinkDeviceHelper.cs`, 贡献者 “冻干咸鱼”)**:
   - `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点（`HidD_SetOutputReport` 下发 + OVERLAPPED `ReadFile` 读取），走 **BITMOUSE 63B 帧 + Report ID `0x08`**（逆向自 ATK HUB 3.2.30 `app.asar`）。
   - 报文布局：`[0]=0x08`, `[1]=sum([2..63])&0xFF`, `[2]=0x72`, `[3]=2`, `[4]=sn`, `[5]=target(0x01)`, `[6]=cmdId`, `[7]=1`；`cmd 7` 返回 `rx[1]=0x72, rx[5]=0x07, rx[7]=pct(0..100), rx[8..9]=mV(LE)`，`cmd 15 (0x0F)` 返回 `rx[7]!=0` 为充电标志；`SupportsDpi = false`、`SupportsPollingRate = false`，并在 `UniversalGamingDeviceHelper` 按 `pid_1216` 隔离。
+- **ATK Phantom Ultimate (`373B:12CD`, `AtkPhantomDeviceHelper.cs`, PR #101, 贡献者 `@ertutio`)**:
+  - 共享 Nano 接收器 `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点；先发送 BITMOUSE `0x4A` 确认下游 `CID=1 / MID=10|21`，再发 `0x07`/`0x0F` 读取电量与充电状态（等待有效响应忽略非匹配通知帧）；`UniversalGamingDeviceHelper` 按 `pid_12cd` 排除。
 
 ### 1.6 迈从 (MCHOSE) A5 V2 Ultra 鼠标与 G87 V2 键盘
 - **A5 V2 Ultra (`MchoseMouseHelper.cs`)**：
