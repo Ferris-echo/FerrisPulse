@@ -2,11 +2,18 @@
 // 模块名称: MchoseDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   迈从 (MCHOSE) G87 V2 / G75 PRO / G98V2 / Z75S 三模机械键盘电量与充电状态适配：
-//   G87 V2 使用 65 字节 0x55/0x4A/0x87 协议；G75 PRO (3554:FA09)
-//   使用 FF02/0002、20 字节 Report ID 0x13 / 命令 0x4A 协议与独立缓存（含 KZZI 0x05 指纹避让）。
+//   迈从 (MCHOSE) G87 V2 / G98V2 / Z75S 三模机械键盘电量与充电状态适配：
+//   G87 V2 使用 65 字节 0x55/0x4A/0x87 协议；
 //   SINOWEALTH 系 2.4G（Z75S 258A:01BB，G98V2 41E4:2004）用型号字节区分（Z75S=0x09, G98V2=0x18）。
 //   特别鸣谢社区贡献者：“yaphets”。
+//
+//   【0x3554:0xFA09 已移交 CompxFa09KeyboardHelper】
+//   该 PID 是 CompX 公版参考固件（MCHOSE G75 PRO / KZZI K75 / LEOBOG Hi98 Pro 等共用），
+//   USB 描述符与 0x4A 电量帧完全同质，无法据此判定品牌；历史上本文件把 0xFA09 硬编码为
+//   MCHOSE G75 PRO，导致 LEOBOG Hi98 Pro 被整机型误标。现由 CompxFa09KeyboardHelper 依
+//   固件 0x05 状态帧的子型号字节 RX[5] 判定归属，本文件只保留如下兼容别名，
+//   勿再在此处新增 FA09 的品牌硬编码：
+//     · BuildG75BatteryFrame / ParseG75BatteryResponse → 转调公版族助手（保持既有测试契约）。
 // 依赖关系: HidTransport.cs, MouseBatteryInfo.cs, Microsoft.Win32
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -87,7 +94,6 @@ namespace RazerBatteryTray
         private const byte TransportValueWired = 0x01;
         private const byte TransportValueWireless = 0x02;
         private const int ReportLength = 65;
-        private const int G75ReportLength = 20;
         private const int ReadTimeoutMs = 320;
         private const int QueryThrottleMs = 5000;
 
@@ -97,10 +103,6 @@ namespace RazerBatteryTray
         private static bool cachedCharging = false;
         private static string cachedDeviceName = "MCHOSE G87 V2";
         private static DateTime cachedLastUpdated = DateTime.MinValue;
-        private static int cachedG75Battery = -1;
-        private static bool cachedG75Charging = false;
-        private static string cachedG75DeviceName = "MCHOSE G75 PRO";
-        private static DateTime cachedG75LastUpdated = DateTime.MinValue;
 
         static MchoseDeviceHelper()
         {
@@ -186,7 +188,10 @@ namespace RazerBatteryTray
 
         public static string GetModelName(int pid, string productString)
         {
-            if (pid == PidG75Pro) return "MCHOSE G75 PRO";
+            // 0xFA09 是 CompX 公版 PID，产品串恒为 "2.4G Wireless Receiver"，不含任何品牌信息。
+            // 品牌/型号归属由 CompxFa09KeyboardHelper 依据固件 0x05 子型号字节判定，
+            // 此处必须返回中性名，严禁再把 FA09 无条件当成 MCHOSE G75 PRO。
+            if (pid == PidG75Pro) return CompxFa09KeyboardHelper.NeutralModelName;
             return GetModelName(productString);
         }
 
@@ -206,39 +211,20 @@ namespace RazerBatteryTray
         }
 
         /// <summary>
-        /// 构建 G75 PRO 2.4G 电量查询帧。实机端点要求恰好 20 字节，
-        /// 校验和为前 19 字节无符号和的低 8 位。
+        /// 兼容别名：构建 CompX 公版 0xFA09 的 0x4A 电量查询帧（实机 TX `13 4A 00 ... 5D`）。
+        /// 协议实体已迁至 CompxFa09KeyboardHelper，保留本入口只为不破坏既有回放测试契约。
         /// </summary>
         public static byte[] BuildG75BatteryFrame()
         {
-            byte[] frame = new byte[G75ReportLength];
-            frame[0] = WirelessReportId;
-            frame[1] = WirelessBatteryCommand;
-            int sum = 0;
-            for (int i = 0; i < G75ReportLength - 1; i++) sum += frame[i];
-            frame[G75ReportLength - 1] = (byte)(sum & 0xFF);
-            return frame;
+            return CompxFa09KeyboardHelper.BuildBatteryQueryFrame();
         }
 
+        /// <summary>
+        /// 兼容别名：解析 CompX 公版 0xFA09 的 0x4A 电量回包（[5]=电量、[6]=状态）。
+        /// </summary>
         public static bool ParseG75BatteryResponse(byte[] report, int length, out int batteryPercent, out bool isCharging)
         {
-            batteryPercent = -1;
-            isCharging = false;
-            if (report == null || length < G75ReportLength || report.Length < G75ReportLength) return false;
-            if (report[0] != WirelessReportId || (report[1] & 0x7F) != WirelessBatteryCommand) return false;
-
-            int sum = 0;
-            for (int i = 0; i < G75ReportLength - 1; i++) sum += report[i];
-            if ((byte)(sum & 0xFF) != report[G75ReportLength - 1]) return false;
-
-            int battery = report[5];
-            byte state = report[6];
-            if (battery < 0 || battery > 100) return false;
-            if (state != 0x01 && state != 0x10) return false;
-
-            batteryPercent = battery;
-            isCharging = state == 0x10;
-            return true;
+            return CompxFa09KeyboardHelper.TryParseBatteryResponse(report, length, out batteryPercent, out isCharging);
         }
 
         public static byte[] BuildWiredBatteryFrame()
@@ -655,19 +641,6 @@ namespace RazerBatteryTray
                         DateTime dt;
                         if (DateTime.TryParse(updated, out dt)) cachedLastUpdated = dt;
                     }
-
-                    object g75Batt = key.GetValue("G75BatteryPercent");
-                    if (g75Batt != null) cachedG75Battery = Convert.ToInt32(g75Batt);
-                    object g75Chg = key.GetValue("G75IsCharging");
-                    if (g75Chg != null) cachedG75Charging = Convert.ToInt32(g75Chg) == 1;
-                    string g75Name = key.GetValue("G75DeviceName") as string;
-                    if (!string.IsNullOrEmpty(g75Name)) cachedG75DeviceName = g75Name;
-                    string g75Updated = key.GetValue("G75LastUpdated") as string;
-                    if (!string.IsNullOrEmpty(g75Updated))
-                    {
-                        DateTime g75Date;
-                        if (DateTime.TryParse(g75Updated, out g75Date)) cachedG75LastUpdated = g75Date;
-                    }
                 }
             }
             catch { }
@@ -693,125 +666,15 @@ namespace RazerBatteryTray
             catch { }
         }
 
-        private static void SaveG75HardwareCache(int battery, bool charging, string deviceName)
-        {
-            cachedG75Battery = battery;
-            cachedG75Charging = charging;
-            cachedG75DeviceName = deviceName;
-            cachedG75LastUpdated = DateTime.Now;
-            try
-            {
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(CacheRegistryKey))
-                {
-                    if (key == null) return;
-                    key.SetValue("G75BatteryPercent", battery, RegistryValueKind.DWord);
-                    key.SetValue("G75IsCharging", charging ? 1 : 0, RegistryValueKind.DWord);
-                    key.SetValue("G75DeviceName", deviceName, RegistryValueKind.String);
-                    key.SetValue("G75LastUpdated", DateTime.Now.ToString("o"), RegistryValueKind.String);
-                }
-            }
-            catch { }
-        }
-
-        private static bool QueryG75Device(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging)
-        {
-            batteryPercent = -1;
-            isCharging = false;
-            if (descriptor == null || descriptor.VendorId != VendorIdCompX || descriptor.ProductId != PidG75Pro) return false;
-            if (descriptor.UsagePage != 0xFF02 || descriptor.Usage != 0x0002 ||
-                descriptor.InputReportLength != G75ReportLength || descriptor.OutputReportLength != G75ReportLength) return false;
-
-            IntPtr handle = HidTransport.Open(descriptor.DevicePath);
-            if (!HidTransport.IsValidHandle(handle)) return false;
-            try
-            {
-                HidTransport.DrainReports(handle, G75ReportLength, 8);
-                byte[] query = BuildG75BatteryFrame();
-                if (!HidTransport.WriteReport(handle, query, query.Length, 650)) return false;
-
-                for (int attempt = 0; attempt < 3; attempt++)
-                {
-                    byte[] response;
-                    if (!HidTransport.ReadReport(handle, G75ReportLength, ReadTimeoutMs, out response)) continue;
-                    int battery;
-                    bool charging;
-                    if (!ParseG75BatteryResponse(response, response.Length, out battery, out charging)) continue;
-                    batteryPercent = battery;
-                    isCharging = charging;
-                    return true;
-                }
-            }
-            catch
-            {
-            }
-            finally
-            {
-                HidTransport.Close(handle);
-            }
-            return false;
-        }
-
+        /// <summary>
+        /// 0x3554:0xFA09 卡片构建已整体移交 CompxFa09KeyboardHelper：
+        /// 该 PID 为 CompX 公版，须先读固件 0x05 子型号字节（0x02=KZZI K75 / 0x03=LEOBOG Hi98 Pro）
+        /// 再决定品牌与型号，未收录的一律中性名。本方法只做转发，勿在此恢复品牌硬编码。
+        /// </summary>
         private static void AppendG75Device(List<MouseBatteryInfo> result)
         {
-            List<HidDeviceDescriptor> descriptors = HidTransport.Enumerate(VendorIdCompX, PidG75Pro);
-            HidDeviceDescriptor selected = null;
-            for (int i = 0; i < descriptors.Count; i++)
-            {
-                HidDeviceDescriptor descriptor = descriptors[i];
-                if (descriptor.UsagePage == 0xFF02 && descriptor.Usage == 0x0002 &&
-                    descriptor.InputReportLength == G75ReportLength && descriptor.OutputReportLength == G75ReportLength)
-                {
-                    selected = descriptor;
-                    break;
-                }
-            }
-            if (selected == null) return;
-
-            // 3554:FA09 是 CompX 公版 PID，KZZI K75 等键盘共用；先做 0x05 状态指纹识别，
-            // 命中则交给 KzziDeviceHelper，避免被误标为 MCHOSE G75 PRO。
-            if (KzziDeviceHelper.TryIdentifyKzziK75(selected)) return;
-
-            int battery;
-            bool charging;
-            bool ok = QueryG75Device(selected, out battery, out charging);
-            string name = GetModelName(PidG75Pro, selected.ProductString);
-            if (!ok && !string.IsNullOrEmpty(cachedG75DeviceName)) name = cachedG75DeviceName;
-
-            MouseBatteryInfo info = new MouseBatteryInfo();
-            info.DeviceId = string.Format("MCHOSE:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
-            info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", VendorIdCompX, PidG75Pro);
-            info.HardwareId = selected.InstanceId;
-            info.DriverId = "BuiltIn:MchoseKeyboard";
-            info.DeviceName = name;
-            info.Brand = "MCHOSE";
-            info.Category = DeviceCategory.Keyboard;
-            info.Transport = "2.4G 无线";
-            info.IsCustom = false;
-            info.IsDonglePresent = true;
-            info.Capabilities.SupportsBattery = true;
-
-            if (ok)
-            {
-                info.IsConnected = true;
-                info.IsSleeping = false;
-                info.IsCharging = charging;
-                info.BatteryPercent = battery;
-                info.ExactBatteryPercent = battery;
-                info.LastUpdated = DateTime.Now;
-                SaveG75HardwareCache(battery, charging, name);
-            }
-            else
-            {
-                info.IsConnected = false;
-                info.IsSleeping = true;
-                info.IsCharging = cachedG75Battery >= 0 ? cachedG75Charging : false;
-                info.BatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : -1;
-                info.ExactBatteryPercent = cachedG75Battery >= 0 ? cachedG75Battery : 0;
-                info.LastUpdated = cachedG75Battery >= 0 ? cachedG75LastUpdated : DateTime.Now;
-                info.CustomTooltip = "MCHOSE G75 PRO 接收器在线；键盘可能休眠，正在保留上次电量";
-            }
-
-            result.Add(info);
+            MouseBatteryInfo info = CompxFa09KeyboardHelper.QueryDevice();
+            if (info != null) result.Add(info);
         }
 
         private static bool QueryDevice(HidDeviceDescriptor descriptor, out int batteryPercent, out bool isCharging, out string deviceName)

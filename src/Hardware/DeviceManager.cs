@@ -67,7 +67,11 @@ namespace RazerBatteryTray
                     }
                 }
 
-                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "VXE", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron" };
+                // CompX 公版 0x3554:0xFA09 的命名空间必须参与前缀归一：
+                // 同一台接收器可能被记成 "CompX:3554:FA09"（通用扫描/手动添加）、
+                // "HID:3554:FA09"（旧通用记录）或 "LEOBOG:3554:FA09"（原生族助手判定）。
+                // 少了这两个前缀，同一把键盘会在主界面裂成两张卡（一张永远 -1%/记忆值）。
+                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "VXE", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron", "CompX", "LEOBOG" };
                 for (int i = 0; i < commonPrefixes.Length; i++)
                 {
                     string p = commonPrefixes[i];
@@ -310,6 +314,43 @@ namespace RazerBatteryTray
             }
             catch { }
             return false;
+        }
+
+        /// <summary>
+        /// 精确判定隐藏标记（不做命名空间展开，只看该 DeviceId 自身的键）。
+        ///
+        /// 用途：CompX 公版 0x3554:0xFA09 的身份修正迁移。
+        /// 该 PID 历史上被硬编码标成 MCHOSE G75 PRO；用户若隐藏过那张**错标**卡片，
+        /// HideOrDeleteDevice 会把全部 30 个命名空间变体一并写成隐藏标记。身份修正后，
+        /// 这些旧变体不得再连带隐藏重新判定出来的 LEOBOG / 中性卡片，否则用户会以为
+        /// 「BUG 修了但键盘还是不见了」。用户真要隐藏本机键盘时，HideOrDeleteDevice 会
+        /// 写入该卡片自身命名空间的精确键，本判定依然生效。
+        /// </summary>
+        public static bool IsHiddenExplicitly(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return false;
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(HiddenDevicesRegPath, false))
+                {
+                    if (key == null) return false;
+                    object val = key.GetValue(deviceId);
+                    return val != null && Convert.ToInt32(val) == 1;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>
+        /// 是否为 CompX 公版 0xFA09 键盘族的原生卡片（由 CompxFa09KeyboardHelper 产出）。
+        /// 只看 DriverId，刻意不按 VID:PID 判定，避免把共用该 PID 的 KZZI K75 卡片也卷进来。
+        /// </summary>
+        private static bool IsCompxFa09FamilyCard(MouseBatteryInfo device)
+        {
+            if (device == null) return false;
+            return !string.IsNullOrEmpty(device.DriverId) &&
+                   string.Equals(device.DriverId, CompxFa09KeyboardHelper.DriverIdValue, StringComparison.OrdinalIgnoreCase);
         }
 
         public static void HideOrDeleteDevice(string deviceId)
@@ -1891,7 +1932,7 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 2.96 Query MCHOSE (G87 V2 tri-mode mechanical keyboard)
+            // 2.96 Query MCHOSE (G87 V2 tri-mode mechanical keyboard + CompX 公版 0xFA09 键盘族)
             try
             {
                 var mchoseDevices = MchoseDeviceHelper.QueryAllMchoseDevices();
@@ -3480,7 +3521,19 @@ namespace RazerBatteryTray
             });
 
             // 3.7 Filter out user-hidden devices
-            list.RemoveAll(d => ShouldHideDevice(d, IsDeviceHidden(d.DeviceId), !string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint)));
+            // CompX 公版 0xFA09 家族例外：只用「自身命名空间的精确隐藏键」判定，
+            // 不再被历史上错标卡片（MCHOSE G75 PRO）留下的跨命名空间变体连带隐藏。
+            list.RemoveAll(delegate(MouseBatteryInfo d)
+            {
+                bool idHidden = IsDeviceHidden(d.DeviceId);
+                bool fpHidden = !string.IsNullOrEmpty(d.HardwareFingerprint) && IsDeviceHidden(d.HardwareFingerprint);
+                if (IsCompxFa09FamilyCard(d))
+                {
+                    if (!IsHiddenExplicitly(d.DeviceId)) idHidden = false;
+                    if (string.IsNullOrEmpty(d.HardwareFingerprint) || !IsHiddenExplicitly(d.HardwareFingerprint)) fpHidden = false;
+                }
+                return ShouldHideDevice(d, idHidden, fpHidden);
+            });
 
             // 4. Priority Ordering and Primary Selection
             var prioList = GetPriorityList();

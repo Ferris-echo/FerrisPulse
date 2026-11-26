@@ -213,7 +213,8 @@ flowchart TD
 | :--- | :--- | :--- |
 | **雷蛇 (Razer)** | **DeathAdder V4 Pro / DeathAdder V4 Pro Carbon**（`00BE`/`00EF`）<br>**Viper V4 Pro**（`00E5`）<br>**BlackShark V2 Pro 旋风黑鲨 2.4G (2023款)**（`0555`）<br>**Kraken V4 北海巨妖 V4**（`056C`）<br>**Viper V3 HyperSpeed**（`00B8`）<br>**Viper V2 Pro 黑白双色版**（`00A6`/`00A5`）<br>**DeathAdder V2 X HyperSpeed**（`009C`） | 1% 精确物理电量、充电感知、**双向板载 DPI 读写 (支持 XY 轴独立调节)**、**回报率档位极速切换 (最高 8000Hz)**、**板载全部 8 个硬件按键映射读写**、无 Feature 限制 64 字节中断端点 PA/PI 通信。 |
 | **NuPhy (努斐)** | **NuPhy WH80 三模磁轴键盘**<br>**NuPhy Air75 V2**<br>**NuPhy Halo75 V2** | 键盘智能休眠超时调节、WinLock 锁、RGB 背光与无级亮度动态控制、1% 物理电量直读与充电感知。 |
-| **迈从 (MCHOSE)** | **A5 V2 Ultra 8K 电竞鼠标**<br>**G75 PRO 机械键盘** (`3554:FA09`)<br>**G87 V2 机械键盘** (`3837:3033`)<br>**Z75S 三模机械键盘** (`258A:01BB`) | 1% 真实电量、CompX 公版协议与内置触控板精确物理隔离、**XY 轴独立 DPI**、**8K 回报率写入 (125~8000Hz)**、20 字节状态帧与专属休眠缓存状态机。 |
+| **迈从 (MCHOSE)** | **A5 V2 Ultra 8K 电竞鼠标**<br>**G87 V2 机械键盘** (`3837:3033`)<br>**Z75S 三模机械键盘** (`258A:01BB`)<br>**G75 PRO 机械键盘**（CompX 公版 `3554:FA09`） | 1% 真实电量、CompX 公版协议与内置触控板精确物理隔离、**XY 轴独立 DPI**、**8K 回报率写入 (125~8000Hz)**、20 字节状态帧与专属休眠缓存状态机。 |
+| **CompX 公版键盘族 (LEOBOG / 狼蛛 / 珂芝等)** | **KZZI K75**（子型号 `0x02`）<br>**通用同方案机型**（`0x03` 等：如 LEOBOG Hi98 Pro、AULA 狼蛛系列，中性名 `CompX 2.4G 无线键盘`） | 共用 `3554:FA09` 接收器、产品串恒为 `2.4G Wireless Receiver`：**按固件 `0x05` 状态帧的 `RX[5]` 子型号字节判定归属**，除 `0x02` 外（含多品牌共用的 `0x03`）一律中性名、绝不跨品牌猜测；电量取自 `0x4A` 帧 `[5]`，`CompX`/`LEOBOG` 命名空间参与卡片去重，杜绝同机双卡。 |
 | **索尼 (Sony)** | **INZONE Buds 无线入耳** (`054C:0EC2`)<br>**INZONE H5 头戴电竞耳机** (`054C:0EBF`)<br>**PULSE Explore TWS 电竞耳机** (`054C:0ECC`/`0ED0`)<br>**DualSense Edge PS5 无线精英手柄** (`054C:0DF2`) | **左耳、右耳、充电盒独立三路 1% 物理电量**、索尼私有 HCI 封装解析、2 字节载荷自适应单路电量、Feature Report `0xB0` 双耳 16 级电量、**PS Link 与 USB 充电盒双通道内存合并**、手柄 10% 物理档位与充电感知。 |
 | **罗技 (Logitech)** | **G502 X PLUS 旗舰无线鼠标** (`046D:C095`)<br>**G304 / C53F 经典无线鼠标**<br>**G PRO X Wireless 旗舰无线电竞耳机** (`046D:0ABA`) | 解决双端点竞争与短报告崩溃、20 字节 HID++ 2.0 握手、**Feature 0x2201 Func 2 真实 DPI 寄存器直读**（彻底消除 200 DPI 偏差）、HID++ 4.2 专属 `0x1F20` ADC 毫伏放电曲线拟合算法。 |
 | **漫步者 (EDIFIER)** | **花再 Halo Space 极光空间头戴耳机** (`2D99:E049`) | 64 字节 EC 私有协议、`XOR 0xA5` 载荷掩码解密、累加和校验算法，真实读取耳机电量、固件版本、设备名称与蓝牙 MAC 地址。 |
@@ -295,6 +296,7 @@ flowchart TD
 | **[@poerts](https://github.com/poerts)** | 修复罗技 **G PRO Wireless (GPW 一代)** 0x0005 名称分段读取、双接收器 (`C539`+`C53F`) 状态隔离与异设备唤醒主卡片防覆盖 (#60) |
 | **[@Muou2023](https://github.com/Muou2023)** | 贡献多外设任务栏托盘「优先显示低电量设备」智能自动排序仲裁策略 (#30) |
 | **社区贡献者“yaphets”** | 适配 **迈从 G75 PRO** 与 **G87 V2** 机械键盘，确立 CompX 公版隔离与 20 字节 Report 0x13 命令字 |
+| **社区反馈（CompX `3554:FA09` 误标与跨品牌治理）** | 确证 `3554:FA09` 为 CompX 公版 PID：产品串/端点/`0x4A` 帧全同质，改由 `0x05` 状态帧 `RX[5]` 子型号字节判定归属（`0x02`=KZZI K75；`0x03` 等共用或未收录子型号显示中性名），并合入一键清除缓存 (#109) |
 | **社区群友“冰城” (Bingcheng)** | 适配 **迈从 A5 V2 Ultra** 鼠标（电量、XY 轴独立 DPI 与 8K 回报率）；攻破 **罗技 G PRO X Wireless** 耳机 0x1F20 ADC 毫伏放电曲线算法 |
 | **社区群友“无情卍空虚” (“d”)** | 适配 **赛睿 Arctis Nova 5 / Nova 5X** 无线耳机，攻破 0x00B0 报文状态查询与解析 |
 | **社区群友“okbeng”** | 适配雷蛇 **旋风黑鲨 V2 Pro 2.4G (2023款)**（64B 中断端点 PA/PI 协议）与 **DeathAdder V2 X HyperSpeed** |

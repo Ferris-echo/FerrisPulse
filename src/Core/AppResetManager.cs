@@ -415,6 +415,40 @@ namespace RazerBatteryTray
         }
 
         /// <summary>
+        /// 重启自身：确保 AUMID 快捷方式存在 → 释放单实例互斥体 → 启动新进程 → 退出当前进程。
+        /// 「深度重置重启」与「清除缓存重启」共用同一实现，避免两处重启流程漂移。
+        /// </summary>
+        public static void RestartApplicationAndExit()
+        {
+            try
+            {
+                StartupManager.EnsureAppShortcutWithAumid();
+            }
+            catch { }
+
+            try
+            {
+                Program.ReleaseSingleInstanceMutex();
+            }
+            catch { }
+
+            try
+            {
+                string exePath = StartupManager.GetApplicationExecutablePath();
+                if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                {
+                    ProcessStartInfo psi = new ProcessStartInfo(exePath);
+                    psi.WorkingDirectory = Path.GetDirectoryName(exePath);
+                    psi.UseShellExecute = true;
+                    Process.Start(psi);
+                }
+            }
+            catch { }
+
+            Environment.Exit(0);
+        }
+
+        /// <summary>
         /// 执行一键全量重置或卸载清理
         /// </summary>
         public static bool PerformFullReset(bool removeShortcuts, out string errorMessage)

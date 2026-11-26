@@ -60,8 +60,37 @@
 ### 1.5 CompX (`0x3554`) / VGN / VXE / ATK / 迈从 G75 PRO 协议族
 - **同 VID (`0x3554`) 键鼠端点物理隔离铁律（贡献者 “yaphets”）**：
   - **VGN 蜻蜓 F1 Pro (`3554:F503`) 等鼠标**：`UsagePage 0xFF02 / Usage 0x0002`，输入/输出严格为 **17/17 字节**，Report ID `0x08`。通信顺序：`Cmd 1` 握手 -> `Cmd 2` 驱动激活 -> `Cmd 3` 在线查询 -> `Cmd 4` 电量查询（回复 `byte[6]` 电量，`byte[7]==1` 充电，校验和为 `85 - (sum(b[1..15]) & 0xFF) - 8`）。
-  - **迈从 MCHOSE G75 PRO (`3554:FA09`) 键盘**：同样使用 `3554` 与 `FF02/0002`，但输入/输出严格为 **20/20 字节**！查询帧 `13 4A 00 ... 5D`（前 19 字节和低 8 位校验），回复 `byte[5]` 为电量（`0..100`），`byte[6]` 为状态（`0x10` 充电 / `0x01` 电池供电）。
+  - **CompX 公版 `3554:FA09` 键盘族（`CompxFa09KeyboardHelper.cs`，详见 1.5.1）**：同样使用 `3554` 与 `FF02/0002`，但输入/输出严格为 **20/20 字节**！查询帧 `13 4A 00 ... 5D`（前 19 字节和低 8 位校验），回复 `byte[5]` 为电量（`0..100`），`byte[6]` 为状态（`0x10` 充电 / `0x01` 电池供电）。**该 PID 被 MCHOSE G75 PRO / KZZI K75 / LEOBOG Hi98 Pro 等多家共用，严禁按 PID 认定单一品牌。**
   - **隔离要求**：`VgnDeviceHelper.IsVgnProtocolEndpoint` 必须校验 `inputLength == 17 && outputLength == 17 && pid != 0xFA09`，严禁使用 `>= 17`。
+
+#### 1.5.1 CompX 公版 `3554:FA09` 键盘族：品牌归属只能看 0x05 子型号字节
+
+> 本机实测 2026-11-26（LEOBOG Hi98 Pro），修复「LEOBOG Hi98 Pro 被误标为 MCHOSE G75 PRO」的 BUG。
+
+- **描述符完全同质，无任何品牌信息**：`iProduct = "2.4G Wireless Receiver"`、`iManufacturer = "CX"`、私有端点恒为 `UsagePage 0xFF02 / Usage 0x0002`、`InLen=20 / OutLen=20 / FeatLen=0`。因此 `VID + PID + UsagePage + 报告长度 + 0x4A 电量帧` 这一整套指纹**全部无法区分品牌**。
+- **`0x4A` 电量帧同质（实测）**：
+  ```
+  TX 13 4A 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5D
+  RX 13 4A 01 00 02 5E 01 00 00 00 00 00 00 00 00 00 00 00 00 BF
+                   ↑ [5]=0x5E=94%      ↑ [6]=0x01 电池供电（0x10 = 充电）
+  校验和 = 前 19 字节无符号和 & 0xFF
+  ```
+- **唯一可用的物理事实：`0x05` 状态帧的 `RX[5]` 子型号字节**：
+  ```
+  TX 13 05 01 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 1B
+  RX 13 05 01 00 0A SS 00 00 00 01 21 01 00 00 00 00 00 00 00 CS
+                   ↑ 结构魔数 0x0A  ↑ 子型号
+  ```
+  | 子型号 `RX[5]` | 机型 | 归属 |
+  | --- | --- | --- |
+  | `0x02` | KZZI K75 | `KzziDeviceHelper`（卡片标题与「2.4G 公版不提供可信电量」口径保持不变） |
+  | `0x03` / 其它 / 无应答 | 多品牌共用 / 未收录 | 中性名 `CompX 2.4G 无线键盘`，品牌 `CompX`（实测 LEOBOG Hi98 Pro 与同代工系狼蛛 AULA 均回 `0x03`，**不猜测单一品牌**） |
+
+  实测样本：`13 05 01 00 0A 03 00 00 00 01 21 01 ... 49`（LEOBOG，`[5]=0x03`）；`13 05 01 00 0A 02 ... 5D`（KZZI，`[5]=0x02`）。**结构断言必须包含 `[2]=0x01`、`[4]=0x0A` 与校验和**，否则会把噪声帧当成型号证据。
+- **铁律：未实测的子型号宁可留空走中性名，严禁把 PID 指向某个品牌**。历史实现把 `0xFA09` 硬编码成 MCHOSE G75 PRO，导致换一台同方案键盘就整机型误标。
+- **命名空间与卡片去重**：同一台接收器可能被记成 `LEOBOG:3554:FA09`（原生判定）/ `CompX:3554:FA09`（通用扫描或用户手动添加）/ `HID:3554:FA09`（旧通用记录）。`DeviceManager.GetDeviceIdVariants` 的前缀表必须包含 `CompX` 与 `LEOBOG`，否则同一把键盘在主界面裂成两张卡。
+- **隐藏标记迁移**：用户隐藏过历史上那张错标卡片时，`HideOrDeleteDevice` 会把全部命名空间变体写成隐藏标记；身份修正后必须用 `DeviceManager.IsHiddenExplicitly` 的**精确键**判定该家族卡片，避免新卡片被旧错标卡片的标记连带隐藏（用户重新隐藏时写入的正是精确键，语义不受影响）。
+- **驱动隔离**：`CompxFa09KeyboardDriver` 只看 `DriverId`/`VID:PID`+品牌，禁止按品牌名 `CompX` 泛化——`CompX:05AC:024F` 是另一套公版键盘（`CompxWirelessKeyboardHelper`，33 字节 `0xFF60/0x61`）。同时 `HardwareDriverRegistry.RequiresStrictIdentity` 必须把 `BuiltIn:KzziKeyboard` 与 `BuiltIn:CompxFa09Keyboard` 纳入严格身份校验，否则两者的 `MatchesVidPid(3554, FA09)` 会互相吞卡片。
 - **ATK F1 Ultimate 2.0 (`373B:11D9`, `8k dongle-L`)（贡献者 “好的很”）**：
   - 仅暴露 `UsagePage 0xFF02 / Usage 0x0002` 的 **17/17 字节 Interrupt 端点**（`FeatureReportByteLength == 0`）。
   - **严禁在 `WriteFile` 前执行 `DrainReports`**，否则会打断 8K 接收器与鼠标的无线握手状态机。

@@ -29,8 +29,13 @@ namespace RazerBatteryTray
         {
             if (drv == null) return false;
             if (drv.IsExternalPackage && drv.Priority >= 300) return true;
+            // KZZI K75 与 CompX 公版族共用 0x3554:0xFA09 的 MatchesVidPid，
+            // 若不走严格身份校验，KZZI 驱动会把 LEOBOG Hi98 Pro 等公版键盘卡片一并吞掉。
+            // 两者的 CanHandle 都能凭品牌 / DriverId / DeviceId 前缀唯一确认，因此可以安全收紧。
             return string.Equals(drv.DriverId, "BuiltIn:LogitechMR0097", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(drv.DriverId, "BuiltIn:KeychronM6", StringComparison.OrdinalIgnoreCase);
+                   string.Equals(drv.DriverId, "BuiltIn:KeychronM6", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(drv.DriverId, "BuiltIn:KzziKeyboard", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(drv.DriverId, "BuiltIn:CompxFa09Keyboard", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsExternallyOwnedPath(string path)
