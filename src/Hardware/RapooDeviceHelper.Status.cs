@@ -1,4 +1,4 @@
-﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+﻿﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 // 模块: 雷柏 VT3 状态输入、采样缓存与可取消 Win32 重叠 I/O。
 // C# 5.0 / .NET 4.0; UTF-8 BOM; 无第三方依赖。
 // 报文布局参考 rapoo-tray (MIT, Copyright (c) 2026 Iris)。

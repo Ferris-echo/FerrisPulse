@@ -1,4 +1,4 @@
-﻿// ============================================================================
+﻿﻿// ============================================================================
 // 模块名称: RapooDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
@@ -531,9 +531,17 @@ namespace RazerBatteryTray
                 StopStatusReader();
                 if (!string.Equals(activeRapooGroup, selected.GroupKey, StringComparison.OrdinalIgnoreCase))
                 {
+                    bool firstEnumeration = string.IsNullOrEmpty(activeRapooGroup);
                     ResetRapooLiveState();
                     activeRapooGroup = selected.GroupKey;
                     LoadBatteryCacheForGroup(activeRapooGroup);
+                    if (firstEnumeration)
+                    {
+                        // 程序启动首次枚举：从注册表恢复 DPI/档位/回报率配置缓存。
+                        // 避免启动时因缓存为空强制走完整寄存器查询路径，
+                        // 对 2.4G 接收器的 Write 控制传输会暂停鼠标输入。
+                        LoadHardwareCache();
+                    }
                 }
                 IntPtr control = RazerDeviceHelper.CreateFile(selected.Control.DevicePath, GENERIC_WRITE,
                     FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
@@ -658,18 +666,34 @@ namespace RazerBatteryTray
                 IntPtr hOut, hFeat;
                 if (!EnsureHandles(out hOut, out hFeat)) return null;
                 string queryGroup = activeRapooGroup;
-                byte[] stageData;
-                bool online = ReadRegister(BANKS_SYSTEM, ADDR_CURRENT_DPI, 1, out stageData);
-                // Status broadcast silence is normal for an idle VT3. A successful
-                // control read or a recent input report is positive online evidence.
-                online = online || (DateTime.UtcNow - StatusLastUpdated).TotalSeconds < 5;
                 int physicalPid = activeRapooEndpoints.Control.ProductId;
                 int modelPid = physicalPid;
+                bool online;
                 if (physicalPid == 0x14FF || physicalPid == 0x1500 || physicalPid == 0x1501)
                 {
                     // Preserve the paired mouse's identity behind a generic receiver.
-                    // A sleeping mouse need not answer; retain the last known model.
                     if (activeRapooModelPid != 0) modelPid = activeRapooModelPid;
+                }
+
+                // 缓存有效快速路径：不发送任何控制命令，直接用缓存与状态帧构建结果。
+                // VT3 的 2.4G 接收器在处理 Write/GetFeature 控制传输时会暂停转发鼠标输入报告，
+                // 导致每次查询期间鼠标卡住。DPI/回报率变化由 0x07 状态广播帧被动更新缓存，
+                // 因此启动与周期刷新无需主动读寄存器。
+                if (HasValidPerformanceCache(modelPid))
+                {
+                    online = (DateTime.UtcNow - StatusLastUpdated).TotalSeconds < 5;
+                    activeRapooModelPid = modelPid;
+                    return BuildRapooDeviceInfo(modelPid, online, physicalPid >= 0x4000);
+                }
+
+                // 缓存缺失或设备变化：执行完整寄存器查询（仅在首次或设备切换时发生）
+                byte[] stageData;
+                online = ReadRegister(BANKS_SYSTEM, ADDR_CURRENT_DPI, 1, out stageData);
+                // Status broadcast silence is normal for an idle VT3. A successful
+                // control read or a recent input report is positive online evidence.
+                online = online || (DateTime.UtcNow - StatusLastUpdated).TotalSeconds < 5;
+                if (physicalPid == 0x14FF || physicalPid == 0x1500 || physicalPid == 0x1501)
+                {
                     byte[] reported;
                     if (ReadRegister(BANKS_COMM, 0x04, 2, out reported))
                     {
@@ -686,6 +710,17 @@ namespace RazerBatteryTray
                 SaveHardwareCache();
                 return BuildRapooDeviceInfo(modelPid, online, physicalPid >= 0x4000);
             }
+        }
+
+        // 判断缓存是否足够构建完整的设备快照（电量、DPI、档位表、回报率均有效）
+        // 注意：activeRapooModelPid 是内存状态，程序重启后为 0，因此不参与缓存有效性判断。
+        // 注册表缓存仅保存当前设备数据，电量与性能字段有效即可直接复用。
+        private static bool HasValidPerformanceCache(int modelPid)
+        {
+            return CachedBatteryPercent >= 0 &&
+                   CachedDpi > 0 &&
+                   CachedDpiStages != null && CachedDpiStages.Length > 0 &&
+                   CachedPollingRate > 0;
         }
 
         public static int ResolveRapooProductId(int physicalPid, int reportedPid)
@@ -746,13 +781,17 @@ namespace RazerBatteryTray
             if (IsEepromQuietActive()) return false;
             lock (hidLock)
             {
-                if (statusSession != null && !statusSession.Failed && StatusLastUpdated != DateTime.MinValue)
+                // 缓存有效快速路径：直接返回缓存的 DPI/档位，不发送控制命令。
+                // VT3 的 2.4G 接收器处理 Write/GetFeature 时会暂停鼠标输入转发，
+                // DpiMonitorWorker 每 200ms 轮询一次，若每次都发命令会导致鼠标持续卡顿。
+                // DPI 变化由 0x07 状态广播帧被动更新 CachedDpi，无需主动查询。
+                if (CachedDpi > 0 && CachedDpiY > 0 && CachedDpiStageCount > 0)
                 {
                     curDpiX = CachedDpi;
                     curDpiY = CachedDpiY;
                     activeStage = CachedDpiStage;
-                    stageCount = Math.Max(CachedDpiStageCount, CachedDpiStage);
-                    return curDpiX > 0 && curDpiY > 0;
+                    stageCount = CachedDpiStageCount;
+                    return true;
                 }
             }
 
@@ -797,6 +836,13 @@ namespace RazerBatteryTray
         public static bool FastQueryPollingRate(out int hz)
         {
             hz = 0;
+            // 缓存有效快速路径：回报率变化不频繁，直接返回缓存值，不发送控制命令。
+            // 避免 DpiMonitorWorker 轮询时对 2.4G 接收器发 ReadRegister 导致鼠标卡顿。
+            if (CachedPollingRate > 0)
+            {
+                hz = CachedPollingRate;
+                return true;
+            }
             byte[] rateData;
             if (ReadRegister(BANKS_SYSTEM, ADDR_POLLING_HZ, 1, out rateData) && rateData != null && rateData.Length > 0)
             {
