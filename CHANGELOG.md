@@ -4,7 +4,11 @@
 
 ---
 
-## 🧩 [未发布] - CompX 公版 `0x3554:0xFA09` 键盘族机型归属修复
+## 🧩 [未发布] - 社区 PR 融合与硬件生态扩容 (CompX 识别修复 / ATK 烈空 / 京造 JZ M5 / 一键清除缓存)
+
+### 🖱️ 新增鼠标支持
+- **ATK 烈空 Phantom Ultimate** (`373B:12CD` 有线 / 2.4G 无线接收器，感谢 `@ertutio` `#101`)：新增 `AtkPhantomDeviceHelper`（16B Feature 0x00 专属协议读取电量与充电状态），隔离通用 64B 引擎盲扫。
+- **京造 JZ M5 三模鼠标** (`362D:D107` Wireless Link-KM 2.4G 接收器，感谢 `@ertutio` `#106`)：新增 `JzM5Helper` + `JzM5Driver` 内置只读电量引擎与 [jz_m5.fp-adapter.json](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/examples/adapters/jz_m5.fp-adapter.json)（基于官方 WebHID `wukong.jd.com` 与 `wukong-driver` 协议：`FFC1/0001` 64B `B5 02` 身份握手、`B3 06` `[19]` 低 7 位电量 / `bit7` 充电位，关闭未验证写能力并隔离 `FF60/0061` 键盘端点与通用引擎）。
 
 ### 🛠️ 硬件识别修复
 - **修复 LEOBOG Hi98 Pro 被误标为 MCHOSE G75 PRO（社区反馈）**：

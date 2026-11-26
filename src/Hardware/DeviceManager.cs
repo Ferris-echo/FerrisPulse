@@ -2757,6 +2757,28 @@ namespace RazerBatteryTray
             }
             catch { }
 
+            // 2.14c Query JZ M5 Wireless Link-KM (362D:D107, Built-in Dedicated Read-only Driver)
+            try
+            {
+                var jzDevices = JzM5Helper.QueryDevices();
+                if (jzDevices != null && jzDevices.Count > 0)
+                {
+                    foreach (var dev in jzDevices)
+                    {
+                        if (dev != null && (dev.IsConnected || dev.IsDonglePresent))
+                        {
+                            HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
+                            MergeExternalDriverDevice(list, dev);
+                            if (dev.BatteryPercent >= 0 && !dev.IsSleeping)
+                            {
+                                UpdateCustomDeviceBattery(dev.DeviceId, dev.BatteryPercent, dev.LastUpdated);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
             // 2.15 Query C# 5.0 Dynamic Script Drivers (Local adapters/*.fp-driver.cs, Priority 300)
             try
             {

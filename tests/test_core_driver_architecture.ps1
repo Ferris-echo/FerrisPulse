@@ -621,5 +621,15 @@ Invoke-TestCase "10. 异步 Overlapped P0 安全契约 / UI 刷新合并 / Gener
     Assert-True ($ghSrc.IndexOf("MoondropDeviceHelper.IsManagedDevice") -lt $ghSrc.IndexOf("HidD_GetProductString(handle, sbProd")) "ScanGenericHidMice skips ProductString for already-managed devices"
 }
 
+Invoke-TestCase "11. FDAS v2.0 社区扩展示例契约完整性 (京造 JZ M5)" {
+    $jzAdapter = Join-Path $root "examples\adapters\jz_m5.fp-adapter.json"
+    Assert-True ([IO.File]::Exists($jzAdapter)) "jz_m5.fp-adapter.json exists"
+    $jzRaw = [IO.File]::ReadAllBytes($jzAdapter)
+    Assert-True ($jzRaw.Length -ge 3 -and $jzRaw[0] -eq 0xEF -and $jzRaw[1] -eq 0xBB -and $jzRaw[2] -eq 0xBF) "jz_m5.fp-adapter.json has UTF-8 BOM"
+    $jzObj = [IO.File]::ReadAllText($jzAdapter, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    Assert-True ($jzObj.fdasVersion -eq "2.0" -and $jzObj.hardware.vendorId -eq "0x362D" -and $jzObj.hardware.productId -eq "0xD107") "JZ M5 FDAS v2.0 contract metadata intact"
+    Assert-Equal 19 ([int]$jzObj.capabilities.battery.batteryPercentByteOffset) "JZ M5 battery offset is 19"
+}
+
 Write-Host "`nALL CORE DRIVER ARCHITECTURE TESTS PASSED." -ForegroundColor Green
 exit 0

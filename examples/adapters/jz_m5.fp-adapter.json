@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ferris-echo/FerrisPulse/main/schemas/fdas-v2.0.json",
+  "fdasVersion": "2.0",
+  "metadata": {
+    "brand": "京造",
+    "model": "JZ M5",
+    "category": "Mouse",
+    "brandColor": "#E1251B",
+    "author": "FerrisPulse Community",
+    "sensorDescription": "原相 PAW3809 · 电磁滚轮 · 1KHz 回报率",
+    "description": "京东京造 JZ M5 三模鼠标 2.4G 接收器 362D:D107 (Wireless Link-KM) 的只读电量适配包。协议来自官方 WebHID wukong.jd.com 前端逆向与 V-Conet/wukong-driver 交叉验证，非盲测帧。配置端点严格锁定 UsagePage 0xFFC1 / Usage 0x0001 / Input+Output 64 字节 / Feature 0，走 Keychron/Wukong 8k 协议族 B3/B4(64B) 与 B5/B6(21B) 请求应答；B5 02 版本帧回包 02 02 00 2D 36 07 D1 07 01 01 证明 VID=362D/PID=D107/固件1.0.7/workMode=1(2.4G)。B3 06 基础信息帧回包 63 字节，第 19 字节低 7 位为 0..100 线性电量、bit7 为实测充电位；回放样本第 19 字节 0x58=88% 放电。本包只开放电量，绝不声明 DPI/回报率写能力：虽然固件存在 0x40/0x41 写指令，但官方网页脚本验证细节未完整锁定前下发会触碰板载 EEPROM/RF 配对扇区，因此宁缺毋滥。蓝牙形态只暴露标准 HID 集合，无 FFC1 通道，本包不覆盖。"
+  },
+  "hardware": {
+    "vendorId": "0x362D",
+    "productId": "0xD107",
+    "productString": "Wireless Link-KM",
+    "manufacturerString": "Cafganic, Inc.",
+    "devices": [
+      {
+        "productId": "0xD107",
+        "model": "京造 JZ M5 (2.4G 接收器)",
+        "transport": "2.4G 无线",
+        "maxRate": 1000
+      }
+    ],
+    "endpointTopology": {
+      "usagePage": "0xFFC1",
+      "usage": "0x0001",
+      "reportType": "Interrupt",
+      "reportLength": 64,
+      "readTimeoutMs": 700
+    }
+  },
+  "capabilities": {
+    "battery": {
+      "reportId": "0x00",
+      "batteryPercentByteOffset": 19,
+      "chargingByteOffset": 19,
+      "chargingBitMask": "0x80",
+      "batteryFormula": "b[19] & 0x7F",
+      "sampleRxHex": "06 00 20 20 00 20 03 40 06 60 09 80 0C A0 0F 15 05 04 0A 58 00 00 00 00 00 00 32 00 00 00 04 04 04 04 04 04 04 04 04 04 00 00 00 00 01 02 00 00 00 03 05 00 00 00 00 00 00 00 00 00 00 00 00",
+      "sampleDecodedPercent": 88,
+      "notes": "WebHID 载荷 63 字节（Report ID 已被浏览器剥离），第 19 字节 0x58=88% 放电，bit7 为充电位；Win32 完整帧需前置 B4。"
+    },
+    "mouse": {
+      "dpi": {
+        "minDpi": 50,
+        "maxDpi": 6000,
+        "step": 50,
+        "defaultStages": [
+          400,
+          800,
+          1600,
+          3200,
+          5000
+        ],
+        "supportsXyIndependence": false
+      },
+      "pollingRate": {
+        "supportedRates": [
+          125,
+          500,
+          1000
+        ],
+        "defaultRate": 1000,
+        "maxRate": 1000
+      }
+    }
+  },
+  "protocol": {
+    "queryBatteryTxHex": "06 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00",
+    "variables": {
+      "batteryPercent": "b[19] & 0x7F",
+      "charging": "(b[19] & 0x80) >> 7"
+    },
+    "checksumType": "None",
+    "notes": "只使用 B5 02 / B3 06 只读查询。切勿向本设备盲发 0x07/0x40/0x41 等写指令。"
+  }
+}

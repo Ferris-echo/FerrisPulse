@@ -943,6 +943,11 @@ namespace RazerBatteryTray
             // Endgame Gear (3367) 使用 Feature 0x08 下发 + Interrupt IN 0x09 回收的双端点协议，由 EndgameGearDeviceHelper 接管。
             if (vid == VID_ENDGAME_GEAR) return false;
 
+            // 京造 JZ M5 使用 362D:D107 Wireless Link-KM (FFC1/0001, B3/B5 请求应答)，
+            // 由内置 JzM5Helper 握手接管，禁止通用 64B Feature 盲扫打断 RF 状态机。
+            if (vid == JzM5Helper.VendorIdForIsolation && !string.IsNullOrEmpty(path) &&
+                path.IndexOf("pid_d107", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
             // Link-KM uses Keychron output reports and a paired-model handshake.
             if (vid == VID_KEYCHRON && !string.IsNullOrEmpty(path) &&
                 (path.IndexOf("pid_d026", StringComparison.OrdinalIgnoreCase) >= 0 ||

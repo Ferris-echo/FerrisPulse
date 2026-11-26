@@ -75,6 +75,7 @@ namespace RazerBatteryTray
                 HardwareDriverRegistry.RegisterDriver(new LogitechMouseDriver());
 
                 HardwareDriverRegistry.RegisterDriver(new KeychronM6Driver());
+                HardwareDriverRegistry.RegisterDriver(new JzM5Driver());
 
                 HardwareDriverRegistry.RegisterDriver(new RapooMouseDriver());
 
@@ -2865,6 +2866,45 @@ namespace RazerBatteryTray
         public override List<MouseBatteryInfo> QueryDevices()
         {
             List<MouseBatteryInfo> list = KeychronM6Helper.QueryDevices();
+            for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
+            return list;
+        }
+    }
+
+    public sealed class JzM5Driver : HardwareDriverBase
+    {
+        public override string DriverId { get { return JzM5Helper.DriverKey; } }
+        public override string Brand { get { return "京造"; } }
+        public override int Priority { get { return 100; } }
+        public override bool IsExternalPackage { get { return false; } }
+        public override bool MatchesVidPid(int vid, int pid)
+        {
+            return vid == JzM5Helper.VendorIdForIsolation && pid == JzM5Helper.ReceiverPidForIsolation;
+        }
+        public override bool CanHandle(MouseBatteryInfo dev)
+        {
+            if (dev == null) return false;
+            if (string.Equals(dev.DriverId, DriverId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (dev.DeviceId != null && dev.DeviceId.StartsWith("JZM5:362D:D107", StringComparison.OrdinalIgnoreCase)) return true;
+            return JzM5Helper.IsVerifiedDevice(dev);
+        }
+        public override void PopulateCapabilities(MouseBatteryInfo dev)
+        {
+            if (dev == null) return;
+            bool verified = CanHandle(dev);
+            if (verified) dev.DriverId = DriverId;
+            dev.Capabilities.SupportsBattery = verified;
+            dev.Capabilities.SupportsDpi = false;
+            dev.Capabilities.SupportsDpiStages = false;
+            dev.Capabilities.SupportsPollingRate = false;
+            dev.Capabilities.SupportsXyIndependence = false;
+            dev.Capabilities.SupportsHardwareDpiMonitor = false;
+            dev.SupportsDpiWrite = false;
+            dev.SupportsPollingRateWrite = false;
+        }
+        public override List<MouseBatteryInfo> QueryDevices()
+        {
+            List<MouseBatteryInfo> list = JzM5Helper.QueryDevices();
             for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
             return list;
         }
