@@ -10,6 +10,7 @@
 //   3. Vaxee 64字节专用控制引擎 (NP-01S, NP-01S v2, XE, AX, OUTSET AX, E1)
 //   4. Asus ROG / TUF, SteelSeries, Corsair, Dareu, Keychron, Wooting 厂商协议引擎
 //   Keychron Link-KM 3434:D026 与 M6 USB 3434:D060 由内置 Keychron M6 驱动独立接管。
+//   安全探测准则: 仅使用 0 (FILE_READ_ATTRIBUTES) 打开未知 HID 端点，先按 VID/UsagePage/FeatureReportByteLength 过滤专用品牌与标准鼠标/键盘运动端点后再读 ProductString 或 Feature Report；ATK 0xFF02 输出端点扫描先按 vid_373b 预过滤。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -622,21 +623,39 @@ namespace RazerBatteryTray
                 Array.Copy(tx, 1, data15, 0, 15);
                 tx[16] = CalculateWeChecksum(0x08, data15);
 
+                GCHandle pinnedTx = default(GCHandle);
+                bool writePending = false;
                 OVERLAPPED wOl = new OVERLAPPED();
                 wOl.hEvent = hEvent;
                 ResetEvent(hEvent);
-                uint written;
-                bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
-                if (!wOk)
+                uint written = 0;
+                try
                 {
-                    int wErr = Marshal.GetLastWin32Error();
-                    if (wErr != ERROR_IO_PENDING) return false;
-                    if (WaitForSingleObject(hEvent, 500) != WAIT_OBJECT_0)
+                    pinnedTx = GCHandle.Alloc(tx, GCHandleType.Pinned);
+                    bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
+                    if (!wOk)
+                    {
+                        int wErr = Marshal.GetLastWin32Error();
+                        if (wErr != ERROR_IO_PENDING) return false;
+                        writePending = true;
+                        if (WaitForSingleObject(hEvent, 500) != WAIT_OBJECT_0)
+                        {
+                            return false;
+                        }
+                        bool gotWrite = GetOverlappedResult(handle, ref wOl, out written, false);
+                        writePending = false;
+                        if (!gotWrite) return false;
+                    }
+                }
+                finally
+                {
+                    if (writePending)
                     {
                         CancelIo(handle);
-                        return false;
+                        uint canceledWritten;
+                        GetOverlappedResult(handle, ref wOl, out canceledWritten, true);
                     }
-                    if (!GetOverlappedResult(handle, ref wOl, out written, false)) return false;
+                    if (pinnedTx.IsAllocated) pinnedTx.Free();
                 }
 
                 for (int attempt = 0; attempt < 3; attempt++)
@@ -646,20 +665,43 @@ namespace RazerBatteryTray
                     rOl.hEvent = hEvent;
                     ResetEvent(hEvent);
                     uint readBytes = 0;
-                    bool rOk = ReadFile(handle, rx, (uint)rx.Length, out readBytes, ref rOl);
-                    if (!rOk)
+                    bool readPending = false;
+                    GCHandle pinnedRx = default(GCHandle);
+                    bool gotReply = false;
+                    try
                     {
-                        int rErr = Marshal.GetLastWin32Error();
-                        if (rErr != ERROR_IO_PENDING) continue;
-                        if (WaitForSingleObject(hEvent, 350) != WAIT_OBJECT_0)
+                        pinnedRx = GCHandle.Alloc(rx, GCHandleType.Pinned);
+                        bool rOk = ReadFile(handle, rx, (uint)rx.Length, out readBytes, ref rOl);
+                        if (!rOk)
+                        {
+                            int rErr = Marshal.GetLastWin32Error();
+                            if (rErr == ERROR_IO_PENDING)
+                            {
+                                readPending = true;
+                                if (WaitForSingleObject(hEvent, 350) == WAIT_OBJECT_0)
+                                {
+                                    gotReply = GetOverlappedResult(handle, ref rOl, out readBytes, false);
+                                    readPending = false;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            gotReply = true;
+                        }
+                    }
+                    finally
+                    {
+                        if (readPending)
                         {
                             CancelIo(handle);
-                            continue;
+                            uint canceledRead;
+                            GetOverlappedResult(handle, ref rOl, out canceledRead, true);
                         }
-                        if (!GetOverlappedResult(handle, ref rOl, out readBytes, false)) continue;
+                        if (pinnedRx.IsAllocated) pinnedRx.Free();
                     }
 
-                    if (ParseBekenWeBatteryResponse(rx, (int)readBytes, out percent, out isCharging, out millivolts))
+                    if (gotReply && ParseBekenWeBatteryResponse(rx, (int)readBytes, out percent, out isCharging, out millivolts))
                     {
                         return true;
                     }
@@ -869,6 +911,33 @@ namespace RazerBatteryTray
 
         #region 全设备综合枚举与发现
 
+        private static bool IsDedicatedOtherBrandOrInternalVid(int vid)
+        {
+            switch (vid)
+            {
+                case 0x1532: // Razer
+                case 0x046D: // Logitech
+                case 0x24AE: // Rapoo
+                case 0x19F5: // NuPhy
+                case 0x054C: // Sony
+                case 0x05AC: // Apple
+                case 0x004C: // Apple BLE
+                case 0x03F0: // HyperX / HP
+                case 0x0951: // HyperX Legacy
+                case 0x1038: // SteelSeries
+                case 0x374A: // Valkyrie
+                case 0x3837: // MCHOSE
+                case 0x048D: // ITE internal
+                case 0x04F3: // ELAN touchpad
+                case 0x06CB: // Synaptics touchpad
+                case 0x17EF: // Lenovo internal
+                case 0xFFAA: // Virtual HID
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         public static bool IsSupportedGamingDevice(int vid, string path, string prod)
         {
             // Endgame Gear (3367) 使用 Feature 0x08 下发 + Interrupt IN 0x09 回收的双端点协议，由 EndgameGearDeviceHelper 接管。
@@ -1008,129 +1077,127 @@ namespace RazerBatteryTray
 
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
                         Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                // 过滤键盘按键集合，保留控制/Vendor集合 (mi_02 或非普通 kbd)
-                                if (devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                if (devicePath != null && !HardwareDriverRegistry.IsExternallyOwnedPath(devicePath))
                                 {
-                                    Marshal.FreeHGlobal(detailBuffer);
-                                    continue;
-                                }
-
-                                IntPtr handle = RazerDeviceHelper.CreateFile(
-                                    devicePath,
-                                    GENERIC_READ | GENERIC_WRITE,
-                                    RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
-                                    IntPtr.Zero,
-                                    RazerDeviceHelper.OPEN_EXISTING,
-                                    0,
-                                    IntPtr.Zero);
-
-                                if (handle == IntPtr.Zero || handle.ToInt64() == -1)
-                                {
-                                    handle = RazerDeviceHelper.CreateFile(
-                                        devicePath,
-                                        GENERIC_WRITE,
-                                        RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
-                                        IntPtr.Zero,
-                                        RazerDeviceHelper.OPEN_EXISTING,
-                                        0,
-                                        IntPtr.Zero);
-                                }
-
-                                if (handle == IntPtr.Zero || handle.ToInt64() == -1)
-                                {
-                                    handle = RazerDeviceHelper.CreateFile(
-                                        devicePath,
-                                        0,
-                                        RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
-                                        IntPtr.Zero,
-                                        RazerDeviceHelper.OPEN_EXISTING,
-                                        0,
-                                        IntPtr.Zero);
-                                }
-
-                                if (handle != IntPtr.Zero && handle.ToInt64() != -1)
-                                {
-                                    try
+                                    // 过滤键盘按键与标准蓝牙/内部设备集合
+                                    if (devicePath.EndsWith("\\kbd", StringComparison.OrdinalIgnoreCase))
                                     {
-                                        RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                        attr.Size = Marshal.SizeOf(attr);
-                                        RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+                                        continue;
+                                    }
 
-                                        StringBuilder sbProd = new StringBuilder(256);
-                                        string prodStr = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
+                                    // 探测身份与端点能力严格使用 0 (FILE_READ_ATTRIBUTES)，禁止用 GENERIC_READ|WRITE 强撬其它品牌高速鼠标端点
+                                    IntPtr handle = RazerDeviceHelper.CreateFile(
+                                        devicePath,
+                                        0,
+                                        RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
+                                        IntPtr.Zero,
+                                        RazerDeviceHelper.OPEN_EXISTING,
+                                        0,
+                                        IntPtr.Zero);
 
-                                        if (IsSupportedGamingDevice(attr.VendorID, devicePath, prodStr))
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                    {
+                                        try
                                         {
-                                            string deviceKey = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-                                            if (!seenKeys.Contains(deviceKey))
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            if (!RazerDeviceHelper.HidD_GetAttributes(handle, ref attr)) continue;
+                                            if (IsDedicatedOtherBrandOrInternalVid(attr.VendorID)) continue;
+
+                                            IntPtr preparsed;
+                                            if (!RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed) || preparsed == IntPtr.Zero) continue;
+                                            RazerDeviceHelper.HIDP_CAPS caps = new RazerDeviceHelper.HIDP_CAPS();
+                                            try
                                             {
-                                                ProductEntry product = LookupProduct(attr.VendorID, attr.ProductID, prodStr);
+                                                RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                                            }
+                                            finally
+                                            {
+                                                RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+                                            }
 
-                                                int batt = -1;
-                                                bool isChg = false;
-                                                int mv = 0;
-                                                bool ok = false;
+                                            // 本引擎四套协议均依赖 Feature Report，且绝不触碰标准鼠标光标 (0x01/0x02) 或键盘按键 (0x01/0x06) 实时端点
+                                            if (caps.FeatureReportByteLength == 0) continue;
+                                            if (caps.UsagePage == 0x0001 && (caps.Usage == 0x0002 || caps.Usage == 0x0006)) continue;
 
-                                                // 按协议族白名单精准分发探测，严禁向同一设备盲扫 4 套异构 Feature Report
-                                                if (attr.VendorID == VID_ANGRY_MIAO_1 || attr.VendorID == VID_ANGRY_MIAO_2)
-                                                {
-                                                    ok = QueryAngryMiaoBattery(handle, attr.ProductID, out batt, out isChg);
-                                                }
-                                                else if (attr.VendorID == 0x3554 && attr.ProductID >= 0x1010 && attr.ProductID <= 0x101F)
-                                                {
-                                                    ok = QueryVaxeeBattery(handle, out batt, out isChg);
-                                                }
-                                                else if (attr.VendorID == VID_ATK)
-                                                {
-                                                    ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
-                                                }
-                                                else
-                                                {
-                                                    ok = QueryCompxBattery(handle, out batt, out isChg);
-                                                }
+                                            StringBuilder sbProd = new StringBuilder(256);
+                                            string prodStr = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
 
-                                                if (ok || batt > 0)
+                                            if (IsSupportedGamingDevice(attr.VendorID, devicePath, prodStr))
+                                            {
+                                                string deviceKey = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                if (!seenKeys.Contains(deviceKey))
                                                 {
-                                                    seenKeys.Add(deviceKey);
+                                                    ProductEntry product = LookupProduct(attr.VendorID, attr.ProductID, prodStr);
 
-                                                    MouseBatteryInfo info = new MouseBatteryInfo();
-                                                    info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-                                                    info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-                                                    info.DriverId = "BuiltIn:UniversalGaming";
-                                                    info.DeviceName = product.ModelName;
-                                                    info.Brand = product.Brand;
-                                                    info.Category = product.Category;
-                                                    info.Transport = "2.4G 无线 / 极速回报";
-                                                    info.IsDonglePresent = true;
-                                                    info.IsConnected = true;
-                                                    info.IsSleeping = false;
-                                                    info.IsCharging = isChg;
-                                                    info.BatteryPercent = batt;
-                                                    info.MaxPollingRate = product.MaxPollingRate;
-                                                    info.SupportedPollingRates = GetSupportedPollingRatesByMax(product.MaxPollingRate);
-                                                    info.Capabilities.SupportsBattery = true;
-                                                    info.Capabilities.SupportsDpi = false;
-                                                    info.Capabilities.SupportsDpiStages = false;
-                                                    info.Capabilities.SupportsPollingRate = false;
+                                                    int batt = -1;
+                                                    bool isChg = false;
+                                                    int mv = 0;
+                                                    bool ok = false;
 
-                                                    list.Add(info);
+                                                    // 按协议族白名单精准分发探测，严禁向同一设备盲扫 4 套异构 Feature Report
+                                                    if (attr.VendorID == VID_ANGRY_MIAO_1 || attr.VendorID == VID_ANGRY_MIAO_2)
+                                                    {
+                                                        ok = QueryAngryMiaoBattery(handle, attr.ProductID, out batt, out isChg);
+                                                    }
+                                                    else if (attr.VendorID == 0x3554 && attr.ProductID >= 0x1010 && attr.ProductID <= 0x101F)
+                                                    {
+                                                        ok = QueryVaxeeBattery(handle, out batt, out isChg);
+                                                    }
+                                                    else if (attr.VendorID == VID_ATK)
+                                                    {
+                                                        ok = QueryBekenWeBattery(handle, out batt, out isChg, out mv);
+                                                    }
+                                                    else
+                                                    {
+                                                        ok = QueryCompxBattery(handle, out batt, out isChg);
+                                                    }
+
+                                                    if (ok || batt > 0)
+                                                    {
+                                                        seenKeys.Add(deviceKey);
+
+                                                        MouseBatteryInfo info = new MouseBatteryInfo();
+                                                        info.DeviceId = string.Format("Gaming:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                        info.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                        info.DriverId = "BuiltIn:UniversalGaming";
+                                                        info.DeviceName = product.ModelName;
+                                                        info.Brand = product.Brand;
+                                                        info.Category = product.Category;
+                                                        info.Transport = "2.4G 无线 / 极速回报";
+                                                        info.IsDonglePresent = true;
+                                                        info.IsConnected = true;
+                                                        info.IsSleeping = false;
+                                                        info.IsCharging = isChg;
+                                                        info.BatteryPercent = batt;
+                                                        info.MaxPollingRate = product.MaxPollingRate;
+                                                        info.SupportedPollingRates = GetSupportedPollingRatesByMax(product.MaxPollingRate);
+                                                        info.Capabilities.SupportsBattery = true;
+                                                        info.Capabilities.SupportsDpi = false;
+                                                        info.Capabilities.SupportsDpiStages = false;
+                                                        info.Capabilities.SupportsPollingRate = false;
+
+                                                        list.Add(info);
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        RazerDeviceHelper.CloseHandle(handle);
+                                        finally
+                                        {
+                                            RazerDeviceHelper.CloseHandle(handle);
+                                        }
                                     }
                                 }
                             }
+                        }
+                        finally
+                        {
                             Marshal.FreeHGlobal(detailBuffer);
                         }
                     }
@@ -1203,6 +1270,10 @@ namespace RazerBatteryTray
                 {
                     continue;
                 }
+                if (devicePath.IndexOf("vid_373b", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
 
                 IntPtr handle = CreateFileW(
                     devicePath,
@@ -1247,6 +1318,11 @@ namespace RazerBatteryTray
                         RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
                     }
 
+                    if (vid != VID_ATK || usagePage != 0xFF02 || usage != 0x0002 || inLen != 17 || outLen != 17 || featLen != 0)
+                    {
+                        continue;
+                    }
+
                     StringBuilder sbProd = new StringBuilder(256);
                     if (RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity))
                     {
@@ -1256,11 +1332,6 @@ namespace RazerBatteryTray
                 finally
                 {
                     RazerDeviceHelper.CloseHandle(handle);
-                }
-
-                if (vid != VID_ATK || usagePage != 0xFF02 || usage != 0x0002 || inLen != 17 || outLen != 17 || featLen != 0)
-                {
-                    continue;
                 }
 
                 string deviceKey = string.Format("{0:X4}:{1:X4}", vid, pid);

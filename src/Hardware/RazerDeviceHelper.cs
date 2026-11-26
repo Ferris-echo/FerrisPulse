@@ -3,9 +3,9 @@
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
 //   雷蛇 (Razer) 私有 HID 协议通信实现：
-//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)，按设备全接口聚合择优（真应答压过坏端点占位，纯有线无电池鼠标零休眠/零伪电量）
-//   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态（带 BUSY 0x01 渐进退避重试）
-//   3. 实时查询与固化写入板载 DPI 档位与 125~8000Hz 回报率（兼容经典 1K 协议 0x85/0x05 与现代 8K 协议 0xC0/0x40）
+//   1. 扫描与识别雷蛇 2.4G 接收器与有线/无线鼠标 (VID 0x1532)，按设备全接口聚合择优（真应答压过坏端点占位，纯有线无电池鼠标零休眠/零伪电量；ProductString 仅在 >=90B 接口读取，避免 8K 实时端点 EP0 阻塞）
+//   2. 构造与发送 90 字节私有报文读取硬件电池百分比与充电状态（带 BUSY 0x01 渐进退避重试，0x00 未就绪最多重试 1 次防死锁）
+//   3. 实时查询与固化写入板载 DPI 档位与 125~8000Hz 回报率（已识别现代 8K 型号锁定 0xC0/0x40，经典 1K 型号锁定 0x85/0x05，禁止跨协议误发）
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHardwareState.cs, HardwareDiagnosticService.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -387,6 +387,55 @@ namespace RazerBatteryTray
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 判断设备 PID 是否属于已知现代高刷/8K 轮询率指令集 (读 0x00/0xC0，写 0x00/0x40)。
+        /// 已知现代 8K 设备严禁在超时或忙时回退发送经典 0x00/0x05 或 0x00/0x85 指令，防止固件状态机卡死。
+        /// </summary>
+        public static bool IsKnownModernPollingProtocolPid(int pid)
+        {
+            if (pid == 0) return false;
+            int normPid = NormalizeRazerPid(pid);
+            int[] targetPids = new int[] { pid, normPid };
+            for (int i = 0; i < targetPids.Length; i++)
+            {
+                switch (targetPids[i])
+                {
+                    case 0x0071:              // Viper 8KHz
+                    case 0x00B0:              // DeathAdder V3 (Wired 8K)
+                    case 0x00B6: case 0x00B7: // DeathAdder V3 Pro
+                    case 0x00EF: case 0x00F0: // DeathAdder V4 Pro Carbon
+                    case 0x00BE: case 0x00BF: // DeathAdder V4 Pro
+                    case 0x00B2: case 0x00B3: // DeathAdder V3 HyperSpeed
+                    case 0x00B4: case 0x00B5: // Viper V2 Pro (8K)
+                    case 0x00C0: case 0x00C1: case 0x00C2: case 0x00C3: // Viper V3 Pro
+                    case 0x00DE: case 0x00DF: // Viper V3 Pro SE
+                    case 0x00E5: case 0x00E6: // Viper V4 Pro
+                    case 0x00AC: case 0x00AD: // Viper V3 HyperSpeed
+                    case 0x00A7: case 0x00A8: // Viper Mini Signature Edition
+                    case 0x009A: case 0x009B: // Basilisk V3 Pro
+                    case 0x00AA: case 0x00AB: // Basilisk V3 Pro Alternate
+                    case 0x00CC: case 0x00CD: // Basilisk V3 Pro 35K
+                    case 0x00D6: case 0x00D7: // Basilisk V3 Pro 35K Phantom Green
+                    case 0x00C4: case 0x00C5: // Basilisk V3 35K
+                    case 0x008F: case 0x0090: // Naga V2 Pro
+                    case 0x0095:              // Naga V2 HyperSpeed
+                    case 0x00B9:              // HyperPolling Wireless Dongle
+                    case 0xB007: case 0xB005: // V4 HyperSpeed
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 仅允许对未知 PID 尝试经典/现代轮询率协议回退；已知 PID 严格锁定其唯一原生协议。
+        /// </summary>
+        public static bool ShouldAllowPollingProtocolFallback(int pid)
+        {
+            if (pid == 0) return true;
+            return !IsClassicPollingProtocolPid(pid) && !IsKnownModernPollingProtocolPid(pid);
         }
 
         public static int DecodeClassicPollingRateByte(byte rawPoll)
@@ -840,6 +889,8 @@ namespace RazerBatteryTray
         private static int cachedRazerReportLength = 90;
         private static bool cachedRazerPrepended = false;
         private static DateTime lastRazerEnumTime = DateTime.MinValue;
+        private static DateTime fastDpiCooldownUntilUtc = DateTime.MinValue;
+        private static int consecutiveFastDpiFailures = 0;
 
         private const string CacheRegistryKey = @"Software\RazerBatteryTray\HardwareCache";
 
@@ -1251,6 +1302,7 @@ namespace RazerBatteryTray
             public bool AnyLiveSuccess;
             public bool AnyLinkDown;
             public bool AnyBatteryNotSupported;
+            public int BestLivePid;
             public MouseBatteryInfo BestLiveInfo;
             public string BestLivePath;
             public int BestLiveReportLen;
@@ -1317,6 +1369,7 @@ namespace RazerBatteryTray
             if (readOnce == null || maxAttempts <= 0 || offset < 0) return null;
 
             int[] delays = new int[] { 15, 20, 25, 30 };
+            int zeroStatusCount = 0;
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
                 int delayMs = delays[attempt < delays.Length ? attempt : (delays.Length - 1)];
@@ -1327,9 +1380,15 @@ namespace RazerBatteryTray
 
                 byte st = resp[offset + 0];
                 lastStatus = st;
-                if (st == 0x01 || st == 0x00)
+                if (st == 0x01)
                 {
-                    continue; // BUSY / NEW: wait and retry
+                    continue; // BUSY: wait and retry
+                }
+                if (st == 0x00)
+                {
+                    zeroStatusCount++;
+                    if (zeroStatusCount < 2) continue; // NEW/unprocessed: allow at most 1 retry
+                    return null;
                 }
                 if (st == 0x02 && resp[offset + 6] == expectedClass && resp[offset + 7] == expectedCmdId)
                 {
@@ -1480,7 +1539,7 @@ namespace RazerBatteryTray
 
             bool preferClassicPoll = IsClassicPollingProtocolPid(curPid);
             pollingRate = QuerySinglePollingRate(handle, tid, reportLength, offset, prepended, preferClassicPoll);
-            if (pollingRate == 0)
+            if (pollingRate == 0 && ShouldAllowPollingProtocolFallback(curPid))
             {
                 pollingRate = QuerySinglePollingRate(handle, tid, reportLength, offset, prepended, !preferClassicPoll);
             }
@@ -1544,13 +1603,6 @@ namespace RazerBatteryTray
                                                 HidP_GetCaps(preparsed, out caps);
                                                 HidD_FreePreparsedData(preparsed);
 
-                                                StringBuilder prod = new StringBuilder(256);
-                                                string prodName = "Razer Mouse";
-                                                if (HidD_GetProductString(handle, prod, prod.Capacity) && prod.Length > 0)
-                                                {
-                                                    prodName = prod.ToString();
-                                                }
-
                                                 int curPid = 0;
                                                 HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES();
                                                 attr.Size = Marshal.SizeOf(attr);
@@ -1573,17 +1625,37 @@ namespace RazerBatteryTray
                                                 {
                                                     if (caps.UsagePage >= 0xFF00 && tracedNon90Pids.Add(vidPidKey + "|" + caps.UsagePage.ToString("X4")))
                                                     {
-                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("非 90B 厂商接口 ({0}) UP=0x{1:X4} In={2} Out={3} Feat={4}", prodName, caps.UsagePage, caps.InputReportByteLength, caps.OutputReportByteLength, caps.FeatureReportByteLength));
+                                                        string shortModel = GetRazerOfficialModelName(curPid, "");
+                                                        HardwareDiagnosticService.RecordDriverTrace("Razer", vidPidKey, string.Format("非 90B 厂商接口 ({0}) UP=0x{1:X4} In={2} Out={3} Feat={4}", shortModel, caps.UsagePage, caps.InputReportByteLength, caps.OutputReportByteLength, caps.FeatureReportByteLength));
                                                     }
                                                 }
                                                 else
                                                 {
                                                     int normPid = NormalizeRazerPid(curPid);
+                                                    string preNormId = (normPid != 0) ? ("Razer:1532:" + normPid.ToString("X4")) : null;
+                                                    RazerScanAccumulator existingAcc;
+                                                    if (!string.IsNullOrEmpty(preNormId) &&
+                                                        scanByNormId.TryGetValue(preNormId, out existingAcc) &&
+                                                        existingAcc.AnyLiveSuccess &&
+                                                        existingAcc.BestLivePid == curPid)
+                                                    {
+                                                        continue;
+                                                    }
+
+                                                    StringBuilder prod = new StringBuilder(256);
+                                                    string prodName = "Razer Mouse";
+                                                    if (HidD_GetProductString(handle, prod, prod.Capacity) && prod.Length > 0)
+                                                    {
+                                                        prodName = prod.ToString();
+                                                    }
+
                                                     bool isDongle = DetermineIsDongle(curPid, prodName, 0, false);
-                                                    string normId = "Razer:1532:" + (normPid != 0 ? normPid.ToString("X4") : (!string.IsNullOrEmpty(prodName) ? prodName : "Mouse"));
+                                                    string normId = !string.IsNullOrEmpty(preNormId) ? preNormId : ("Razer:1532:" + (!string.IsNullOrEmpty(prodName) ? prodName : "Mouse"));
                                                     string resolvedModelName = GetRazerOfficialModelName(curPid, prodName);
 
-                                                    byte[] transIds = new byte[] { 0x1F, 0x3F, 0xFF };
+                                                    RazerDeviceHardwareState cachedStateForTid = TryGetState(normId);
+                                                    byte preferredTid = (cachedStateForTid != null && cachedStateForTid.ActiveTransactionId != 0) ? cachedStateForTid.ActiveTransactionId : (byte)0x1F;
+                                                    byte[] transIds = GetAdaptiveTransactionIds(preferredTid);
                                                     bool prepended = (caps.FeatureReportByteLength == 91);
                                                     int offset = prepended ? 1 : 0;
                                                     bool querySuccess = false;
@@ -1723,6 +1795,7 @@ namespace RazerBatteryTray
                                                         if (!acc.AnyLiveSuccess || ShouldReplaceCandidateDevice(acc.BestLiveInfo, true, activeDev, true))
                                                         {
                                                             acc.AnyLiveSuccess = true;
+                                                            acc.BestLivePid = curPid;
                                                             acc.BestLiveInfo = activeDev;
                                                             acc.BestLivePath = devicePath;
                                                             acc.BestLiveReportLen = caps.FeatureReportByteLength;
@@ -1922,6 +1995,8 @@ namespace RazerBatteryTray
                             cachedRazerReportLength = pState.ReportLength;
                             cachedRazerPrepended = pState.IsPrepended;
                         }
+                        consecutiveFastDpiFailures = 0;
+                        fastDpiCooldownUntilUtc = DateTime.MinValue;
                     }
                     SaveHardwareCache();
                 }
@@ -1954,6 +2029,31 @@ namespace RazerBatteryTray
             activeStage = 0;
             stageCount = 0;
 
+            if (DateTime.UtcNow < fastDpiCooldownUntilUtc)
+            {
+                return false;
+            }
+
+            bool ok = FastQueryDpiCore(out curDpi, out activeStage, out stageCount, targetDeviceId);
+            if (ok)
+            {
+                consecutiveFastDpiFailures = 0;
+                fastDpiCooldownUntilUtc = DateTime.MinValue;
+            }
+            else
+            {
+                consecutiveFastDpiFailures++;
+                fastDpiCooldownUntilUtc = DateTime.UtcNow.AddMilliseconds(consecutiveFastDpiFailures >= 3 ? 3000 : 1200);
+            }
+            return ok;
+        }
+
+        private static bool FastQueryDpiCore(out int curDpi, out int activeStage, out int stageCount, string targetDeviceId)
+        {
+            curDpi = 0;
+            activeStage = 0;
+            stageCount = 0;
+
             string normTargetId = NormalizeRazerDeviceId(targetDeviceId);
 
             lock (hidLock)
@@ -1961,7 +2061,9 @@ namespace RazerBatteryTray
                 var st = TryGetState(normTargetId);
                 if (st != null && !string.IsNullOrEmpty(st.DevicePath))
                 {
-                    if (TryQueryRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, out curDpi, out activeStage, out stageCount))
+                    byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
+                    bool pathOpenFailed;
+                    if (TryQueryRazerDpiByPath(st.DevicePath, st.ReportLength, st.IsPrepended, out curDpi, out activeStage, out stageCount, preferredTid, out pathOpenFailed))
                     {
                         st.Dpi = curDpi;
                         st.DpiStage = activeStage;
@@ -1969,12 +2071,23 @@ namespace RazerBatteryTray
                         st.LastUpdated = DateTime.Now;
                         return true;
                     }
+                    if (!pathOpenFailed)
+                    {
+                        // 句柄可正常打开仅因忙碌/休眠未返回：绝不跌落到全量 SetupDi 扫描重敲全部 VID_1532 接口
+                        return false;
+                    }
+                    st.DevicePath = null;
                 }
                 else if (!string.IsNullOrEmpty(cachedRazerDpiPath))
                 {
-                    if (TryQueryRazerDpiByPath(cachedRazerDpiPath, cachedRazerReportLength, cachedRazerPrepended, out curDpi, out activeStage, out stageCount))
+                    bool pathOpenFailed;
+                    if (TryQueryRazerDpiByPath(cachedRazerDpiPath, cachedRazerReportLength, cachedRazerPrepended, out curDpi, out activeStage, out stageCount, 0x1F, out pathOpenFailed))
                     {
                         return true;
+                    }
+                    if (!pathOpenFailed)
+                    {
+                        return false;
                     }
                 }
 
@@ -2085,15 +2198,17 @@ namespace RazerBatteryTray
             return false;
         }
 
-        private static bool TryQueryRazerDpiByPath(string path, int reportLength, bool prepended, out int curDpi, out int activeStage, out int stageCount, byte preferredTid = 0x1F)
+        private static bool TryQueryRazerDpiByPath(string path, int reportLength, bool prepended, out int curDpi, out int activeStage, out int stageCount, byte preferredTid, out bool pathOpenFailed)
         {
             curDpi = 0;
             activeStage = 0;
             stageCount = 0;
+            pathOpenFailed = false;
 
             IntPtr handle = CreateFile(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
             if (handle == IntPtr.Zero || handle.ToInt64() == -1)
             {
+                pathOpenFailed = true;
                 cachedRazerDpiPath = null; // Invalidate if dongle unplugged
                 return false;
             }
@@ -2118,6 +2233,7 @@ namespace RazerBatteryTray
             byte[] tids = GetAdaptiveTransactionIds(preferredTid);
 
             // Phase 1: Try reading Stage Table (0x04 0x86) across adaptive Transaction IDs
+            bool phase1UnprocessedOnPrimaryTid = false;
             foreach (byte tid in tids)
             {
                 byte[] stagesReq = CreateRazerReport(tid, 0x04, 0x86, 0x26, reportLength, prepended, new byte[] { 0x01 });
@@ -2126,6 +2242,7 @@ namespace RazerBatteryTray
                 {
                     byte[] resp = new byte[reportLength];
                     if (prepended) resp[0] = 0x00;
+                    int nonMatchCount = 0;
 
                     // Retry up to 3 times with 12ms delay to allow wireless dongle to process request
                     for (int attempt = 0; attempt < 3; attempt++)
@@ -2141,6 +2258,11 @@ namespace RazerBatteryTray
                             if (status == 0x01) // BUSY
                             {
                                 continue;
+                            }
+                            if (status == 0x03 || status == 0x04 || status == 0x05)
+                            {
+                                if (status == 0x04 && tid == tids[0]) return false; // 链路断开/鼠标休眠，停止在 50ms 循环内继续轰炸其余 TID 与 Phase 2
+                                break;
                             }
 
                             // Strictly verify packet is the response to our 0x04 0x86 query
@@ -2188,25 +2310,33 @@ namespace RazerBatteryTray
                                         return true;
                                     }
                                 }
+                                break;
                             }
                             else
                             {
-                                // Packet in buffer belonged to a different query (e.g. stale battery 0x07 0x80); retry
-                                continue;
+                                nonMatchCount++;
+                                if (nonMatchCount >= 2)
+                                {
+                                    if (tid == tids[0] && status == 0x00) phase1UnprocessedOnPrimaryTid = true;
+                                    break;
+                                }
                             }
                         }
                     }
+                    if (phase1UnprocessedOnPrimaryTid) break;
                 }
             }
 
             // Phase 2: Fallback to Live XY DPI (0x04 0x85) for mice without onboard stage memory
             foreach (byte tid in tids)
             {
+                if (phase1UnprocessedOnPrimaryTid && tid != tids[0]) break;
                 byte[] dpiReq = CreateRazerReport(tid, 0x04, 0x85, 0x07, reportLength, prepended, new byte[] { 0x00 });
                 if (HidD_SetFeature(handle, dpiReq, dpiReq.Length))
                 {
                     byte[] dpiResp = new byte[reportLength];
                     if (prepended) dpiResp[0] = 0x00;
+                    int nonMatchCount = 0;
 
                     for (int attempt = 0; attempt < 3; attempt++)
                     {
@@ -2218,6 +2348,11 @@ namespace RazerBatteryTray
                             byte cmdId = dpiResp[offset + 7];
 
                             if (status == 0x01) continue; // BUSY
+                            if (status == 0x03 || status == 0x04 || status == 0x05)
+                            {
+                                if (status == 0x04 && tid == tids[0]) return false;
+                                break;
+                            }
 
                             if (status == 0x02 && cmdClass == 0x04 && cmdId == 0x85)
                             {
@@ -2235,10 +2370,12 @@ namespace RazerBatteryTray
                                     CachedXyRatio = (CachedDpi > 0) ? ((double)CachedDpiY / CachedDpi) : 1.0;
                                     return true;
                                 }
+                                break;
                             }
                             else
                             {
-                                continue;
+                                nonMatchCount++;
+                                if (nonMatchCount >= 2) break;
                             }
                         }
                     }
@@ -3016,7 +3153,7 @@ namespace RazerBatteryTray
                 {
                     byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
                     bool okCached = TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, rateByte, preferredTid, useClassicPolling);
-                    if (!okCached && hz <= 1000)
+                    if (!okCached && hz <= 1000 && ShouldAllowPollingProtocolFallback(targetPid))
                     {
                         okCached = TrySetRazerPollingRateByPath(st.DevicePath, st.ReportLength, st.IsPrepended, EncodePollingRateByte(hz, !useClassicPolling), preferredTid, !useClassicPolling);
                     }
@@ -3097,7 +3234,7 @@ namespace RazerBatteryTray
                                                     byte preferredTid = st.ActiveTransactionId != 0 ? st.ActiveTransactionId : (byte)0x1F;
                                                     bool curUseClassicPolling = IsClassicPollingProtocolPid(curPid);
                                                     bool curOk = TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, EncodePollingRateByte(hz, curUseClassicPolling), preferredTid, curUseClassicPolling);
-                                                    if (!curOk && hz <= 1000)
+                                                    if (!curOk && hz <= 1000 && ShouldAllowPollingProtocolFallback(curPid))
                                                     {
                                                         curOk = TrySetRazerPollingRateByHandle(handle, caps.FeatureReportByteLength, prepended, EncodePollingRateByte(hz, !curUseClassicPolling), preferredTid, !curUseClassicPolling);
                                                     }
@@ -3169,6 +3306,7 @@ namespace RazerBatteryTray
                 {
                     return true;
                 }
+                if (status == 0x05) break;
             }
             return false;
         }

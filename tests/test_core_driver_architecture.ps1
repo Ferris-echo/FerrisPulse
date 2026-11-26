@@ -542,5 +542,84 @@ Invoke-TestCase "8. AddDeviceWizardForm 跨驱动前缀去重与高优先级包�
     Assert-Equal 2 $listLogi.Count "Distinct multi-slot receiver channels remain separate"
 }
 
+Invoke-TestCase "9. 全品牌高刷鼠标防卡死契约 (零越界强开/零盲发 EP0/有界 Drain/启动避让)" {
+    # 1. UniversalGamingDeviceHelper: excludes Razer(0x1532) & dedicated VIDs, checks FeatureReportByteLength before ProductString, ATK filters vid_373b first
+    $ugSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\UniversalGamingDeviceHelper.cs"), [Text.Encoding]::UTF8)
+    Assert-True ($ugSrc.Contains("IsDedicatedOtherBrandOrInternalVid")) "UniversalGaming defines dedicated VID filter"
+    Assert-True ($ugSrc.Contains("case 0x1532:")) "UniversalGaming excludes Razer VID 0x1532"
+    $qGamingIdx = $ugSrc.IndexOf("public static List<MouseBatteryInfo> QueryAllGamingDevices()")
+    $qGamingBody = $ugSrc.Substring($qGamingIdx, $ugSrc.IndexOf("private static List<string> EnumerateHidInterfacePaths()") - $qGamingIdx)
+    Assert-True (-not $qGamingBody.Contains("GENERIC_READ | GENERIC_WRITE")) "UniversalGaming probes with FILE_READ_ATTRIBUTES (0) instead of GENERIC_READ|WRITE"
+    Assert-True ($qGamingBody.IndexOf("caps.FeatureReportByteLength == 0") -lt $qGamingBody.IndexOf("HidD_GetProductString")) "UniversalGaming filters empty FeatureReport before ProductString"
+    $qAtkIdx = $ugSrc.IndexOf("private static void QueryAtkOutputEndpointDevices")
+    $qAtkBody = $ugSrc.Substring($qAtkIdx)
+    Assert-True ($qAtkBody.IndexOf("vid_373b") -gt 0 -and $qAtkBody.IndexOf("vid_373b") -lt $qAtkBody.IndexOf("CreateFileW")) "ATK 0xFF02 scan pre-filters vid_373b before CreateFileW"
+
+    # 2. AppleDeviceHelper: pre-filters Apple/05AC/004C paths before CreateFile and opens with 0 access (not GENERIC_WRITE)
+    $apSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\AppleDeviceHelper.cs"), [Text.Encoding]::UTF8)
+    $qApIdx = $apSrc.IndexOf("// 4. 扫描 USB 或蓝牙 HID 直连的 Apple Magic 键鼠设备")
+    $qApBody = $apSrc.Substring($qApIdx)
+    Assert-True ($qApBody.IndexOf("vid_05ac") -gt 0 -and $qApBody.IndexOf("vid_05ac") -lt $qApBody.IndexOf("CreateFile(")) "Apple HID scan pre-filters vid_05ac/vid_004c before CreateFile"
+    Assert-True (-not $qApBody.Contains("0x40000000, // GENERIC_WRITE")) "Apple HID scan does not open all interfaces with GENERIC_WRITE"
+
+    # 3. HidTransport: GetCaps before ProductString, skips pure motion/keyboard collections, no ManufacturerString/SerialNumber EP0 spam
+    $htSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\HidTransport.cs"), [Text.Encoding]::UTF8)
+    $htEnumIdx = $htSrc.IndexOf("public static List<HidDeviceDescriptor> Enumerate")
+    $htEnumBody = $htSrc.Substring($htEnumIdx, $htSrc.IndexOf("public static HIDP_CAPS GetCaps") - $htEnumIdx)
+    Assert-True ($htEnumBody.IndexOf("GetCaps(handle)") -lt $htEnumBody.IndexOf("HidD_GetProductString")) "HidTransport calls GetCaps before ProductString"
+    Assert-True (-not $htEnumBody.Contains("HidD_GetManufacturerString") -and -not $htEnumBody.Contains("HidD_GetSerialNumberString")) "HidTransport removes unused Manufacturer/Serial EP0 transfers"
+
+    # 4. VgnDeviceHelper: bounded drain loops + 0-access 0xFF02 check before GENERIC_READ|WRITE
+    $vgnSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\VgnDeviceHelper.cs"), [Text.Encoding]::UTF8)
+    Assert-True (-not $vgnSrc.Contains("while (true)")) "VgnDeviceHelper has no unbounded while(true) drain loops"
+    Assert-True ($vgnSrc.Contains("probeHandle")) "VgnDeviceHelper probes 0xFF02 endpoint with 0 access before GENERIC_READ|WRITE"
+
+    # 5. LogitechDeviceHelper: pid_0aba pre-filter before GENERIC_READ|WRITE & isHidppEndpoint before ProductString
+    $lgSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\LogitechDeviceHelper.cs"), [Text.Encoding]::UTF8)
+    $qProXIdx = $lgSrc.IndexOf("public static MouseBatteryInfo QueryLogitechProXHeadset()")
+    $qProXBody = $lgSrc.Substring($qProXIdx, $lgSrc.IndexOf("public static List<MouseBatteryInfo> QueryAllLogitechDevices()") - $qProXIdx)
+    Assert-True ($qProXBody.IndexOf("pid_0aba") -gt 0 -and $qProXBody.IndexOf("pid_0aba") -lt $qProXBody.IndexOf("CreateFile(")) "Logitech ProX scan filters pid_0aba before opening RW handle"
+    $qLgIdx = $lgSrc.IndexOf("bool isHidppEndpoint =")
+    $qLgProdIdx = $lgSrc.IndexOf("HidD_GetProductString(handle, sb, sb.Capacity)", $lgSrc.IndexOf("QueryAllLogitechDevices"))
+    Assert-True ($qLgIdx -gt 0 -and $qLgProdIdx -gt $qLgIdx) "Logitech QueryAllLogitechDevices calls ProductString only after confirming HID++ endpoint"
+
+    # 6. RazerDeviceHelper FastQueryDpi cooldown guard + MainForm WM_INPUT zero-alloc fast path
+    $rzSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\RazerDeviceHelper.cs"), [Text.Encoding]::UTF8)
+    Assert-True ($rzSrc.Contains("fastDpiCooldownUntilUtc")) "RazerDeviceHelper FastQueryDpi implements failure cooldown backoff"
+    $evSrc = [IO.File]::ReadAllText((Join-Path $root "src\UI\Forms\MainForm.Events.cs"), [Text.Encoding]::UTF8)
+    Assert-True ($evSrc.IndexOf("TryGetValue(hDev, out anyTargetMatched)") -lt $evSrc.IndexOf("() => ResolveRawInputDeviceName")) "HandleMouseWakeInput checks cache before allocating closure delegate"
+}
+
+Invoke-TestCase "10. 异步 Overlapped P0 安全契约 / UI 刷新合并 / GenericHid 内存安全" {
+    foreach ($rel in @(
+        "src\Hardware\VgnDeviceHelper.cs",
+        "src\Hardware\LogitechDeviceHelper.cs",
+        "src\Hardware\EndgameGearDeviceHelper.cs",
+        "src\Hardware\UniversalGamingDeviceHelper.cs",
+        "src\Hardware\CorsairDeviceHelper.cs",
+        "src\Hardware\HyperXDeviceHelper.cs",
+        "src\Hardware\SteelSeriesDeviceHelper.cs"
+    )) {
+        $src = [IO.File]::ReadAllText((Join-Path $root $rel), [Text.Encoding]::UTF8)
+        Assert-True ($src.Contains("GCHandleType.Pinned")) ("$rel pins overlapped buffers via GCHandleType.Pinned")
+        $cancelIdx = $src.LastIndexOf("CancelIo(handle);")
+        Assert-True ($cancelIdx -gt 0) ("$rel calls CancelIo(handle)")
+        $afterCancel = $src.Substring($cancelIdx, [Math]::Min(220, $src.Length - $cancelIdx))
+        Assert-True ($afterCancel.Contains("GetOverlappedResult") -and $afterCancel.Contains("true)")) ("$rel waits GetOverlappedResult(..., true) after CancelIo")
+    }
+
+    $mhSrc = [IO.File]::ReadAllText((Join-Path $root "src\UI\Forms\MainForm.Hardware.cs"), [Text.Encoding]::UTF8)
+    Assert-True ($mhSrc.Contains("refreshBatteryInFlight") -and $mhSrc.Contains("refreshBatteryPending")) "RefreshBatteryStatus coalesces overlapping scans"
+    Assert-True ($mhSrc.Contains("var devicesSnapshot = activeDevices;")) "DpiMonitorWorker snapshots activeDevices"
+    $kbSleepIdx = $mhSrc.IndexOf("// 休眠缓存不是当前遥测：保留数值与采样时间，停止充电动画。")
+    Assert-True ($kbSleepIdx -gt 0) "Keyboard sleeping block marker present"
+    $kbSleepSnippet = $mhSrc.Substring($kbSleepIdx, 260)
+    Assert-True (-not $kbSleepSnippet.Contains("isMouseSleeping = true;")) "Keyboard sleeping path does not pollute isMouseSleeping"
+
+    $ghSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\GenericHidHelper.cs"), [Text.Encoding]::UTF8)
+    Assert-True ($ghSrc.Contains("if (reqSize == 0)")) "GenericHidHelper guards reqSize == 0"
+    Assert-True ($ghSrc.IndexOf("MoondropDeviceHelper.IsManagedDevice") -lt $ghSrc.IndexOf("HidD_GetProductString(handle, sbProd")) "ScanGenericHidMice skips ProductString for already-managed devices"
+}
+
 Write-Host "`nALL CORE DRIVER ARCHITECTURE TESTS PASSED." -ForegroundColor Green
 exit 0
