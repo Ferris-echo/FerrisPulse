@@ -183,4 +183,29 @@ Invoke-TestCase "Periph.GanssKeychronM6NuphyAndValkyrie" {
     $tVk = $asm.GetType("RazerBatteryTray.ValkyrieDeviceHelper")
     $kbCat = [Enum]::Parse($asm.GetType("RazerBatteryTray.DeviceCategory"), "Keyboard")
     Assert-Equal "VK 87 Max V2" ([string]$tVk.GetMethod("GetModelName", $bfAnyStatic).Invoke($null, @(0x374A, 0xA272, "", $kbCat))) "Valkyrie 0xA272 model name"
+
+    # Zaopin Z2 voltage 6mV hysteresis + out-of-range lock protection + self-recovery + sleep identity fields
+    $tVgn = $asm.GetType("RazerBatteryTray.VgnDeviceHelper", $true)
+    $mHyst = $tVgn.GetMethod("PercentWithHysteresis", $bfAnyStatic)
+    $fPct = $tVgn.GetField("lastAcceptedPct", $bfAnyStatic)
+    $fMv = $tVgn.GetField("lastAcceptedMv", $bfAnyStatic)
+    $fStuck = $tVgn.GetField("stuckCount", $bfAnyStatic)
+    $fLastPoll = $tVgn.GetField("lastKnownPollingRate", $bfAnyStatic)
+    $fLastZaopin = $tVgn.GetField("lastKnownIsZaopin", $bfAnyStatic)
+    Assert-True ($null -ne $mHyst -and $null -ne $fPct -and $null -ne $fMv -and $null -ne $fStuck -and $null -ne $fLastPoll -and $null -ne $fLastZaopin) "VgnDeviceHelper hysteresis and sleep fallback fields exist"
+    $fPct.SetValue($null, -1); $fMv.SetValue($null, -1); $fStuck.SetValue($null, 0)
+    $p0 = [int]$mHyst.Invoke($null, @([int]65523))
+    Assert-Equal -1 $p0 "Out-of-range initial 65523mV rejected"
+    $p1 = [int]$mHyst.Invoke($null, @([int]3633))
+    $p2 = [int]$mHyst.Invoke($null, @([int]3636))
+    Assert-Equal $p1 $p2 "Small <6mV jitter stays latched"
+    $pGarbage = [int]$mHyst.Invoke($null, @([int]65523))
+    Assert-Equal $p1 $pGarbage "Out-of-range 65523mV does not lock hysteresis to 100%"
+    $fPct.SetValue($null, 100); $fMv.SetValue($null, 3633); $fStuck.SetValue($null, 0)
+    $recovered = $false
+    for ($i = 1; $i -le 25; $i++) {
+        if ([int]$mHyst.Invoke($null, @([int]3633)) -eq $p1) { $recovered = $true; break }
+    }
+    Assert-True $recovered "Self-heals within 25 calls when stuck on dirty 100% baseline"
+    $fPct.SetValue($null, -1); $fMv.SetValue($null, -1); $fStuck.SetValue($null, 0)
 }

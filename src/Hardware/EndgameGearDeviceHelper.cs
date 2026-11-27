@@ -506,26 +506,45 @@ namespace RazerBatteryTray
 
         private static bool ReadFrame(IntPtr handle, IntPtr hEvent, byte[] buffer, int timeoutMs)
         {
+            if (buffer == null || buffer.Length == 0) return false;
             OVERLAPPED overlapped = new OVERLAPPED();
             overlapped.hEvent = hEvent;
             ResetEvent(hEvent);
+            bool pending = false;
+            GCHandle pinned = default(GCHandle);
 
-            uint bytesRead = 0;
-            bool ok = ReadFile(handle, buffer, (uint)buffer.Length, out bytesRead, ref overlapped);
-
-            if (!ok)
+            try
             {
-                int error = Marshal.GetLastWin32Error();
-                if (error != ERROR_IO_PENDING) return false;
-                if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+                uint bytesRead = 0;
+                bool ok = ReadFile(handle, buffer, (uint)buffer.Length, out bytesRead, ref overlapped);
+
+                if (!ok)
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    if (error != ERROR_IO_PENDING) return false;
+                    pending = true;
+                    if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                    {
+                        return false;
+                    }
+                    ok = GetOverlappedResult(handle, ref overlapped, out bytesRead, false);
+                    pending = false;
+                    if (!ok) return false;
+                }
+
+                return bytesRead > 0;
+            }
+            finally
+            {
+                if (pending)
                 {
                     CancelIo(handle);
-                    return false;
+                    uint canceledRead;
+                    GetOverlappedResult(handle, ref overlapped, out canceledRead, true);
                 }
-                if (!GetOverlappedResult(handle, ref overlapped, out bytesRead, false)) return false;
+                if (pinned.IsAllocated) pinned.Free();
             }
-
-            return bytesRead > 0;
         }
 
         #endregion

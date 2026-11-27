@@ -82,6 +82,7 @@ namespace RazerBatteryTray
         private Label lblFooterDot;
         private LinkLabel lnkGithub;
         private LinkLabel lnkResetApp;
+        private LinkLabel lnkClearCache;
         private int footerRow1Y = 0;
 
         // 背面控件
@@ -526,6 +527,25 @@ namespace RazerBatteryTray
             };
             pnlFront.Controls.Add(lnkResetApp);
 
+            // 日常排障入口：清除设备缓存与识别状态（不动自启动与自定义驱动脚本）
+            lnkClearCache = new LinkLabel();
+            lnkClearCache.Text = "清除缓存 (重新识别外设)";
+            lnkClearCache.Font = new Font("Microsoft YaHei UI", 8.2F);
+            lnkClearCache.LinkColor = Color.FromArgb(0, 190, 110);
+            lnkClearCache.ActiveLinkColor = Color.FromArgb(0, 235, 130);
+            lnkClearCache.VisitedLinkColor = Color.FromArgb(0, 190, 110);
+            lnkClearCache.LinkBehavior = LinkBehavior.NeverUnderline;
+            lnkClearCache.BackColor = Color.Transparent;
+            lnkClearCache.AutoSize = true;
+            lnkClearCache.Cursor = Cursors.Hand;
+            lnkClearCache.MouseEnter += delegate { lnkClearCache.LinkColor = Color.FromArgb(90, 255, 175); };
+            lnkClearCache.MouseLeave += delegate { lnkClearCache.LinkColor = Color.FromArgb(0, 190, 110); };
+            lnkClearCache.LinkClicked += delegate(object s, LinkLabelLinkClickedEventArgs e)
+            {
+                OpenCacheClearDialog();
+            };
+            pnlFront.Controls.Add(lnkClearCache);
+
             pnlFront.Controls.Add(cardDonate);
             flipContainer.Controls.Add(pnlFront);
 
@@ -868,13 +888,38 @@ namespace RazerBatteryTray
                 lnkGithub.BringToFront();
             }
 
-            if (lnkResetApp != null)
+            if (lnkResetApp != null || lnkClearCache != null)
             {
-                SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
-                lnkResetApp.Top = row1Y + S(28);
-                Size rstSz = TextRenderer.MeasureText(lnkResetApp.Text, lnkResetApp.Font);
-                lnkResetApp.Left = (surfaceW - rstSz.Width) / 2;
-                lnkResetApp.BringToFront();
+                // 第二行维护入口：清除缓存（绿）+ 深度重置（灰），两者并排居中
+                Size rstSz = Size.Empty;
+                Size cacheSz = Size.Empty;
+                if (lnkResetApp != null)
+                {
+                    SetAboutFont(lnkResetApp, 8.2F, FontStyle.Regular);
+                    rstSz = TextRenderer.MeasureText(lnkResetApp.Text, lnkResetApp.Font);
+                }
+                if (lnkClearCache != null)
+                {
+                    SetAboutFont(lnkClearCache, 8.2F, FontStyle.Regular);
+                    cacheSz = TextRenderer.MeasureText(lnkClearCache.Text, lnkClearCache.Font);
+                }
+                int row2Y = row1Y + S(28);
+                int linkGap = S(16);
+                int combinedW = cacheSz.Width + rstSz.Width + ((cacheSz.Width > 0 && rstSz.Width > 0) ? linkGap : 0);
+                int startX = Math.Max(S(12), (surfaceW - combinedW) / 2);
+
+                if (lnkClearCache != null)
+                {
+                    lnkClearCache.Top = row2Y;
+                    lnkClearCache.Left = startX;
+                    lnkClearCache.BringToFront();
+                }
+                if (lnkResetApp != null)
+                {
+                    lnkResetApp.Top = row2Y;
+                    lnkResetApp.Left = startX + cacheSz.Width + ((cacheSz.Width > 0) ? linkGap : 0);
+                    lnkResetApp.BringToFront();
+                }
             }
         }
 
@@ -2495,6 +2540,31 @@ namespace RazerBatteryTray
             }
         }
 
+        private void OpenCacheClearDialog()
+        {
+            using (CacheClearConfirmDialog dlg = new CacheClearConfirmDialog(ResolveChildDialogScale()))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK || !dlg.Confirmed)
+                {
+                    return;
+                }
+
+                CacheResetReport report = CacheResetManager.Execute();
+                if (!report.Success)
+                {
+                    MessageBox.Show(
+                        this,
+                        "以下项目未能清理（其余已处理）：\n\n" + report.BuildSummary() + "\n\n程序将重启，可稍后重试或手动删除。",
+                        "清除缓存未完全成功 - FerrisPulse · 灵脉",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+
+                // 清理后必须重启：内存里的设备列表与缓存仍是旧状态，且配置回写会重新生成注册表树。
+                AppResetManager.RestartApplicationAndExit();
+            }
+        }
+
         private void OpenResetDialog()
         {
             using (ResetConfirmDialog dlg = new ResetConfirmDialog(ResolveChildDialogScale()))
@@ -2510,32 +2580,7 @@ namespace RazerBatteryTray
 
                 if (dlg.SelectedMode == ResetActionMode.ResetAndRestart)
                 {
-                    try
-                    {
-                        StartupManager.EnsureAppShortcutWithAumid();
-                    }
-                    catch { }
-
-                    try
-                    {
-                        Program.ReleaseSingleInstanceMutex();
-                    }
-                    catch { }
-
-                    try
-                    {
-                        string exePath = StartupManager.GetApplicationExecutablePath();
-                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
-                        {
-                            ProcessStartInfo psi = new ProcessStartInfo(exePath);
-                            psi.WorkingDirectory = Path.GetDirectoryName(exePath);
-                            psi.UseShellExecute = true;
-                            Process.Start(psi);
-                        }
-                    }
-                    catch { }
-
-                    Environment.Exit(0);
+                    AppResetManager.RestartApplicationAndExit();
                 }
                 else if (dlg.SelectedMode == ResetActionMode.CleanAndExit)
                 {

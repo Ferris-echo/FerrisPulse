@@ -98,10 +98,21 @@ namespace RazerBatteryTray
         private void DpiMonitorWorker()
         {
             EnableMouseWakeDetector(true);
+            DateTime workerStartUtc = DateTime.UtcNow;
             while (isDpiMonitorRunning)
             {
                 try
                 {
+                    // 0. 启动缓冲期：等待首轮 DeviceManager 全量扫描完成，避免 T=0ms 与 QueryAllRazerDevices 抢同一把 HID 锁并撞击 EP0
+                    var devicesSnapshot = activeDevices;
+                    var selectedSnapshot = selectedDevice;
+                    if ((devicesSnapshot == null || devicesSnapshot.Count == 0) &&
+                        (DateTime.UtcNow - workerStartUtc).TotalMilliseconds < 3500)
+                    {
+                        dpiMonitorWakeEvent.WaitOne(300);
+                        continue;
+                    }
+
                     // 0. 前台正在下发或调整 DPI：主动避让静默，绝不与硬件总线抢锁，绝不读取瞬态旧报文导致 UI 闪回
                     long suppressUntil = System.Threading.Interlocked.Read(ref dpiMonitorSuppressUntilTicks);
                     if (DateTime.UtcNow.Ticks < suppressUntil)
@@ -119,19 +130,19 @@ namespace RazerBatteryTray
 
                     // 2. 收集当前支持极速硬件 DPI 监听的鼠标设备（通过统一 Capabilities 契约与 HardwareCommandBus 调度）
                     List<MouseBatteryInfo> monitorTargets = new List<MouseBatteryInfo>();
-                    if (selectedDevice != null && selectedDevice.Category == DeviceCategory.Mouse)
+                    if (selectedSnapshot != null && selectedSnapshot.Category == DeviceCategory.Mouse)
                     {
-                        HardwareDriverRegistry.EnsureCapabilitiesInitialized(selectedDevice);
-                        if (selectedDevice.Capabilities != null && selectedDevice.Capabilities.SupportsFastDpiMonitor)
+                        HardwareDriverRegistry.EnsureCapabilitiesInitialized(selectedSnapshot);
+                        if (selectedSnapshot.Capabilities != null && selectedSnapshot.Capabilities.SupportsFastDpiMonitor)
                         {
-                            monitorTargets.Add(selectedDevice);
+                            monitorTargets.Add(selectedSnapshot);
                         }
                     }
-                    if (activeDevices != null)
+                    if (devicesSnapshot != null)
                     {
-                        for (int i = 0; i < activeDevices.Count; i++)
+                        for (int i = 0; i < devicesSnapshot.Count; i++)
                         {
-                            var d = activeDevices[i];
+                            var d = devicesSnapshot[i];
                             if (d != null && d.Category == DeviceCategory.Mouse && d.IsConnected && !d.IsSleeping)
                             {
                                 HardwareDriverRegistry.EnsureCapabilitiesInitialized(d);
@@ -152,7 +163,7 @@ namespace RazerBatteryTray
                         }
                     }
 
-                    if (monitorTargets.Count == 0 && (selectedDevice == null || selectedDevice.Category == DeviceCategory.Mouse))
+                    if (monitorTargets.Count == 0 && (selectedSnapshot == null || selectedSnapshot.Category == DeviceCategory.Mouse))
                     {
                         monitorTargets.Add(null);
                     }
@@ -1040,6 +1051,12 @@ namespace RazerBatteryTray
             return isGame;
         }
 
+        public static bool ShouldCalibrateStartupPollingRate(int currentPollingRate, int targetDesktopPollingRate)
+        {
+            if (targetDesktopPollingRate <= 0) return false;
+            return currentPollingRate != targetDesktopPollingRate;
+        }
+
         private void PerformStartupDesktopCalibration(MouseBatteryInfo dev)
         {
             if (dev == null || dev.Category != DeviceCategory.Mouse || !IsDeviceSupportingAutoGameRate(dev)) return;
@@ -1124,9 +1141,9 @@ namespace RazerBatteryTray
                     }
 
                     // 2. 回报率安全对齐：
-                    // 若 autoGameRateEnabled 开启且 desktopPollingRate > 0，异步带重试下发 desktopPollingRate
-                    // 彻底解决 2.4G 接收器刚上电枚举、链路未建立或鼠标深睡导致单次写入失败的问题
-                    if (autoGameRateEnabled && desktopPollingRate > 0)
+                    // 若 autoGameRateEnabled 开启且硬件当前回报率与 desktopPollingRate 不一致，异步带重试下发 desktopPollingRate；
+                    // 若硬件已处于目标回报率则跳过写入，避免启动时无谓重置 8K 鼠标链路。
+                    if (autoGameRateEnabled && ShouldCalibrateStartupPollingRate(dev.PollingRate, desktopPollingRate))
                     {
                         int targetHz = desktopPollingRate;
                         ThreadPool.QueueUserWorkItem(_ => {
@@ -2132,9 +2149,6 @@ namespace RazerBatteryTray
         // 首轮启动刷新延迟：避开程序刚启动时的键鼠交互高峰，防止设备枚举/私有协议查询抢占无线通道导致鼠标短暂卡顿
         private const int BootPollFirstDelayMs = 3000;
         private const int BootPollIntervalMs = 1200;
-        // 刷新重入保护标志：0 = 空闲, 1 = 查询进行中（防止 boot 轮询叠加多次全量查询轰炸鼠标通道）
-        private int refreshRunning = 0;
-
         private void StartBootPolling()
         {
             bootPollCount = 0;
@@ -2166,43 +2180,68 @@ namespace RazerBatteryTray
 
         public bool PauseBackgroundRefresh { get; set; }
 
+        private int refreshBatteryInFlight = 0;
+        private int refreshBatteryPending = 0;
+        private int refreshBatteryPendingManualTip = 0;
 
         private void RefreshBatteryStatus(bool showTipIfManual)
         {
             if (PauseBackgroundRefresh) return;
-            // 重入保护：上一次全量查询仍在进行时直接跳过，杜绝 boot 轮询叠加并发查询持续占用鼠标无线通道
-            if (Interlocked.CompareExchange(ref refreshRunning, 1, 0) != 0) return;
+            if (System.Threading.Interlocked.CompareExchange(ref refreshBatteryInFlight, 1, 0) != 0)
+            {
+                if (showTipIfManual)
+                {
+                    System.Threading.Interlocked.Exchange(ref refreshBatteryPendingManualTip, 1);
+                }
+                System.Threading.Interlocked.Exchange(ref refreshBatteryPending, 1);
+                return;
+            }
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                bool currentShowTip = showTipIfManual;
                 try
                 {
-                    var devices = DeviceManager.QueryAllDevices();
-                    try
+                    while (!PauseBackgroundRefresh && !this.IsDisposed)
                     {
-                        this.BeginInvoke(new Action(() =>
+                        try
                         {
-                            if (PauseBackgroundRefresh) return;
-                            ApplyDeviceStatus(devices, showTipIfManual);
-                        }));
-                    }
-                    catch { }
-                }
-                catch (Exception ex)
-                {
-                    try
-                    {
-                        this.BeginInvoke(new Action(() =>
+                            var devices = DeviceManager.QueryAllDevices();
+                            bool tip = currentShowTip;
+                            try
+                            {
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    if (PauseBackgroundRefresh) return;
+                                    ApplyDeviceStatus(devices, tip);
+                                }));
+                            }
+                            catch { }
+                        }
+                        catch (Exception ex)
                         {
-                            statusMenuItem.Text = "读取失败: " + ex.Message;
-                            trayIcon.Text = "无线鼠标检测异常";
-                            UpdateTrayIcon(-1, false, false);
-                        }));
+                            try
+                            {
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    statusMenuItem.Text = "读取失败: " + ex.Message;
+                                    trayIcon.Text = "无线鼠标检测异常";
+                                    UpdateTrayIcon(-1, false, false);
+                                }));
+                            }
+                            catch { }
+                        }
+
+                        if (System.Threading.Interlocked.Exchange(ref refreshBatteryPending, 0) == 1)
+                        {
+                            currentShowTip = (System.Threading.Interlocked.Exchange(ref refreshBatteryPendingManualTip, 0) == 1);
+                            continue;
+                        }
+                        break;
                     }
-                    catch { }
                 }
                 finally
                 {
-                    Interlocked.Exchange(ref refreshRunning, 0);
+                    System.Threading.Interlocked.Exchange(ref refreshBatteryInFlight, 0);
                 }
             });
         }
@@ -2284,6 +2323,7 @@ namespace RazerBatteryTray
                 UpdateTrayIcon(primary.BatteryPercent, primary.IsCharging, primary.IsConnected, primary.IsSleeping, primary.TrayAccentColor);
                 UpdateStatusDisplay();
                 UpdateTrayDeviceMenuItems();
+                SyncMouseWakeCacheForCandidates();
                 isMouseSleeping = HasAnySleepingMouse();
                 EnableMouseWakeDetector(ShouldMonitorMouseWakeInput());
                 if (selectedDevice != null)
@@ -3648,6 +3688,7 @@ namespace RazerBatteryTray
 
             if (!info.IsConnected)
             {
+                SyncMouseWakeCacheForCandidates();
                 isMouseSleeping = HasAnySleepingMouse();
                 // 离线鼠标卡片或主托盘休眠鼠标仍保留原始输入监听：重开机或移动唤醒时可立即恢复状态
                 EnableMouseWakeDetector(info.Category == DeviceCategory.Mouse || ShouldMonitorMouseWakeInput());
@@ -3679,6 +3720,7 @@ namespace RazerBatteryTray
 
             if (info.Category == DeviceCategory.Keyboard)
             {
+                SyncMouseWakeCacheForCandidates();
                 isMouseSleeping = HasAnySleepingMouse();
                 EnableMouseWakeDetector(ShouldMonitorMouseWakeInput());
                 if (updateTimer != null) updateTimer.Interval = userSelectedInterval;
@@ -3694,7 +3736,6 @@ namespace RazerBatteryTray
                 // 休眠缓存不是当前遥测：保留数值与采样时间，停止充电动画。
                 if (info.IsSleeping)
                 {
-                    isMouseSleeping = true;
                     DpiScaleHelper.SetControlBaseFont(lblBatteryBig, "Microsoft YaHei UI", 34F, FontStyle.Bold, dpiScale, systemDpiScale);
                     lblBatteryBig.Text = info.BatteryPercent >= 0 ? info.BatteryPercent + "%" : "--";
                     lblBatteryBig.ForeColor = Color.FromArgb(220, 225, 235);

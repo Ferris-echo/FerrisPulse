@@ -649,5 +649,66 @@ Invoke-TestCase "8. 有线无电池鼠标托盘绘制、供电中摘要与右键
     Assert-True ($traySrc.Contains("pendingTrayMenuRefresh") -and $traySrc.Contains("if (contextMenu.Visible)")) "Tray menu rebuild defer guard present"
 }
 
+Invoke-TestCase "9. 8K WM_INPUT 零分配热路径缓存与启动同回报率免写保护" {
+    $mShouldCal = $tMain.GetMethod("ShouldCalibrateStartupPollingRate", [System.Reflection.BindingFlags]"Public,Static")
+    Assert-True ($null -ne $mShouldCal) "ShouldCalibrateStartupPollingRate exists"
+    Assert-True (-not [bool]$mShouldCal.Invoke($null, @([int]1000, [int]1000))) "Skip startup write when hardware already matches desktopPollingRate"
+    Assert-True ([bool]$mShouldCal.Invoke($null, @([int]4000, [int]1000))) "Calibrate when hardware differs from desktopPollingRate"
+    Assert-True ([bool]$mShouldCal.Invoke($null, @([int]0, [int]1000))) "Calibrate when hardware polling rate unknown"
+    Assert-True (-not [bool]$mShouldCal.Invoke($null, @([int]1000, [int]0))) "Skip when target rate unset"
+
+    $form = New-SandboxMainForm $false
+    try {
+        $null = ([System.Windows.Forms.Form]$form).Handle
+        $v3 = [Activator]::CreateInstance($tInfo)
+        $v3.DeviceId = "Razer:1532:00C0"; $v3.Brand = "Razer"; $v3.DeviceName = "Razer Viper V3 Pro"
+        $v3.HardwareId = "HID:1532:00C1"; $v3.Category = [Enum]::Parse($tCat, "Mouse")
+        $v3.IsConnected = $true; $v3.IsSleeping = $false; $v3.IsDonglePresent = $true; $v3.BatteryPercent = 85
+
+        $activeList = $tMain.GetField("activeDevices", $BF).GetValue($form)
+        $activeList.Clear(); $activeList.Add($v3)
+        $tMain.GetField("selectedDevice", $BF).SetValue($form, $v3)
+        $tMain.GetField("lastInfo", $BF).SetValue($form, $v3)
+        $tMain.GetField("isMouseSleeping", $BF).SetValue($form, $false)
+        $tMain.GetMethod("InvalidateMouseWakeCache", $BF).Invoke($form, $null) | Out-Null
+
+        $mHandleRaw = $tMain.GetMethod("TryHandleCachedMouseRawDevice", $BF)
+        Assert-True ($null -ne $mHandleRaw) "TryHandleCachedMouseRawDevice exists"
+
+        $hDev = [IntPtr]0x1234
+        $resolverOk = [Func[string]] { return "\\?\HID#VID_1532&PID_00C1&MI_00#7&1234#0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}" }
+        $resolverFail = [Func[string]] { throw "Must NOT query GetRawInputDeviceInfoW once hDev is cached!" }
+
+        $args1 = [object[]]@($hDev, $resolverOk, [bool]$false, [bool]$false)
+        $matched1 = [bool]$mHandleRaw.Invoke($form, $args1)
+        Assert-True ($matched1 -and $args1[2] -and (-not $args1[3])) "1st WM_INPUT resolves path once & skips wake processing when awake"
+
+        for ($i = 0; $i -lt 10; $i++) {
+            $argsN = [object[]]@($hDev, $resolverFail, [bool]$false, [bool]$false)
+            $matchedN = [bool]$mHandleRaw.Invoke($form, $argsN)
+            Assert-True ($matchedN -and (-not $argsN[2]) -and (-not $argsN[3])) "8K hot-path iteration $i hits cache with zero path query and zero wake alloc"
+        }
+
+        $v3.IsSleeping = $true
+        $argsWake = [object[]]@($hDev, $resolverFail, [bool]$false, [bool]$false)
+        $matchedWake = [bool]$mHandleRaw.Invoke($form, $argsWake)
+        Assert-True ($matchedWake -and (-not $argsWake[2]) -and $argsWake[3]) "Sleeping mouse still triggers wake from cached path without re-querying kernel"
+        Assert-True (-not $v3.IsSleeping) "Sleeping mouse woken immediately via cached WM_INPUT path"
+
+        # When ANOTHER unrelated mouse is offline, 10 rapid WM_INPUT events on awake Razer V3 Pro must throttle wake checks
+        $otherMouse = [Activator]::CreateInstance($tInfo)
+        $otherMouse.DeviceId = "Logitech:046D:C547"; $otherMouse.Brand = "Logitech"; $otherMouse.DeviceName = "Offline Logi"
+        $otherMouse.Category = [Enum]::Parse($tCat, "Mouse"); $otherMouse.IsConnected = $false
+        $activeList.Add($otherMouse)
+        $wakeRuns = 0
+        for ($i = 0; $i -lt 10; $i++) {
+            $argsThrot = [object[]]@($hDev, $resolverFail, [bool]$false, [bool]$false)
+            [void]$mHandleRaw.Invoke($form, $argsThrot)
+            if ($argsThrot[3]) { $wakeRuns++ }
+        }
+        Assert-True ($wakeRuns -le 1) ("Awake 8K mouse must throttle wake scan when unrelated mouse is offline, got " + $wakeRuns)
+    } finally { $form.Dispose() }
+}
+
 Write-Host "`nALL TRAY AND UI CORE TESTS PASSED." -ForegroundColor Green
 exit 0

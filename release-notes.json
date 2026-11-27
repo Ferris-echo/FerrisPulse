@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "2.4.2",
+      "releaseDate": "2026-11-27",
+      "summary": "8K 高刷鼠标卡死根治、雷蛇 8K 接收器与公版固件冲突修复",
+      "sha256": "",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.2/FerrisPulse.exe",
+      "changelog": [
+        "一、 8K 高刷鼠标卡死根治与稳定性加固",
+        "彻底修复接入雷蛇毒蝰 Viper V3 Pro 等 8KHz 鼠标后移动鼠标引发的主窗口卡死与 CPU 占满问题，优化原始输入唤醒订阅时机、句柄缓存与跨帧节流，同时兼容有线与无线充电状态识别",
+        "统一加固 VGN、罗技、Endgame Gear、海盗船、HyperX、赛睿及通用驱动的异步硬件通信内存固定与超时取消生命周期，并优化后台刷新合并与休眠状态隔离",
+        "二、 硬件识别与协议修复",
+        "修复雷蛇巴塞利斯蛇 V3 Pro 35K 配合 Mouse Dock Pro (0x00A4) 或独立 8K HyperPolling 接收器 (0x00B3) 时降回 1K 后高回报率选项消失与切换异常问题",
+        "彻底解决 CompX 公版 3554:FA09 键盘跨品牌误标及被 VGN 驱动误吞成鼠标的问题，未收录子型号按中性名展示；并在「关于」页新增备份保护的「一键清除缓存（重新识别外设）」功能",
+        "增强皂品 Zaopin Z2 电压滞回防抖与休眠期回报率/身份兜底，新增支持 ATK 烈空 Phantom Ultimate (373B:12CD) 与京造 JZ M5 三模鼠标 (362D:D107)"
+      ]
+    },
+    {
       "version": "2.4.1",
       "releaseDate": "2026-11-26",
       "summary": "全新界面与交互升级、历史版本切换与多项 Bug 修复",

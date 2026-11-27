@@ -236,6 +236,9 @@ public static class LogitechDeviceHelper
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CancelIo(IntPtr hFile);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ResetEvent(IntPtr hEvent);
+
     private const uint GENERIC_READ = 0x80000000;
     private const uint GENERIC_WRITE = 0x40000000;
     private const uint FILE_SHARE_READ = 0x00000001;
@@ -387,6 +390,88 @@ public static class LogitechDeviceHelper
         return false;
     }
 
+    private static bool TryOverlappedWrite(IntPtr handle, IntPtr hEvent, byte[] tx, int timeoutMs, out uint written, out bool timedOut)
+    {
+        written = 0;
+        timedOut = false;
+        if (tx == null || tx.Length == 0) return false;
+        OVERLAPPED ov = new OVERLAPPED();
+        ov.hEvent = hEvent;
+        ResetEvent(hEvent);
+        bool pending = false;
+        GCHandle pinned = default(GCHandle);
+        try
+        {
+            pinned = GCHandle.Alloc(tx, GCHandleType.Pinned);
+            bool ok = WriteFile(handle, tx, (uint)tx.Length, out written, ref ov);
+            if (!ok)
+            {
+                if (Marshal.GetLastWin32Error() != 997) return false;
+                pending = true;
+                if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                {
+                    timedOut = true;
+                    return false;
+                }
+                ok = GetOverlappedResult(handle, ref ov, out written, false);
+                pending = false;
+            }
+            return ok;
+        }
+        finally
+        {
+            if (pending)
+            {
+                CancelIo(handle);
+                uint canceledWritten;
+                GetOverlappedResult(handle, ref ov, out canceledWritten, true);
+            }
+            if (pinned.IsAllocated) pinned.Free();
+        }
+    }
+
+    private static bool TryOverlappedRead(IntPtr handle, IntPtr hEvent, byte[] rx, int timeoutMs, out uint readBytes, out bool pendingSucceeded, out bool timedOut)
+    {
+        readBytes = 0;
+        pendingSucceeded = false;
+        timedOut = false;
+        if (rx == null || rx.Length == 0) return false;
+        OVERLAPPED ov = new OVERLAPPED();
+        ov.hEvent = hEvent;
+        ResetEvent(hEvent);
+        bool pending = false;
+        GCHandle pinned = default(GCHandle);
+        try
+        {
+            pinned = GCHandle.Alloc(rx, GCHandleType.Pinned);
+            bool ok = ReadFile(handle, rx, (uint)rx.Length, out readBytes, ref ov);
+            if (!ok)
+            {
+                if (Marshal.GetLastWin32Error() != 997) return false;
+                pending = true;
+                if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                {
+                    timedOut = true;
+                    return false;
+                }
+                ok = GetOverlappedResult(handle, ref ov, out readBytes, false);
+                pending = false;
+                pendingSucceeded = ok;
+            }
+            return ok;
+        }
+        finally
+        {
+            if (pending)
+            {
+                CancelIo(handle);
+                uint canceledRead;
+                GetOverlappedResult(handle, ref ov, out canceledRead, true);
+            }
+            if (pinned.IsAllocated) pinned.Free();
+        }
+    }
+
     private static byte[] SendAndReceive(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs, int outLen = 0, byte matchDevIdx = 0xFF, byte matchFeatIdx = 0xFF, byte matchSwid = 0xFF)
     {
         if (handle == IntPtr.Zero || handle == new IntPtr(-1)) return null;
@@ -402,39 +487,21 @@ public static class LogitechDeviceHelper
         byte[] drain = new byte[inLen];
         for (int i = 0; i < 5; i++)
         {
-            OVERLAPPED dOl = new OVERLAPPED();
-            dOl.hEvent = hEvent;
             uint readBytes;
-            bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
-            if (!ok && Marshal.GetLastWin32Error() == 997)
+            bool pendingOk;
+            bool drainTimedOut;
+            if (TryOverlappedRead(handle, hEvent, drain, 10, out readBytes, out pendingOk, out drainTimedOut) && pendingOk)
             {
-                if (WaitForSingleObject(hEvent, 10) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref dOl, out readBytes, false);
-                    continue;
-                }
-                CancelIo(handle);
+                continue;
             }
             break;
         }
 
         // Write command
-        OVERLAPPED wOl = new OVERLAPPED();
-        wOl.hEvent = hEvent;
         uint written;
-        bool wOk = WriteFile(handle, txBuffer, (uint)txBuffer.Length, out written, ref wOl);
-        if (!wOk && Marshal.GetLastWin32Error() == 997)
-        {
-            if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
-            {
-                GetOverlappedResult(handle, ref wOl, out written, false);
-            }
-            else
-            {
-                CancelIo(handle);
-                return null;
-            }
-        }
+        bool writeTimedOut;
+        TryOverlappedWrite(handle, hEvent, txBuffer, 500, out written, out writeTimedOut);
+        if (writeTimedOut) return null;
 
         // Read response with deadline
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -444,21 +511,13 @@ public static class LogitechDeviceHelper
             if (remainingMs <= 0) break;
 
             byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
             uint rxRead = 0;
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
-            if (!rOk && Marshal.GetLastWin32Error() == 997)
+            bool readPendingOk;
+            bool readTimedOut;
+            TryOverlappedRead(handle, hEvent, rx, remainingMs, out rxRead, out readPendingOk, out readTimedOut);
+            if (readTimedOut)
             {
-                if (WaitForSingleObject(hEvent, (uint)remainingMs) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
-                }
-                else
-                {
-                    CancelIo(handle);
-                    return null;
-                }
+                return null;
             }
 
             if (rxRead > 0)
@@ -882,7 +941,9 @@ public static class LogitechDeviceHelper
                     if (!SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero)) continue;
 
                     string path = Marshal.PtrToStringUni(new IntPtr(detailBuffer.ToInt64() + 4));
-                    if (string.IsNullOrEmpty(path) || path.IndexOf("vid_046d", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (string.IsNullOrEmpty(path) ||
+                        path.IndexOf("vid_046d", StringComparison.OrdinalIgnoreCase) < 0 ||
+                        path.IndexOf("pid_0aba", StringComparison.OrdinalIgnoreCase) < 0) continue;
 
                     IntPtr handle = CreateFile(
                         path,
@@ -1009,13 +1070,6 @@ public static class LogitechDeviceHelper
                                         foundPid = attr.ProductID;
                                     }
 
-                                    StringBuilder sb = new StringBuilder(256);
-                                    if (HidD_GetProductString(handle, sb, sb.Capacity))
-                                    {
-                                        string pStr = sb.ToString().Trim();
-                                        if (!string.IsNullOrEmpty(pStr) && pStr.Length > 2) foundName = pStr;
-                                    }
-
                                     IntPtr preparsed;
                                     if (HidD_GetPreparsedData(handle, out preparsed))
                                     {
@@ -1028,6 +1082,13 @@ public static class LogitechDeviceHelper
 
                                         if (isHidppEndpoint)
                                         {
+                                            StringBuilder sb = new StringBuilder(256);
+                                            if (HidD_GetProductString(handle, sb, sb.Capacity))
+                                            {
+                                                string pStr = sb.ToString().Trim();
+                                                if (!string.IsNullOrEmpty(pStr) && pStr.Length > 2) foundName = pStr;
+                                            }
+
                                             LogitechRawEndpoint rep = new LogitechRawEndpoint();
                                             rep.DevicePath = devicePath;
                                             rep.VendorId = foundVid;

@@ -56,12 +56,16 @@
 ### 3.4 硬件 HID 通信八大共性避坑准则（血泪沉淀）
 1. **键盘 0 权限握手**：Windows 内核对键盘集合 (`\kbd` 或 `UsagePage 0x01 / Usage 0x06`) 实施防监听独占锁，传 `GENERIC_READ` 必报 `Access Denied (5)`。打开键盘或特征查询句柄必须优先传 **`0` 权限 (`FILE_READ_ATTRIBUTES`)**。
 2. **内置设备过滤 (`IsInternalHidDevice`)**：笔记本内置 `HIDI2C Device` / `I2C HID` / `ACPI\HTIX` 触控板在通用 HID 扫描与自定义配置加载时必须双重过滤，防止误判为无线键盘。
-3. **同厂公版 VID 必须用精确端点四元组隔离**：多个品牌/品类常共享公版 VID（如 CompX `0x3554` 同时用于 17 字节 VGN 鼠标与 20 字节迈从 G75 PRO 键盘）。严禁仅凭 `VID` 或宽松的 `ReportLength >= 17` 匹配，必须联合校验 **`VID + PID + UsagePage/Usage + 精确 Input/OutputReportLength`**。
+3. **同厂公版 VID 必须用精确端点四元组隔离**：多个品牌/品类常共享公版 VID（如 CompX `0x3554` 同时用于 17 字节 VGN 鼠标与 20 字节 CompX 公版键盘）。严禁仅凭 `VID` 或宽松的 `ReportLength >= 17` 匹配，必须联合校验 **`VID + PID + UsagePage/Usage + 精确 Input/OutputReportLength`**。
+   - **四元组仍然同质时，禁止把 PID 等同某个品牌**：CompX 公版 `3554:FA09` 被 MCHOSE G75 PRO / KZZI K75 / LEOBOG Hi98 Pro / MARVO / AULA / YUNZII 共用，产品串恒为 `2.4G Wireless Receiver`、端点恒为 `FF02/0002` 20/20、`0x4A` 电量帧逐字节同质。品牌归属只能读固件 `0x05` 状态帧的 `RX[5]` 子型号字节（`0x02`=KZZI K75；`0x03` 被 LEOBOG 与狼蛛 AULA 共用，故除 `0x02` 外一律中性名 `CompX 2.4G 无线键盘`，严禁猜测）。实现见 `CompxFa09KeyboardHelper.cs`，细则见 `docs/HARDWARE_PROTOCOLS.md` 1.5.1。
+   - **同一公版 PID 的多个 Helper 必须在 `HardwareDriverRegistry.RequiresStrictIdentity` 登记**：否则仅凭 `MatchesVidPid` 的首个驱动会吞掉其它品牌卡片（KZZI K75 与 CompX 公版族即为此例）。
+   - **命名空间前缀表与隐藏标记**：新增品牌命名空间（如 `CompX` / `LEOBOG`）必须同步补入 `DeviceManager.GetDeviceIdVariants` 的 `commonPrefixes`，否则同一物理设备会裂成两张卡；身份被重新判定的公版设备，其隐藏标记须用 `DeviceManager.IsHiddenExplicitly`（精确键）判定，避免旧错标卡片遗留的跨命名空间变体连带隐藏新卡片。
 4. **8K 接收器中断端点谨慎预排空 (`DrainReports`)**：部分仅暴露 Interrupt In/Out 端点（无 Feature Report）的 8K 接收器（如 ATK F1 Ultimate 2.0 `373B:11D9`），在 `WriteFile` 前执行 `DrainReports` 会打断接收器与鼠标的无线握手状态机，此时应直接写入查询帧并按报表头过滤响应。
 5. **警惕无线链路微状态位伪装充电**：部分接收器（如宏碁 OMR331 `249A:5C2F`）响应帧中的状态字节在未插线时也会随鼠标唤醒/休眠在 `0x01/0x00` 间跳变。未证实为真实 USB 充电位前，切勿盲目绑定为 `isCharging`，以免闪电图标反复横跳。
 6. **物理事实优先，严禁盲扫异构协议或虚标能力**：严禁向同一设备盲目轮番发送多套异构 Feature Report；未实机验证 DPI/回报率写指令的设备，必须显式设置 `SupportsDpi = false`、`SupportsPollingRate = false`，宁缺毋滥。
 7. **同一设备双形态 PID 合并仲裁**：当同一外设在 USB 充电与 2.4G 接收器下呈现不同 PID（如 ROG PELTA 充电 `0x1B82` 与接收器 `0x1B84`）时，应合并至单一规范 `DeviceId` 呈现，避免卡片裂变或插线失联。
 8. **同一设备的不同连接形态是不同身份，能力必须按形态如实分流**：同一鼠标在 2.4G 接收器 / USB 有线直连 / 蓝牙 BLE 下可能是三个互不相同的 PID，能力集完全不同（如蓝牙形态走 HID over GATT，通常**没有**厂商通道，只能读电量）。必须按实际命中的接口 PID 判定形态并如实降级能力，严禁只认一个 PID，也严禁把某形态的缓存值冒充另一形态的实时值。具体 PID 清单、端点优先级与各形态协议差异见 `docs/HARDWARE_PROTOCOLS.md`。
+9. **ATK Phantom Ultimate 共享接收器 (`373B:12CD`)**：先用 BITMOUSE `0x4A` 确认下游 `CID=1 / MID=10|21`，再以 `0x07`、`0x0F` 查询电量和充电状态，遇到非匹配通知帧继续等待有效响应。
 
 ---
 

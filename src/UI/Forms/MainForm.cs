@@ -196,7 +196,13 @@ namespace RazerBatteryTray
 
         private readonly Dictionary<IntPtr, bool> mouseDeviceWakeMatchCache = new Dictionary<IntPtr, bool>();
 
+        private readonly Dictionary<IntPtr, string> mouseDevicePathCache = new Dictionary<IntPtr, string>();
+
         private string mouseWakeCacheDeviceId = null;
+
+        private int mouseWakeCacheVersion = 0;
+
+        private int appliedMouseWakeCacheVersion = -1;
 
         private volatile bool isPassiveWakePollingQueued = false;
 

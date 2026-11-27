@@ -18,7 +18,7 @@
 
 //   2. Apple Magic 系列外设 (Magic Mouse 1/2, Magic Trackpad 1/2, Magic Keyboard):
 
-//      - Bluetooth HID Feature Report (0x47 / 0xD1) 电量直读
+//      - Bluetooth HID Feature Report (0x47 / 0xD1) 电量直读，先按路径 VID (05AC/004C) 预过滤再以 0 权限打开探测，绝不触碰非 Apple 鼠标/键盘端点
 
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs, RazerDeviceHelper.cs
 
@@ -1706,124 +1706,84 @@ namespace RazerBatteryTray
 
 
                             IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-
                             Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-
-
-                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
-
+                            try
                             {
-
-                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-
-                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-
-                                if (devicePath != null && !seenPaths.Contains(devicePath))
-
+                                if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                                 {
-
-                                    seenPaths.Add(devicePath);
-
-
-
-                                    IntPtr handle = RazerDeviceHelper.CreateFile(
-
-                                        devicePath,
-
-                                        0x40000000, // GENERIC_WRITE
-
-                                        RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
-
-                                        IntPtr.Zero,
-
-                                        RazerDeviceHelper.OPEN_EXISTING,
-
-                                        0,
-
-                                        IntPtr.Zero);
-
-
-
-                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
-
+                                    IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                    string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                    if (devicePath != null && !seenPaths.Contains(devicePath))
                                     {
-
-                                        try
-
+                                        string pathLower = devicePath.ToLowerInvariant();
+                                        bool possibleApplePath = pathLower.IndexOf("vid_05ac", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("vid_004c", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("vid&02004c", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("vid&0001004c", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("vid&0205ac", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("apple", StringComparison.Ordinal) >= 0 ||
+                                                                 pathLower.IndexOf("magic", StringComparison.Ordinal) >= 0;
+                                        if (!possibleApplePath)
                                         {
+                                            continue;
+                                        }
 
-                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                        seenPaths.Add(devicePath);
 
-                                            attr.Size = Marshal.SizeOf(attr);
+                                        IntPtr handle = RazerDeviceHelper.CreateFile(
+                                            devicePath,
+                                            0, // FILE_READ_ATTRIBUTES：避免以 GENERIC_WRITE 占用其它外设端口
+                                            RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE,
+                                            IntPtr.Zero,
+                                            RazerDeviceHelper.OPEN_EXISTING,
+                                            0,
+                                            IntPtr.Zero);
 
-                                            RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
-
-
-
-                                            StringBuilder sbProd = new StringBuilder(256);
-
-                                            string prodStr = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
-
-
-
-                                            if (IsAppleMagicDevice(devicePath, prodStr, attr.VendorID, attr.ProductID))
-
+                                        if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                        {
+                                            try
                                             {
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                if (!RazerDeviceHelper.HidD_GetAttributes(handle, ref attr)) continue;
+                                                if (attr.VendorID != AppleVendorId && attr.VendorID != AppleBluetoothSigVid) continue;
 
-                                                int batt = QueryAppleMagicBattery(handle);
+                                                StringBuilder sbProd = new StringBuilder(256);
+                                                string prodStr = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
 
-                                                string magicName = !string.IsNullOrEmpty(prodStr) ? prodStr : "Apple Magic Device";
+                                                if (IsAppleMagicDevice(devicePath, prodStr, attr.VendorID, attr.ProductID))
+                                                {
+                                                    int batt = QueryAppleMagicBattery(handle);
+                                                    string magicName = !string.IsNullOrEmpty(prodStr) ? prodStr : "Apple Magic Device";
 
+                                                    MouseBatteryInfo mInfo = new MouseBatteryInfo();
+                                                    mInfo.DeviceId = string.Format("AppleHID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                    mInfo.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                                    mInfo.DeviceName = magicName;
+                                                    mInfo.Brand = "Apple";
+                                                    mInfo.Category = magicName.ToLower().Contains("keyboard") ? DeviceCategory.Keyboard : DeviceCategory.Mouse;
+                                                    mInfo.Transport = "蓝牙 / 雷雳接口";
+                                                    mInfo.IsDonglePresent = false;
+                                                    mInfo.IsConnected = true;
+                                                    mInfo.IsSleeping = false;
+                                                    mInfo.IsCharging = false;
+                                                    mInfo.BatteryPercent = batt >= 0 ? batt : -1;
 
-
-                                                MouseBatteryInfo mInfo = new MouseBatteryInfo();
-
-                                                mInfo.DeviceId = string.Format("AppleHID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-
-                                                mInfo.HardwareFingerprint = string.Format("HID:{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-
-                                                mInfo.DeviceName = magicName;
-
-                                                mInfo.Brand = "Apple";
-
-                                                mInfo.Category = magicName.ToLower().Contains("keyboard") ? DeviceCategory.Keyboard : DeviceCategory.Mouse;
-
-                                                mInfo.Transport = "蓝牙 / 雷雳接口";
-
-                                                mInfo.IsDonglePresent = false;
-
-                                                mInfo.IsConnected = true;
-
-                                                mInfo.IsSleeping = false;
-
-                                                mInfo.IsCharging = false;
-
-                                                mInfo.BatteryPercent = batt >= 0 ? batt : -1;
-
-
-
-                                                list.Add(mInfo);
-
+                                                    list.Add(mInfo);
+                                                }
                                             }
-
+                                            finally
+                                            {
+                                                RazerDeviceHelper.CloseHandle(handle);
+                                            }
                                         }
-
-                                        finally
-
-                                        {
-
-                                            RazerDeviceHelper.CloseHandle(handle);
-
-                                        }
-
                                     }
-
                                 }
-
                             }
-
-                            Marshal.FreeHGlobal(detailBuffer);
+                            finally
+                            {
+                                Marshal.FreeHGlobal(detailBuffer);
+                            }
 
                         }
 

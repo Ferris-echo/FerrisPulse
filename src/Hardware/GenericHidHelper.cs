@@ -59,21 +59,27 @@ namespace RazerBatteryTray
                     {
                         uint reqSize;
                         RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize == 0) { ifData.cbSize = Marshal.SizeOf(ifData); continue; }
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-                        Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null && devicePath.ToLower().Contains(pattern))
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
+
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                Marshal.FreeHGlobal(detailBuffer);
-                                return true;
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                if (devicePath != null && devicePath.ToLower().Contains(pattern))
+                                {
+                                    return true;
+                                }
                             }
                         }
-                        Marshal.FreeHGlobal(detailBuffer);
-                        ifData.cbSize = Marshal.SizeOf(ifData);
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                            ifData.cbSize = Marshal.SizeOf(ifData);
+                        }
                     }
                 }
                 finally
@@ -111,96 +117,99 @@ namespace RazerBatteryTray
                     {
                         uint reqSize;
                         RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
-                        if (reqSize == 0) continue;
+                        if (reqSize == 0) { ifData.cbSize = Marshal.SizeOf(ifData); continue; }
 
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-                        Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null && devicePath.ToLower().Contains(pattern))
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
+
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, 0, RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE, IntPtr.Zero, RazerDeviceHelper.OPEN_EXISTING, 0, IntPtr.Zero);
-                                if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                if (devicePath != null && devicePath.ToLower().Contains(pattern))
                                 {
-                                    try
+                                    IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, 0, RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE, IntPtr.Zero, RazerDeviceHelper.OPEN_EXISTING, 0, IntPtr.Zero);
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
                                     {
-                                        IntPtr preparsed;
-                                        if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
+                                        try
                                         {
-                                            RazerDeviceHelper.HIDP_CAPS caps;
-                                            RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
-                                            RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
-
-                                            // 1. USB-IF Standard Battery System (UsagePage 0x85)
-                                            if (caps.UsagePage == 0x85)
+                                            IntPtr preparsed;
+                                            if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
                                             {
-                                                if (caps.FeatureReportByteLength > 1)
+                                                RazerDeviceHelper.HIDP_CAPS caps;
+                                                RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                                                RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                                // 1. USB-IF Standard Battery System (UsagePage 0x85)
+                                                if (caps.UsagePage == 0x85)
                                                 {
-                                                    byte[] fBuf = new byte[caps.FeatureReportByteLength];
-                                                    if (RazerDeviceHelper.HidD_GetFeature(handle, fBuf, fBuf.Length))
+                                                    if (caps.FeatureReportByteLength > 1)
                                                     {
-                                                        for (int i = 1; i < fBuf.Length; i++)
+                                                        byte[] fBuf = new byte[caps.FeatureReportByteLength];
+                                                        if (RazerDeviceHelper.HidD_GetFeature(handle, fBuf, fBuf.Length))
                                                         {
-                                                            if (fBuf[i] > 0 && fBuf[i] <= 100)
+                                                            for (int i = 1; i < fBuf.Length; i++)
                                                             {
-                                                                batteryPercent = fBuf[i];
-                                                                Marshal.FreeHGlobal(detailBuffer);
-                                                                return true;
+                                                                if (fBuf[i] > 0 && fBuf[i] <= 100)
+                                                                {
+                                                                    batteryPercent = fBuf[i];
+                                                                    return true;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    if (caps.InputReportByteLength > 1)
+                                                    {
+                                                        byte[] inBuf = new byte[caps.InputReportByteLength];
+                                                        if (RazerDeviceHelper.HidD_GetInputReport(handle, inBuf, inBuf.Length))
+                                                        {
+                                                            for (int i = 1; i < inBuf.Length; i++)
+                                                            {
+                                                                if (inBuf[i] > 0 && inBuf[i] <= 100)
+                                                                {
+                                                                    batteryPercent = inBuf[i];
+                                                                    return true;
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
-                                                if (caps.InputReportByteLength > 1)
+
+                                                // 2. Actions ATS / Beken vendor reports (UsagePage 0xFF00, 0xFFA0, 0x0B)
+                                                if (caps.UsagePage == 0xFF00 || caps.UsagePage == 0xFFA0 || caps.UsagePage == 0x0B)
                                                 {
-                                                    byte[] inBuf = new byte[caps.InputReportByteLength];
-                                                    if (RazerDeviceHelper.HidD_GetInputReport(handle, inBuf, inBuf.Length))
+                                                    if (caps.FeatureReportByteLength > 2)
                                                     {
-                                                        for (int i = 1; i < inBuf.Length; i++)
+                                                        byte[] fBuf = new byte[caps.FeatureReportByteLength];
+                                                        fBuf[0] = 0x04;
+                                                        if (RazerDeviceHelper.HidD_GetFeature(handle, fBuf, fBuf.Length))
                                                         {
-                                                            if (inBuf[i] > 0 && inBuf[i] <= 100)
+                                                            int candidate = fBuf[1] > 0 && fBuf[1] <= 100 ? fBuf[1] : (fBuf[2] > 0 && fBuf[2] <= 100 ? fBuf[2] : -1);
+                                                            if (candidate > 0)
                                                             {
-                                                                batteryPercent = inBuf[i];
-                                                                Marshal.FreeHGlobal(detailBuffer);
+                                                                batteryPercent = candidate;
                                                                 return true;
                                                             }
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // 2. Actions ATS / Beken vendor reports (UsagePage 0xFF00, 0xFFA0, 0x0B)
-                                            if (caps.UsagePage == 0xFF00 || caps.UsagePage == 0xFFA0 || caps.UsagePage == 0x0B)
-                                            {
-                                                if (caps.FeatureReportByteLength > 2)
-                                                {
-                                                    byte[] fBuf = new byte[caps.FeatureReportByteLength];
-                                                    fBuf[0] = 0x04;
-                                                    if (RazerDeviceHelper.HidD_GetFeature(handle, fBuf, fBuf.Length))
-                                                    {
-                                                        int candidate = fBuf[1] > 0 && fBuf[1] <= 100 ? fBuf[1] : (fBuf[2] > 0 && fBuf[2] <= 100 ? fBuf[2] : -1);
-                                                        if (candidate > 0)
-                                                        {
-                                                            batteryPercent = candidate;
-                                                            Marshal.FreeHGlobal(detailBuffer);
-                                                            return true;
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        RazerDeviceHelper.CloseHandle(handle);
+                                        finally
+                                        {
+                                            RazerDeviceHelper.CloseHandle(handle);
+                                        }
                                     }
                                 }
                             }
                         }
-                        Marshal.FreeHGlobal(detailBuffer);
-                        ifData.cbSize = Marshal.SizeOf(ifData);
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                            ifData.cbSize = Marshal.SizeOf(ifData);
+                        }
                     }
                 }
                 finally
@@ -233,182 +242,184 @@ namespace RazerBatteryTray
                     {
                         uint reqSize;
                         RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize == 0) { ifData.cbSize = Marshal.SizeOf(ifData); continue; }
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
-                        Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
                         {
-                            IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
-                            string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            if (devicePath != null)
+                            Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
+
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                             {
-                                // VHF 虚拟 HID（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
-                                // 没有物理电池，也不是实体外设；必须排除，否则向导会出现
-                                // “HID VHF Driver / 2.4G 无线 / 可加入监控”的误导项。
-                                if (VirtualHidFilter.IsVirtualHidPath(devicePath))
+                                IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
+                                string devicePath = Marshal.PtrToStringAuto(pDevicePath);
+                                if (devicePath != null)
                                 {
-                                    Marshal.FreeHGlobal(detailBuffer);
-                                    ifData.cbSize = Marshal.SizeOf(ifData);
-                                    continue;
-                                }
-                                string lower = devicePath.ToLower();
-                                // Skip internal non-peripheral sensors/touchpads and strict single-model PIDs owned by dedicated helpers
-                                if (lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") ||
-                                    lower.Contains("vid_048d") || lower.Contains("vid_17ef") || lower.Contains("syna") ||
-                                    lower.Contains("tencent") || lower.Contains("virtual") || AcerDeviceHelper.IsAcerMouse(lower))
-                                {
-                                    Marshal.FreeHGlobal(detailBuffer);
-                                    ifData.cbSize = Marshal.SizeOf(ifData);
-                                    continue;
-                                }
-
-                                IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, 0, RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE, IntPtr.Zero, RazerDeviceHelper.OPEN_EXISTING, 0, IntPtr.Zero);
-                                if (handle != IntPtr.Zero && handle.ToInt64() != -1)
-                                {
-                                    try
+                                    // VHF 虚拟 HID（如网易 UU 远程 uuycinput.sys 创建的虚拟键鼠）
+                                    // 没有物理电池，也不是实体外设；必须排除，否则向导会出现
+                                    // “HID VHF Driver / 2.4G 无线 / 可加入监控”的误导项。
+                                    if (VirtualHidFilter.IsVirtualHidPath(devicePath) || IsInternalHidDevice("", devicePath))
                                     {
-                                        IntPtr preparsed;
-                                        if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
+                                        continue;
+                                    }
+                                    string lower = devicePath.ToLower();
+                                    // Skip internal non-peripheral sensors/touchpads and strict single-model PIDs owned by dedicated helpers
+                                    if (lower.Contains("vid_04f3&pid_026f") || lower.Contains("vid_06cb") || lower.Contains("vid_ffaa") ||
+                                        lower.Contains("vid_048d") || lower.Contains("vid_17ef") || lower.Contains("syna") ||
+                                        lower.Contains("tencent") || lower.Contains("virtual") || AcerDeviceHelper.IsAcerMouse(lower))
+                                    {
+                                        continue;
+                                    }
+
+                                    IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, 0, RazerDeviceHelper.FILE_SHARE_READ | RazerDeviceHelper.FILE_SHARE_WRITE, IntPtr.Zero, RazerDeviceHelper.OPEN_EXISTING, 0, IntPtr.Zero);
+                                    if (handle != IntPtr.Zero && handle.ToInt64() != -1)
+                                    {
+                                        try
                                         {
-                                            StringBuilder sbProd = new StringBuilder(256);
-                                            string prod = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
-
-                                            RazerDeviceHelper.HIDP_CAPS caps;
-                                            RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
-                                            RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
-
-                                            if (IsInternalHidDevice(prod, devicePath))
-                                            {
-                                                Marshal.FreeHGlobal(detailBuffer);
-                                                ifData.cbSize = Marshal.SizeOf(ifData);
-                                                continue;
-                                            }
-
-                                            bool isGamepad = (caps.UsagePage == 0x01 && (caps.Usage == 0x04 || caps.Usage == 0x05)) ||
-                                                             (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("gamepad") || prod.ToLower().Contains("controller") || prod.ToLower().Contains("joystick") || prod.Contains("手柄")));
-
-                                            bool isHeadset = (caps.UsagePage == 0x0C && !string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("head") || prod.ToLower().Contains("audio") || prod.ToLower().Contains("ear") || prod.ToLower().Contains("sound") || prod.Contains("耳机"))) ||
-                                                             (caps.UsagePage == 0x0B) || (caps.UsagePage == 0x85);
-
-                                            bool isDongle = (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("dongle") || prod.ToLower().Contains("receiver") || prod.Contains("接收器")));
-
-                                            bool isKeyboard = GanssDeviceHelper.IsKnownKeyboardName(prod) || (caps.UsagePage == 0x01 && caps.Usage == 0x06) ||
-                                                              (!string.IsNullOrEmpty(prod) && (
-                                                                  prod.ToLower().Contains("keyboard") ||
-                                                                  prod.ToLower().Contains("nuphy") ||
-                                                                  prod.ToLower().Contains("keychron") ||
-                                                                  prod.ToLower().Contains("halo") ||
-                                                                  prod.ToLower().Contains("air75") ||
-                                                                  prod.ToLower().Contains("air96") ||
-                                                                  prod.ToLower().Contains("air60") ||
-                                                                  prod.ToLower().Contains("wh80") ||
-                                                                  prod.Contains("键盘")
-                                                              ));
-
-                                            bool isMouse = (caps.UsagePage == 0x01 && caps.Usage == 0x02) ||
-                                                           (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("mouse") || prod.Contains("鼠标")));
-
                                             RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
                                             attr.Size = Marshal.SizeOf(attr);
                                             RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
 
                                             // 水月雨 GM-01 PRO 由专属 MoondropDeviceHelper 负责注册，通用扫描不再泛化它。
-                                            bool managedByDedicatedDriver = MoondropDeviceHelper.IsManagedDevice(attr.VendorID, attr.ProductID);
-
-                                            if (!managedByDedicatedDriver && (isGamepad || isHeadset || isDongle || isKeyboard || isMouse))
+                                            if (MoondropDeviceHelper.IsManagedDevice(attr.VendorID, attr.ProductID))
                                             {
-                                                string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
-                                                if (existingIds != null)
+                                                continue;
+                                            }
+
+                                            string key = string.Format("{0:X4}:{1:X4}", attr.VendorID, attr.ProductID);
+                                            if (existingIds != null)
+                                            {
+                                                bool alreadyClaimed = existingIds.Contains(key) ||
+                                                    existingIds.Contains("HID:" + key) ||
+                                                    existingIds.Contains(string.Format("vid_{0:X4}&pid_{1:X4}", attr.VendorID, attr.ProductID));
+                                                if (!alreadyClaimed && attr.VendorID == 0x1532)
                                                 {
-                                                    bool alreadyClaimed = existingIds.Contains(key) ||
-                                                        existingIds.Contains("HID:" + key) ||
-                                                        existingIds.Contains(string.Format("vid_{0:X4}&pid_{1:X4}", attr.VendorID, attr.ProductID));
-                                                    if (!alreadyClaimed && attr.VendorID == 0x1532)
-                                                    {
-                                                        int normRzPid = RazerDeviceHelper.NormalizeRazerPid(attr.ProductID);
-                                                        string rzKey = string.Format("1532:{0:X4}", normRzPid);
-                                                        alreadyClaimed = existingIds.Contains(rzKey) ||
-                                                            existingIds.Contains("Razer:" + rzKey) ||
-                                                            existingIds.Contains("HID:" + rzKey);
-                                                    }
-                                                    if (alreadyClaimed)
-                                                    {
-                                                        Marshal.FreeHGlobal(detailBuffer);
-                                                        ifData.cbSize = Marshal.SizeOf(ifData);
-                                                        continue;
-                                                    }
+                                                    int normRzPid = RazerDeviceHelper.NormalizeRazerPid(attr.ProductID);
+                                                    string rzKey = string.Format("1532:{0:X4}", normRzPid);
+                                                    alreadyClaimed = existingIds.Contains(rzKey) ||
+                                                        existingIds.Contains("Razer:" + rzKey) ||
+                                                        existingIds.Contains("HID:" + rzKey);
+                                                }
+                                                if (alreadyClaimed)
+                                                {
+                                                    continue;
+                                                }
+                                            }
+
+                                            IntPtr preparsed;
+                                            if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
+                                            {
+                                                RazerDeviceHelper.HIDP_CAPS caps;
+                                                RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                                                RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                                StringBuilder sbProd = new StringBuilder(256);
+                                                string prod = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
+
+                                                if (IsInternalHidDevice(prod, devicePath))
+                                                {
+                                                    continue;
                                                 }
 
-                                                string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
+                                                bool isGamepad = (caps.UsagePage == 0x01 && (caps.Usage == 0x04 || caps.Usage == 0x05)) ||
+                                                                 (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("gamepad") || prod.ToLower().Contains("controller") || prod.ToLower().Contains("joystick") || prod.Contains("手柄")));
 
-                                                DeviceCategory devCat = DeviceCategory.Generic;
-                                                if (isGamepad) devCat = DeviceCategory.Gamepad;
-                                                else if (isHeadset) devCat = DeviceCategory.Headset;
-                                                else if (isDongle) devCat = DeviceCategory.Dongle;
-                                                else if (isKeyboard) devCat = DeviceCategory.Keyboard;
-                                                else if (isMouse) devCat = DeviceCategory.Mouse;
+                                                bool isHeadset = (caps.UsagePage == 0x0C && !string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("head") || prod.ToLower().Contains("audio") || prod.ToLower().Contains("ear") || prod.ToLower().Contains("sound") || prod.Contains("耳机"))) ||
+                                                                 (caps.UsagePage == 0x0B) || (caps.UsagePage == 0x85);
 
-                                                var existing = result.Find(r => r.DeviceId == "HID:" + key);
-                                                if (existing != null)
+                                                bool isDongle = (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("dongle") || prod.ToLower().Contains("receiver") || prod.Contains("接收器")));
+
+                                                bool isKeyboard = GanssDeviceHelper.IsKnownKeyboardName(prod) || (caps.UsagePage == 0x01 && caps.Usage == 0x06) ||
+                                                                  (!string.IsNullOrEmpty(prod) && (
+                                                                      prod.ToLower().Contains("keyboard") ||
+                                                                      prod.ToLower().Contains("nuphy") ||
+                                                                      prod.ToLower().Contains("keychron") ||
+                                                                      prod.ToLower().Contains("halo") ||
+                                                                      prod.ToLower().Contains("air75") ||
+                                                                      prod.ToLower().Contains("air96") ||
+                                                                      prod.ToLower().Contains("air60") ||
+                                                                      prod.ToLower().Contains("wh80") ||
+                                                                      prod.Contains("键盘")
+                                                                  ));
+
+                                                bool isMouse = (caps.UsagePage == 0x01 && caps.Usage == 0x02) ||
+                                                               (!string.IsNullOrEmpty(prod) && (prod.ToLower().Contains("mouse") || prod.Contains("鼠标")));
+
+                                                if (isGamepad || isHeadset || isDongle || isKeyboard || isMouse)
                                                 {
-                                                    if (devCat != DeviceCategory.Generic && existing.Category == DeviceCategory.Generic)
-                                                    {
-                                                        existing.Category = devCat;
-                                                    }
-                                                }
-                                                else if (!seenPnP.Contains(key))
-                                                {
-                                                    seenPnP.Add(key);
-                                                    if (string.IsNullOrEmpty(prodStr))
-                                                    {
-                                                        if (isGamepad) prodStr = string.Format("USB 游戏手柄 ({0})", key);
-                                                        else if (isHeadset) prodStr = string.Format("USB/2.4G 音频外设 ({0})", key);
-                                                        else if (isKeyboard) prodStr = string.Format("USB/2.4G 键盘 ({0})", key);
-                                                        else if (isDongle) prodStr = string.Format("2.4G 接收器 ({0})", key);
-                                                        else prodStr = string.Format("USB/2.4G 外设 ({0})", key);
-                                                    }
+                                                    string prodStr = !string.IsNullOrEmpty(prod) ? prod : "HID 兼容外设";
 
-                                                    int initialBattery = -1;
-                                                    if (NuphyDeviceHelper.IsNuphyDevice(key) || NuphyDeviceHelper.IsNuphyDevice(prodStr))
+                                                    DeviceCategory devCat = DeviceCategory.Generic;
+                                                    if (isGamepad) devCat = DeviceCategory.Gamepad;
+                                                    else if (isHeadset) devCat = DeviceCategory.Headset;
+                                                    else if (isDongle) devCat = DeviceCategory.Dongle;
+                                                    else if (isKeyboard) devCat = DeviceCategory.Keyboard;
+                                                    else if (isMouse) devCat = DeviceCategory.Mouse;
+
+                                                    var existing = result.Find(r => r.DeviceId == "HID:" + key);
+                                                    if (existing != null)
                                                     {
-                                                        devCat = DeviceCategory.Keyboard;
-                                                        var nuphy = NuphyDeviceHelper.QueryNuphyDeviceInfo();
-                                                        if (nuphy != null && nuphy.BatteryPercent >= 0)
+                                                        if (devCat != DeviceCategory.Generic && existing.Category == DeviceCategory.Generic)
                                                         {
-                                                            initialBattery = nuphy.BatteryPercent;
-                                                            prodStr = nuphy.DeviceName;
-                                                        }
-                                                        else if (NuphyDeviceHelper.CachedBatteryPercent > 0)
-                                                        {
-                                                            initialBattery = NuphyDeviceHelper.CachedBatteryPercent;
+                                                            existing.Category = devCat;
                                                         }
                                                     }
-
-                                                    var cfg = new CustomDeviceConfig
+                                                    else if (!seenPnP.Contains(key))
                                                     {
-                                                        DeviceId = "HID:" + key,
-                                                        OriginalName = prodStr,
-                                                        CustomName = prodStr,
-                                                        Category = devCat,
-                                                        Transport = "2.4G 无线",
-                                                        CachedBattery = initialBattery,
-                                                        HardwareFingerprint = "HID:" + key,
-                                                        LastSeen = DateTime.Now
-                                                    };
-                                                    result.Add(cfg);
+                                                        seenPnP.Add(key);
+                                                        if (string.IsNullOrEmpty(prodStr))
+                                                        {
+                                                            if (isGamepad) prodStr = string.Format("USB 游戏手柄 ({0})", key);
+                                                            else if (isHeadset) prodStr = string.Format("USB/2.4G 音频外设 ({0})", key);
+                                                            else if (isKeyboard) prodStr = string.Format("USB/2.4G 键盘 ({0})", key);
+                                                            else if (isDongle) prodStr = string.Format("2.4G 接收器 ({0})", key);
+                                                            else prodStr = string.Format("USB/2.4G 外设 ({0})", key);
+                                                        }
+
+                                                        int initialBattery = -1;
+                                                        if (NuphyDeviceHelper.IsNuphyDevice(key) || NuphyDeviceHelper.IsNuphyDevice(prodStr))
+                                                        {
+                                                            devCat = DeviceCategory.Keyboard;
+                                                            var nuphy = NuphyDeviceHelper.QueryNuphyDeviceInfo();
+                                                            if (nuphy != null && nuphy.BatteryPercent >= 0)
+                                                            {
+                                                                initialBattery = nuphy.BatteryPercent;
+                                                                prodStr = nuphy.DeviceName;
+                                                            }
+                                                            else if (NuphyDeviceHelper.CachedBatteryPercent > 0)
+                                                            {
+                                                                initialBattery = NuphyDeviceHelper.CachedBatteryPercent;
+                                                            }
+                                                        }
+
+                                                        var cfg = new CustomDeviceConfig
+                                                        {
+                                                            DeviceId = "HID:" + key,
+                                                            OriginalName = prodStr,
+                                                            CustomName = prodStr,
+                                                            Category = devCat,
+                                                            Transport = "2.4G 无线",
+                                                            CachedBattery = initialBattery,
+                                                            HardwareFingerprint = "HID:" + key,
+                                                            LastSeen = DateTime.Now
+                                                        };
+                                                        result.Add(cfg);
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    finally
-                                    {
-                                        RazerDeviceHelper.CloseHandle(handle);
+                                        finally
+                                        {
+                                            RazerDeviceHelper.CloseHandle(handle);
+                                        }
                                     }
                                 }
                             }
                         }
-                        Marshal.FreeHGlobal(detailBuffer);
-                        ifData.cbSize = Marshal.SizeOf(ifData);
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                            ifData.cbSize = Marshal.SizeOf(ifData);
+                        }
                     }
                 }
                 finally

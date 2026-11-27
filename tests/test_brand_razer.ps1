@@ -493,3 +493,108 @@ Invoke-TestCase "Razer.WiredBatteryLessMouseNoFakeBatteryOrSleep" {
     Assert-Equal 88 $wiredCableInfo.BatteryPercent "Wired cable keeps cached battery"
     Assert-True (-not $wiredCableInfo.IsSleeping) "USB wired channel must NEVER enter IsSleeping=true"
 }
+
+Invoke-TestCase "Razer.V3ProPollingProtocolLockAndZeroStatusCap" {
+    $mModern = $rzType.GetMethod("IsKnownModernPollingProtocolPid", $bfPubStatic)
+    $mFallback = $rzType.GetMethod("ShouldAllowPollingProtocolFallback", $bfPubStatic)
+    $mBusy = $rzType.GetMethod("ReadRazerResponseWithBusyRetry", $bfPubStatic)
+    Assert-True ($null -ne $mModern -and $null -ne $mFallback) "Protocol lock helpers missing"
+
+    $modernPids = @(0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00B6, 0x00B7, 0x009A, 0x009B, 0x00AA, 0x00AB, 0x00CC, 0x00CD, 0x00BE, 0x00BF, 0x00B9)
+    foreach ($mp in $modernPids) {
+        Assert-True ([bool]$mModern.Invoke($null, @([int]$mp))) ("IsKnownModernPollingProtocolPid true for 0x{0:X4}" -f $mp)
+        Assert-True (-not [bool]$mFallback.Invoke($null, @([int]$mp))) ("Modern 8K PID 0x{0:X4} must lock protocol (no classic fallback)" -f $mp)
+    }
+
+    $classicPids = @(0x00A5, 0x00A6, 0x007A, 0x007B, 0x0086, 0x0088)
+    foreach ($cp in $classicPids) {
+        Assert-True (-not [bool]$mModern.Invoke($null, @([int]$cp))) ("IsKnownModernPollingProtocolPid false for classic 0x{0:X4}" -f $cp)
+        Assert-True (-not [bool]$mFallback.Invoke($null, @([int]$cp))) ("Classic 1K PID 0x{0:X4} must lock protocol" -f $cp)
+    }
+
+    Assert-True ([bool]$mFallback.Invoke($null, @([int]0x00FE))) "Unknown PID 0x00FE allows fallback"
+    Assert-True ([bool]$mFallback.Invoke($null, @([int]0x0000))) "Zero PID allows fallback"
+
+    # 0x00 NEW/unprocessed must stop after at most 2 reads (not 4-read storm)
+    $script:zeroCalls = 0
+    $zeroReader = [Func[byte[]]] {
+        $script:zeroCalls++
+        return (New-Object byte[] 90)
+    }
+    $sleepNoop = [Action[int]] { param([int]$ms) }
+    $zeroArgs = [object[]]@($zeroReader, [int]0, [byte]0x07, [byte]0x80, [int]4, $sleepNoop, [byte]0)
+    $zeroRes = $mBusy.Invoke($null, $zeroArgs)
+    Assert-True ($null -eq $zeroRes -and $script:zeroCalls -le 2) ("0x00 status must stop within <= 2 attempts, got " + $script:zeroCalls)
+
+    # 0x01 BUSY still recovers on 3rd attempt
+    $script:busyCalls2 = 0
+    $busyReader2 = [Func[byte[]]] {
+        $script:busyCalls2++
+        $r = New-Object byte[] 90
+        if ($script:busyCalls2 -le 2) { $r[0] = 0x01 }
+        else { $r[0] = 0x02; $r[6] = 0x07; $r[7] = 0x80; $r[9] = 0xAA }
+        return $r
+    }
+    $busyArgs2 = [object[]]@($busyReader2, [int]0, [byte]0x07, [byte]0x80, [int]4, $sleepNoop, [byte]0)
+    $busyRes2 = [byte[]]$mBusy.Invoke($null, $busyArgs2)
+    Assert-True ($null -ne $busyRes2 -and $script:busyCalls2 -eq 3) "0x01 BUSY retry recovers on 3rd attempt"
+
+    # EP0 isolation: QueryAllRazerDevices must not invoke HidD_GetProductString before FeatureReportByteLength < 90 check
+    $rzSrc = [System.IO.File]::ReadAllText((Join-Path $root "src\Hardware\RazerDeviceHelper.cs"), [System.Text.Encoding]::UTF8)
+    $qStart = $rzSrc.IndexOf("public static List<MouseBatteryInfo> QueryAllRazerDevices()")
+    $qEnd = $rzSrc.IndexOf("public static MouseBatteryInfo QueryRazerDeviceInfo()")
+    $qBody = $rzSrc.Substring($qStart, $qEnd - $qStart)
+    $idxFeatCheck = $qBody.IndexOf("if (caps.FeatureReportByteLength < 90)")
+    $idxProdStr = $qBody.IndexOf("HidD_GetProductString(")
+    Assert-True ($idxFeatCheck -gt 0 -and $idxProdStr -gt $idxFeatCheck) "HidD_GetProductString must stay strictly after FeatureReportByteLength < 90 guard"
+
+    # FastQueryDpiCore must check !pathOpenFailed before falling through to 10s SetupDi enumeration
+    $fStart = $rzSrc.IndexOf("private static bool FastQueryDpiCore(")
+    $fEnd = $rzSrc.IndexOf("private static bool TryQueryRazerDpiByPath(")
+    $fBody = $rzSrc.Substring($fStart, $fEnd - $fStart)
+    $idxOpenFail = $fBody.IndexOf("if (!pathOpenFailed)")
+    $idxSetupDi = $fBody.IndexOf("SetupDiGetClassDevs(")
+    Assert-True ($idxOpenFail -gt 0 -and $idxSetupDi -gt $idxOpenFail) "FastQueryDpiCore returns on !pathOpenFailed before SetupDiGetClassDevs"
+}
+
+Invoke-TestCase "Razer.Basilisk35kAnd8kReceivers" {
+    $mNorm = $rzType.GetMethod("NormalizeRazerPid", $bfPubStatic)
+    $mClassic = $rzType.GetMethod("IsClassicPollingProtocolPid", $bfPubStatic)
+    $mModern = $rzType.GetMethod("IsKnownModernPollingProtocolPid", $bfPubStatic)
+    $mDongle = $rzType.GetMethod("DetermineIsDongle", $bfPubStatic)
+    $mName = $rzType.GetMethod("GetRazerOfficialModelName", $bfPubStatic, $null, @([int], [string]), $null)
+    $mRates = $rzType.GetMethod("GetSupportedPollingRatesForModel", $bfPubStatic)
+    $mMaxRate = $rzType.GetMethod("GetMaxPollingRateForModel", $bfPubStatic)
+    $mCap = $rzType.GetMethod("GetDpiCapability", $bfPubStatic)
+
+    # 0x00A4 Mouse Dock Pro (8K receiver)
+    Assert-True (-not [bool]$mClassic.Invoke($null, @([int]0x00A4))) "0x00A4 Mouse Dock Pro must not be classic 1K protocol"
+    Assert-True ([bool]$mModern.Invoke($null, @([int]0x00A4))) "0x00A4 Mouse Dock Pro is modern 8K protocol"
+    Assert-True ([bool]$mDongle.Invoke($null, @([int]0x00A4, "", 0, $false))) "0x00A4 recognized as dongle/dock"
+    Assert-Equal "Razer Mouse Dock Pro" ([string]$mName.Invoke($null, @([int]0x00A4, ""))) "0x00A4 model name"
+    $ratesA4 = [int[]]$mRates.Invoke($null, @([int]0x00A4, "Razer Mouse Dock Pro"))
+    Assert-True ($ratesA4 -contains 1000 -and $ratesA4 -contains 2000 -and $ratesA4 -contains 4000 -and $ratesA4 -contains 8000) "0x00A4 supports 1K..8K"
+    Assert-Equal 8000 ([int]$mMaxRate.Invoke($null, @([int]0x00A4, "Razer Mouse Dock Pro"))) "0x00A4 max 8K"
+    Assert-Equal 35000 ($mCap.Invoke($null, @("Razer Mouse Dock Pro", [int]0x00A4))).MaxDpi "0x00A4 supports 35K sensor"
+
+    # 0x00B3 HyperPolling Wireless Dongle (8K standalone)
+    Assert-Equal 0x00B3 ([int]$mNorm.Invoke($null, @([int]0x00B3))) "0x00B3 must stay 0x00B3 (not merged into 0x00B2)"
+    Assert-True (-not [bool]$mClassic.Invoke($null, @([int]0x00B3))) "0x00B3 must not be classic 1K protocol"
+    Assert-True ([bool]$mModern.Invoke($null, @([int]0x00B3))) "0x00B3 is modern 8K protocol"
+    Assert-True ([bool]$mDongle.Invoke($null, @([int]0x00B3, "", 0, $false))) "0x00B3 recognized as dongle"
+    Assert-Equal "Razer HyperPolling Wireless Dongle" ([string]$mName.Invoke($null, @([int]0x00B3, ""))) "0x00B3 model name"
+    $ratesB3 = [int[]]$mRates.Invoke($null, @([int]0x00B3, "Razer HyperPolling Wireless Dongle"))
+    Assert-True ($ratesB3 -contains 1000 -and $ratesB3 -contains 2000 -and $ratesB3 -contains 4000 -and $ratesB3 -contains 8000) "0x00B3 supports 1K..8K"
+    Assert-Equal 35000 ($mCap.Invoke($null, @("Razer HyperPolling Wireless Dongle", [int]0x00B3))).MaxDpi "0x00B3 supports 35K sensor"
+
+    # Protocol guard: QuerySinglePollingRate offset+8 fallback & TrySetRazerPollingRateByHandle writes both 0x00 live and 0x01 persistent
+    $rzSrc = [System.IO.File]::ReadAllText((Join-Path $root "src\Hardware\RazerDeviceHelper.cs"), [System.Text.Encoding]::UTF8)
+    $qPollIdx = $rzSrc.IndexOf("private static int QuerySinglePollingRate(")
+    $qPollBody = $rzSrc.Substring($qPollIdx, $rzSrc.IndexOf("private static void QueryRazerDpiAndPolling(") - $qPollIdx)
+    Assert-True ($qPollBody.Contains("DecodeModernPollingRateByte(pollResp[offset + 8])")) "Modern polling query falls back to offset + 8"
+    $sPollIdx = $rzSrc.IndexOf("private static bool TrySetRazerPollingRateByHandle(")
+    $sPollBody = $rzSrc.Substring($sPollIdx)
+    $idxPersist = $sPollBody.IndexOf("new byte[] { 0x01, rateByte }")
+    $idxLive = $sPollBody.IndexOf("new byte[] { 0x00, rateByte }")
+    Assert-True ($idxPersist -gt 0 -and $idxLive -gt $idxPersist) "Modern polling write sends 0x01 persistent before 0x00 live to avoid 0x05 short-circuit"
+}
