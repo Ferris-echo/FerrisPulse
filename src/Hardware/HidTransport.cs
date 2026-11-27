@@ -256,8 +256,10 @@ namespace RazerBatteryTray
                             descriptor.OutputReportLength = caps.OutputReportByteLength;
                             descriptor.FeatureReportLength = caps.FeatureReportByteLength;
 
-                            // 仅在非标准纯光标/键盘输入端点时读取 ProductString，避免向高刷实时运动通道发送多余 EP0 控制请求
-                            bool isPureInputCollection = (caps.UsagePage == 0x0001 && (caps.Usage == 0x0002 || caps.Usage == 0x0006) && caps.FeatureReportByteLength == 0);
+                            // 保留 GS3108T-PRO (05AC:024F) 键盘集合的产品名；高斯有线身份判定依赖 MI_00 产品串。
+                            bool isGanssKeyboardIdentity = attributes.VendorID == 0x05AC && attributes.ProductID == 0x024F;
+                            bool isPureInputCollection = !isGanssKeyboardIdentity &&
+                                (caps.UsagePage == 0x0001 && (caps.Usage == 0x0002 || caps.Usage == 0x0006) && caps.FeatureReportByteLength == 0);
                             if (!isPureInputCollection)
                             {
                                 byte[] stringBuffer = new byte[512];
