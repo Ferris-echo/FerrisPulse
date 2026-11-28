@@ -708,8 +708,9 @@ namespace RazerBatteryTray
 
                         IntPtr detailBuffer = Marshal.AllocHGlobal((int)reqSize);
                         Marshal.WriteInt32(detailBuffer, IntPtr.Size == 8 ? 8 : 5);
-
-                        if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
+                        try
+                        {
+                            if (RazerDeviceHelper.SetupDiGetDeviceInterfaceDetail(devInfo, ref ifData, detailBuffer, reqSize, out reqSize, IntPtr.Zero))
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
@@ -759,6 +760,20 @@ namespace RazerBatteryTray
                                         RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
                                         attr.Size = Marshal.SizeOf(attr);
                                         RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                        IntPtr preparsed;
+                                        if (!RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed) || preparsed == IntPtr.Zero) continue;
+                                        RazerDeviceHelper.HIDP_CAPS caps = new RazerDeviceHelper.HIDP_CAPS();
+                                        try
+                                        {
+                                            RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
+                                        }
+                                        finally
+                                        {
+                                            RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+                                        }
+                                        if (caps.FeatureReportByteLength == 0) continue;
+                                        if (caps.UsagePage == 0x0001 && (caps.Usage == 0x0002 || caps.Usage == 0x0006)) continue;
 
                                         StringBuilder sbProd = new StringBuilder(256);
                                         string prodStr = RazerDeviceHelper.HidD_GetProductString(handle, sbProd, sbProd.Capacity) ? sbProd.ToString().Trim() : "";
@@ -958,8 +973,11 @@ namespace RazerBatteryTray
                                 }
                             }
                         }
-
-                        Marshal.FreeHGlobal(detailBuffer);
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuffer);
+                        }
                         ifData.cbSize = Marshal.SizeOf(ifData);
                     }
                 }

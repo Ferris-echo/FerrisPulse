@@ -58,6 +58,9 @@ namespace RazerBatteryTray
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CancelIo(IntPtr hFile);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool ResetEvent(IntPtr hEvent);
+
         private const uint GENERIC_READ = 0x80000000;
         private const uint GENERIC_WRITE = 0x40000000;
         private const uint FILE_SHARE_READ = 0x00000001;
@@ -72,6 +75,67 @@ namespace RazerBatteryTray
         public static DateTime CachedLastUpdated = DateTime.MinValue;
         public static bool HasValidHardwareReading = false;
         public static int CachedBatteryVoltageMv = -1;
+
+        // 上次成功读到的回报率与 Zaopin Z2 身份记忆：鼠标休眠时 CID/PID/PollingRate 探测不到，
+        // 若直接回退默认值 1000Hz / MaxPollingRate 8000Hz，会导致休眠期间档位与上限误跳。
+        private static int lastKnownPollingRate = -1;
+        private static bool lastKnownIsZaopin = false;
+
+        // 电压->百分比 6mV 滞回状态与异常读数自愈闸门 (from PR #69)
+        private static int lastAcceptedPct = -1;
+        private static int lastAcceptedMv = -1;
+        private static int stuckCount = 0;
+
+        private static int PercentWithHysteresis(int mv)
+        {
+            // 电压合理性闸门：单节锂电池不可能低于 2.8V 或高于 4.3V，丢弃错位/半包脏读数
+            if (mv < 2800 || mv > 4300)
+            {
+                return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            }
+
+            int pct = VoltageToPercent(mv);
+            if (pct < 0) return pct;
+
+            // 轨值合理性：避免中间电压意外算出 100%/0% 并锁死滞回基准
+            if (pct >= 100 && mv < 4050) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            if (pct <= 0 && mv > 3100) return lastAcceptedPct >= 0 ? lastAcceptedPct : -1;
+            if (lastAcceptedPct < 0)
+            {
+                lastAcceptedPct = pct;
+                lastAcceptedMv = mv;
+                return pct;
+            }
+            if (pct == lastAcceptedPct)
+            {
+                lastAcceptedMv = mv;
+                stuckCount = 0;
+                return pct;
+            }
+
+            // 突变保护与 6mV 噪声抑制
+            bool rejected =
+                (Math.Abs(pct - lastAcceptedPct) > 10 && Math.Abs(mv - lastAcceptedMv) < 60)
+                || (Math.Abs(mv - lastAcceptedMv) < 6);
+
+            if (rejected)
+            {
+                // 自愈闸门：连续 20 次被拒绝说明基准可能异常，强制采纳当前读数
+                if (++stuckCount >= 20)
+                {
+                    lastAcceptedPct = pct;
+                    lastAcceptedMv = mv;
+                    stuckCount = 0;
+                    return pct;
+                }
+                return lastAcceptedPct;
+            }
+
+            lastAcceptedPct = pct;
+            lastAcceptedMv = mv;
+            stuckCount = 0;
+            return pct;
+        }
 
         // 锂电池电压（mV）→ 电量百分比：复刻官方驱动 Config.ini 的 BatteryParam 表
         // （21 个阈值对应 0%~100%，每档 5%），档间线性插值，保证与官方读数口径一致
@@ -147,7 +211,19 @@ namespace RazerBatteryTray
                         }
 
                         var dn = key.GetValue("DeviceName") as string;
-                        if (!string.IsNullOrEmpty(dn)) CachedDeviceName = dn;
+                        if (!string.IsNullOrEmpty(dn))
+                        {
+                            CachedDeviceName = dn;
+                            if (dn.IndexOf("Z2", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                lastKnownIsZaopin = true;
+                            }
+                        }
+                        var izObj = key.GetValue("IsZaopin");
+                        if (izObj != null && Convert.ToInt32(izObj) == 1)
+                        {
+                            lastKnownIsZaopin = true;
+                        }
 
                         var chg = key.GetValue("IsCharging");
                         if (chg != null) CachedIsCharging = (Convert.ToInt32(chg) != 0);
@@ -178,6 +254,7 @@ namespace RazerBatteryTray
                             key.SetValue("IsValid", HasValidHardwareReading ? 1 : 0);
                         }
                         if (!string.IsNullOrEmpty(CachedDeviceName)) key.SetValue("DeviceName", CachedDeviceName);
+                        key.SetValue("IsZaopin", lastKnownIsZaopin ? 1 : 0, RegistryValueKind.DWord);
                         key.SetValue("IsCharging", CachedIsCharging ? 1 : 0);
                         if (CachedLastUpdated != DateTime.MinValue) key.SetValue("LastUpdated", CachedLastUpdated.ToString("o"));
                     }
@@ -280,30 +357,100 @@ namespace RazerBatteryTray
             return true;
         }
 
+        private static bool TryOverlappedWrite(IntPtr handle, IntPtr hEvent, byte[] tx, int timeoutMs, out uint written, out bool timedOut)
+        {
+            written = 0;
+            timedOut = false;
+            if (tx == null || tx.Length == 0) return false;
+            OVERLAPPED ov = new OVERLAPPED();
+            ov.hEvent = hEvent;
+            ResetEvent(hEvent);
+            bool pending = false;
+            GCHandle pinned = default(GCHandle);
+            try
+            {
+                pinned = GCHandle.Alloc(tx, GCHandleType.Pinned);
+                bool ok = WriteFile(handle, tx, (uint)tx.Length, out written, ref ov);
+                if (!ok)
+                {
+                    if (Marshal.GetLastWin32Error() != 997) return false;
+                    pending = true;
+                    if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                    {
+                        timedOut = true;
+                        return false;
+                    }
+                    ok = GetOverlappedResult(handle, ref ov, out written, false);
+                    pending = false;
+                }
+                return ok;
+            }
+            finally
+            {
+                if (pending)
+                {
+                    CancelIo(handle);
+                    uint canceledWritten;
+                    GetOverlappedResult(handle, ref ov, out canceledWritten, true);
+                }
+                if (pinned.IsAllocated) pinned.Free();
+            }
+        }
+
+        private static bool TryOverlappedRead(IntPtr handle, IntPtr hEvent, byte[] rx, int timeoutMs, out uint readBytes, out bool pendingSucceeded)
+        {
+            readBytes = 0;
+            pendingSucceeded = false;
+            if (rx == null || rx.Length == 0) return false;
+            OVERLAPPED ov = new OVERLAPPED();
+            ov.hEvent = hEvent;
+            ResetEvent(hEvent);
+            bool pending = false;
+            GCHandle pinned = default(GCHandle);
+            try
+            {
+                pinned = GCHandle.Alloc(rx, GCHandleType.Pinned);
+                bool ok = ReadFile(handle, rx, (uint)rx.Length, out readBytes, ref ov);
+                if (!ok)
+                {
+                    if (Marshal.GetLastWin32Error() != 997) return false;
+                    pending = true;
+                    if (WaitForSingleObject(hEvent, (uint)timeoutMs) != WAIT_OBJECT_0)
+                    {
+                        return false;
+                    }
+                    ok = GetOverlappedResult(handle, ref ov, out readBytes, false);
+                    pending = false;
+                    pendingSucceeded = ok;
+                }
+                return ok;
+            }
+            finally
+            {
+                if (pending)
+                {
+                    CancelIo(handle);
+                    uint canceledRead;
+                    GetOverlappedResult(handle, ref ov, out canceledRead, true);
+                }
+                if (pinned.IsAllocated) pinned.Free();
+            }
+        }
+
         private static byte[] SendAndReceive(IntPtr handle, IntPtr hEvent, byte[] tx, int inLen, int timeoutMs)
         {
             if (handle == IntPtr.Zero || handle == new IntPtr(-1)) return null;
 
-            // 1. Drain pending reports（循环清空直到连续两次 15ms 无残留，杜绝响应错位）
+            // 1. Drain pending reports（最多 8 帧或连续两次 15ms 无残留，杜绝 4K/8K 高刷持续上报导致死循环）
             byte[] drain = new byte[inLen];
             int emptyRounds = 0;
-            while (true)
+            for (int drained = 0; drained < 8; drained++)
             {
-                OVERLAPPED dOl = new OVERLAPPED();
-                dOl.hEvent = hEvent;
                 uint readBytes;
-                bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
-                if (!ok && Marshal.GetLastWin32Error() == 997) // ERROR_IO_PENDING
+                bool pendingOk;
+                if (TryOverlappedRead(handle, hEvent, drain, 15, out readBytes, out pendingOk) && pendingOk)
                 {
-                    if (WaitForSingleObject(hEvent, 15) == WAIT_OBJECT_0)
-                    {
-                        GetOverlappedResult(handle, ref dOl, out readBytes, false);
-                        emptyRounds = 0;
-                        continue;
-                    }
-                    CancelIo(handle);
-                    emptyRounds++;
-                    if (emptyRounds >= 2) break;
+                    emptyRounds = 0;
                     continue;
                 }
                 emptyRounds++;
@@ -311,43 +458,16 @@ namespace RazerBatteryTray
             }
 
             // 2. Write command
-            OVERLAPPED wOl = new OVERLAPPED();
-            wOl.hEvent = hEvent;
             uint written;
-            bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
-            if (!wOk && Marshal.GetLastWin32Error() == 997)
-            {
-                if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref wOl, out written, false);
-                }
-                else
-                {
-                    CancelIo(handle);
-                    return null;
-                }
-            }
+            bool writeTimedOut;
+            TryOverlappedWrite(handle, hEvent, tx, 500, out written, out writeTimedOut);
+            if (writeTimedOut) return null;
 
             // 3. Read response
             byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
             uint rxRead = 0;
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
-            if (!rOk && Marshal.GetLastWin32Error() == 997)
-            {
-                if (WaitForSingleObject(hEvent, (uint)timeoutMs) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
-                    return rx;
-                }
-                else
-                {
-                    CancelIo(handle);
-                    return null;
-                }
-            }
-            else if (rOk)
+            bool readPendingOk;
+            if (TryOverlappedRead(handle, hEvent, rx, timeoutMs, out rxRead, out readPendingOk))
             {
                 return rx;
             }
@@ -413,20 +533,13 @@ namespace RazerBatteryTray
         {
             if (inLen <= 0) inLen = YjxReportLen;
             byte[] drain = new byte[inLen];
-            while (true)
+            for (int drained = 0; drained < 8; drained++)
             {
-                OVERLAPPED dOl = new OVERLAPPED();
-                dOl.hEvent = hEvent;
                 uint readBytes;
-                bool ok = ReadFile(handle, drain, (uint)drain.Length, out readBytes, ref dOl);
-                if (!ok && Marshal.GetLastWin32Error() == 997)
+                bool pendingOk;
+                if (TryOverlappedRead(handle, hEvent, drain, 10, out readBytes, out pendingOk) && pendingOk)
                 {
-                    if (WaitForSingleObject(hEvent, 10) == WAIT_OBJECT_0)
-                    {
-                        GetOverlappedResult(handle, ref dOl, out readBytes, false);
-                        continue;
-                    }
-                    CancelIo(handle);
+                    continue;
                 }
                 break;
             }
@@ -434,42 +547,21 @@ namespace RazerBatteryTray
 
         private static bool YjxWriteRaw(IntPtr handle, IntPtr hEvent, byte[] tx)
         {
-            OVERLAPPED wOl = new OVERLAPPED();
-            wOl.hEvent = hEvent;
             uint written;
-            bool wOk = WriteFile(handle, tx, (uint)tx.Length, out written, ref wOl);
-            if (!wOk && Marshal.GetLastWin32Error() == 997)
-            {
-                if (WaitForSingleObject(hEvent, 500) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref wOl, out written, false);
-                    return true;
-                }
-                CancelIo(handle);
-                return false;
-            }
-            return wOk;
+            bool timedOut;
+            return TryOverlappedWrite(handle, hEvent, tx, 500, out written, out timedOut);
         }
 
         private static byte[] YjxReadRaw(IntPtr handle, IntPtr hEvent, int inLen, int timeoutMs)
         {
             if (inLen <= 0) inLen = YjxReportLen;
             byte[] rx = new byte[inLen];
-            OVERLAPPED rOl = new OVERLAPPED();
-            rOl.hEvent = hEvent;
             uint rxRead = 0;
-            bool rOk = ReadFile(handle, rx, (uint)rx.Length, out rxRead, ref rOl);
-            if (!rOk && Marshal.GetLastWin32Error() == 997)
+            bool pendingOk;
+            if (TryOverlappedRead(handle, hEvent, rx, timeoutMs, out rxRead, out pendingOk))
             {
-                if (WaitForSingleObject(hEvent, (uint)timeoutMs) == WAIT_OBJECT_0)
-                {
-                    GetOverlappedResult(handle, ref rOl, out rxRead, false);
-                    return rx;
-                }
-                CancelIo(handle);
-                return null;
+                return rx;
             }
-            if (rOk) return rx;
             return null;
         }
 
@@ -830,7 +922,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -922,7 +1018,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -1065,7 +1165,11 @@ namespace RazerBatteryTray
                                                 RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                                 RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                                if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                                RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                                attr.Size = Marshal.SizeOf(attr);
+                                                bool hasAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref attr);
+
+                                                if (hasAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                                 {
                                                     IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
                                                     if (hEvent != IntPtr.Zero)
@@ -1202,6 +1306,59 @@ namespace RazerBatteryTray
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
                             if (IsVgnCandidatePath(devicePath, true))
                             {
+                                IntPtr probeHandle = RazerDeviceHelper.CreateFile(
+                                    devicePath,
+                                    0,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    IntPtr.Zero,
+                                    OPEN_EXISTING,
+                                    0,
+                                    IntPtr.Zero);
+
+                                bool isTargetEndpoint = false;
+                                if (probeHandle != IntPtr.Zero && probeHandle.ToInt64() != -1)
+                                {
+                                    try
+                                    {
+                                        IntPtr preparsed;
+                                        if (RazerDeviceHelper.HidD_GetPreparsedData(probeHandle, out preparsed))
+                                        {
+                                            RazerDeviceHelper.HIDP_CAPS probeCaps;
+                                            RazerDeviceHelper.HidP_GetCaps(preparsed, out probeCaps);
+                                            RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
+
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            attr.Size = Marshal.SizeOf(attr);
+                                            bool hasProbeAttr = RazerDeviceHelper.HidD_GetAttributes(probeHandle, ref attr);
+
+                                            if (hasProbeAttr && IsVgnProtocolEndpoint(attr.VendorID, attr.ProductID, probeCaps.UsagePage, probeCaps.Usage, probeCaps.InputReportByteLength, probeCaps.OutputReportByteLength))
+                                            {
+                                                isTargetEndpoint = true;
+                                                if (attr.ProductID != 0) foundPid = attr.ProductID;
+                                                if (string.IsNullOrEmpty(foundName))
+                                                {
+                                                    StringBuilder sb = new StringBuilder(256);
+                                                    if (RazerDeviceHelper.HidD_GetProductString(probeHandle, sb, sb.Capacity))
+                                                    {
+                                                        string pStr = sb.ToString().Trim();
+                                                        if (!string.IsNullOrEmpty(pStr)) foundName = pStr;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        RazerDeviceHelper.CloseHandle(probeHandle);
+                                    }
+                                }
+
+                                if (!isTargetEndpoint)
+                                {
+                                    Marshal.FreeHGlobal(detailBuffer);
+                                    continue;
+                                }
+
                                 IntPtr handle = RazerDeviceHelper.CreateFile(
                                     devicePath,
                                     GENERIC_READ | GENERIC_WRITE,
@@ -1215,23 +1372,6 @@ namespace RazerBatteryTray
                                 {
                                     try
                                     {
-                                        if (string.IsNullOrEmpty(foundName))
-                                        {
-                                            StringBuilder sb = new StringBuilder(256);
-                                            if (RazerDeviceHelper.HidD_GetProductString(handle, sb, sb.Capacity))
-                                            {
-                                                string pStr = sb.ToString().Trim();
-                                                if (!string.IsNullOrEmpty(pStr)) foundName = pStr;
-                                            }
-                                        }
-
-                                        RazerDeviceHelper.HIDD_ATTRIBUTES attr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
-                                        attr.Size = Marshal.SizeOf(attr);
-                                        if (RazerDeviceHelper.HidD_GetAttributes(handle, ref attr))
-                                        {
-                                            if (attr.ProductID != 0) foundPid = attr.ProductID;
-                                        }
-
                                         IntPtr preparsed;
                                         if (RazerDeviceHelper.HidD_GetPreparsedData(handle, out preparsed))
                                         {
@@ -1239,8 +1379,12 @@ namespace RazerBatteryTray
                                             RazerDeviceHelper.HidP_GetCaps(preparsed, out caps);
                                             RazerDeviceHelper.HidD_FreePreparsedData(preparsed);
 
-                                            // Target communication endpoint: UsagePage == 0xFF02 && Usage == 0x0002
-                                            if (caps.UsagePage == 0xFF02 && caps.Usage == 0x0002 && caps.InputReportByteLength >= 17 && caps.OutputReportByteLength >= 17)
+                                            RazerDeviceHelper.HIDD_ATTRIBUTES rwAttr = new RazerDeviceHelper.HIDD_ATTRIBUTES();
+                                            rwAttr.Size = Marshal.SizeOf(rwAttr);
+                                            bool hasRwAttr = RazerDeviceHelper.HidD_GetAttributes(handle, ref rwAttr);
+
+                                            // Target communication endpoint: UsagePage == 0xFF02 && Usage == 0x0002 (exact 17/17B, excludes 0xFA09)
+                                            if (hasRwAttr && IsVgnProtocolEndpoint(rwAttr.VendorID, rwAttr.ProductID, caps.UsagePage, caps.Usage, caps.InputReportByteLength, caps.OutputReportByteLength))
                                             {
                                                 foundVgnDongle = true;
                                                 IntPtr hEvent = CreateEvent(IntPtr.Zero, true, false, null);
@@ -1454,7 +1598,12 @@ namespace RazerBatteryTray
                     int displayVoltageMv = (foundVoltageMv > 0) ? foundVoltageMv : CachedBatteryVoltageMv;
 
                     // 品牌与能力动态派生：皂品 Z2 (cid=7 / pid 0xF526 / 0xF527，接收器多 PID 变体) 与 VGN 蜻蜓同属 CompX 方案
-                    bool isZaopin = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    // 休眠时探测不到 PID/CID，结合 lastKnownIsZaopin 与缓存设备名兜底，避免 MaxPollingRate 跳回 8000Hz
+                    bool isZaopinNow = (detectedCid == 7) || (foundPid == 0xF526) || (foundPid == 0xF527);
+                    if (isZaopinNow) lastKnownIsZaopin = true;
+                    bool isZaopinByName = !string.IsNullOrEmpty(CachedDeviceName)
+                        && CachedDeviceName.IndexOf("Z2", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool isZaopin = isZaopinNow || lastKnownIsZaopin || isZaopinByName;
                     string brandName = isZaopin ? "Zaopin" : "VGN";
                     int[] defaultStages = isZaopin
                         ? new int[] { 400, 800, 1600, 2400, 3200, 6400 }
@@ -1501,7 +1650,7 @@ namespace RazerBatteryTray
                     // 官方驱动查表前会先扣掉约 12mV 的负载压降补偿（实测：3858mV 官方显示 46%，
                     // 而 3858mV 直接查表为 47%；3858-12=3846 查表正好 46%，3863 同理）
                     int calibratedMv = displayVoltageMv > 0 ? Math.Max(0, displayVoltageMv - 12) : displayVoltageMv;
-                    int vPct = displayVoltageMv > 0 ? VoltageToPercent(calibratedMv) : -1;
+                    int vPct = displayVoltageMv > 0 ? PercentWithHysteresis(calibratedMv) : -1;
                     bool useVoltageAsMain = isZaopin && !displayCharging && vPct >= 0 && vPct <= 100;
                     int coulombPct = displayBattery;
 
@@ -1521,6 +1670,15 @@ namespace RazerBatteryTray
                         {
                             batteryTooltip = string.Format("电池电压: {0}.{1:D3}V (换算参考 {2}%)", displayVoltageMv / 1000, displayVoltageMv % 1000, vPct);
                         }
+                    }
+
+                    if (foundPollingRate > 0)
+                    {
+                        lastKnownPollingRate = foundPollingRate;
+                    }
+                    if (isZaopinNow)
+                    {
+                        SaveHardwareCache();
                     }
 
                     return new MouseBatteryInfo
@@ -1543,7 +1701,9 @@ namespace RazerBatteryTray
                         DpiStage = (foundStage >= 1 && foundStage <= dpiStages.Length) ? foundStage : 2,
                         DpiStageCount = dpiStages.Length,
                         DpiStages = dpiStages,
-                        PollingRate = (foundPollingRate > 0) ? foundPollingRate : 1000,
+                        PollingRate = (foundPollingRate > 0)
+                            ? foundPollingRate
+                            : (lastKnownPollingRate > 0 ? lastKnownPollingRate : 1000),
                         MaxPollingRate = isZaopin ? 4000 : 8000,
                         SupportedPollingRates = pollRates
                     };

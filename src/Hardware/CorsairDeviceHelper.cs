@@ -587,25 +587,41 @@ namespace RazerBatteryTray
 
             uint written = 0;
             lastWriteTick = Environment.TickCount;
-            if (WriteFile(handle, tx, (uint)tx.Length, out written, ref ov))
+            bool pending = false;
+            GCHandle pinned = default(GCHandle);
+            try
             {
-                return true;
-            }
+                pinned = GCHandle.Alloc(tx, GCHandleType.Pinned);
+                if (WriteFile(handle, tx, (uint)tx.Length, out written, ref ov))
+                {
+                    return true;
+                }
 
-            int err = Marshal.GetLastWin32Error();
-            if (err != ErrorIoPending)
-            {
-                return false;
-            }
+                int err = Marshal.GetLastWin32Error();
+                if (err != ErrorIoPending)
+                {
+                    return false;
+                }
 
-            uint wait = WaitForSingleObject(evt, 220);
-            if (wait != WaitObject0)
-            {
-                CancelIo(handle);
-                GetOverlappedResult(handle, ref ov, out written, true);
-                return false;
+                pending = true;
+                uint wait = WaitForSingleObject(evt, 220);
+                if (wait != WaitObject0)
+                {
+                    return false;
+                }
+                bool res = GetOverlappedResult(handle, ref ov, out written, false);
+                pending = false;
+                return res;
             }
-            return GetOverlappedResult(handle, ref ov, out written, false);
+            finally
+            {
+                if (pending)
+                {
+                    CancelIo(handle);
+                    GetOverlappedResult(handle, ref ov, out written, true);
+                }
+                if (pinned.IsAllocated) pinned.Free();
+            }
         }
 
         private static int ReadReport(IntPtr handle, IntPtr evt, byte[] buffer, int timeoutMs)
@@ -615,30 +631,46 @@ namespace RazerBatteryTray
             ResetEvent(evt);
 
             uint read = 0;
-            if (ReadFile(handle, buffer, (uint)buffer.Length, out read, ref ov))
+            bool pending = false;
+            GCHandle pinned = default(GCHandle);
+            try
             {
-                return (int)read;
-            }
+                pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+                if (ReadFile(handle, buffer, (uint)buffer.Length, out read, ref ov))
+                {
+                    return (int)read;
+                }
 
-            int err = Marshal.GetLastWin32Error();
-            if (err != ErrorIoPending)
-            {
+                int err = Marshal.GetLastWin32Error();
+                if (err != ErrorIoPending)
+                {
+                    return -1;
+                }
+
+                pending = true;
+                uint wait = WaitForSingleObject(evt, (uint)timeoutMs);
+                if (wait != WaitObject0)
+                {
+                    return 0;
+                }
+
+                bool res = GetOverlappedResult(handle, ref ov, out read, false);
+                pending = false;
+                if (res)
+                {
+                    return (int)read;
+                }
                 return -1;
             }
-
-            uint wait = WaitForSingleObject(evt, (uint)timeoutMs);
-            if (wait != WaitObject0)
+            finally
             {
-                CancelIo(handle);
-                GetOverlappedResult(handle, ref ov, out read, true);
-                return 0;
+                if (pending)
+                {
+                    CancelIo(handle);
+                    GetOverlappedResult(handle, ref ov, out read, true);
+                }
+                if (pinned.IsAllocated) pinned.Free();
             }
-
-            if (GetOverlappedResult(handle, ref ov, out read, false))
-            {
-                return (int)read;
-            }
-            return -1;
         }
     }
 }

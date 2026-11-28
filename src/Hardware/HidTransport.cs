@@ -6,6 +6,7 @@
 //   零依赖 Win32 HID 底层通信总线：SetupAPI 枚举、HidD 属性/能力查询、
 //   重叠 I/O 读写与超时取消（含 HidD_SetOutputReport 封装）。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
 //   另暴露进程内 HID 枚举计数器（EnumerationCount），仅服务于 ScanTelemetry 的 scan_trace.log 统计。
+//   Enumerate 仅在非标准纯光标/键盘端点读取 ProductString，避免向高刷鼠标实时端点发送冗余 EP0 控制请求。
 //   供 Flydigi / MCHOSE / VXE 等品牌 Helper 复用。
 // 依赖关系: 仅 .NET 4.0 核心程序集 + hid.dll / setupapi.dll / kernel32.dll
 //
@@ -379,28 +380,23 @@ namespace RazerBatteryTray
                             descriptor.ProductId = attributes.ProductID;
                             descriptor.VersionNumber = attributes.VersionNumber;
 
-                            byte[] stringBuffer = new byte[512];
-                            if (HidD_GetProductString(handle, stringBuffer, (uint)stringBuffer.Length))
-                            {
-                                descriptor.ProductString = ReadUnicodeString(stringBuffer);
-                            }
-                            Array.Clear(stringBuffer, 0, stringBuffer.Length);
-                            if (HidD_GetManufacturerString(handle, stringBuffer, (uint)stringBuffer.Length))
-                            {
-                                descriptor.ManufacturerString = ReadUnicodeString(stringBuffer);
-                            }
-                            Array.Clear(stringBuffer, 0, stringBuffer.Length);
-                            if (HidD_GetSerialNumberString(handle, stringBuffer, (uint)stringBuffer.Length))
-                            {
-                                descriptor.SerialNumber = ReadUnicodeString(stringBuffer);
-                            }
-
                             HIDP_CAPS caps = GetCaps(handle);
                             descriptor.UsagePage = caps.UsagePage;
                             descriptor.Usage = caps.Usage;
                             descriptor.InputReportLength = caps.InputReportByteLength;
                             descriptor.OutputReportLength = caps.OutputReportByteLength;
                             descriptor.FeatureReportLength = caps.FeatureReportByteLength;
+
+                            // 仅在非标准纯光标/键盘输入端点时读取 ProductString，避免向高刷实时运动通道发送多余 EP0 控制请求
+                            bool isPureInputCollection = (caps.UsagePage == 0x0001 && (caps.Usage == 0x0002 || caps.Usage == 0x0006) && caps.FeatureReportByteLength == 0);
+                            if (!isPureInputCollection)
+                            {
+                                byte[] stringBuffer = new byte[512];
+                                if (HidD_GetProductString(handle, stringBuffer, (uint)stringBuffer.Length))
+                                {
+                                    descriptor.ProductString = ReadUnicodeString(stringBuffer);
+                                }
+                            }
 
                             result.Add(descriptor);
                         }

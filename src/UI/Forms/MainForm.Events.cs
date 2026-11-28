@@ -282,13 +282,7 @@ namespace RazerBatteryTray
 
                 {
 
-                    lock (mouseDeviceWakeMatchCache)
-
-                    {
-
-                        mouseDeviceWakeMatchCache.Clear();
-
-                    }
+                    InvalidateMouseWakeCache();
 
                     OnDeviceHardwareChange();
 
@@ -366,11 +360,55 @@ namespace RazerBatteryTray
             return false;
         }
 
+        internal void InvalidateMouseWakeCache()
+        {
+            System.Threading.Interlocked.Increment(ref mouseWakeCacheVersion);
+            System.Threading.Interlocked.Exchange(ref lastWakeProcessTicks, 0);
+            lock (mouseDeviceWakeMatchCache)
+            {
+                mouseDeviceWakeMatchCache.Clear();
+                mouseDevicePathCache.Clear();
+            }
+        }
+
+        internal void SyncMouseWakeCacheForCandidates()
+        {
+            var candidates = CollectWakeCandidateMice();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (i > 0) sb.Append('|');
+                sb.Append(candidates[i].DeviceId ?? "");
+            }
+            string cacheKey = sb.ToString();
+            int curVer = System.Threading.Interlocked.CompareExchange(ref mouseWakeCacheVersion, 0, 0);
+            if (!string.Equals(mouseWakeCacheDeviceId, cacheKey, StringComparison.OrdinalIgnoreCase) || appliedMouseWakeCacheVersion != curVer)
+            {
+                InvalidateMouseWakeCache();
+                mouseWakeCacheDeviceId = cacheKey;
+                appliedMouseWakeCacheVersion = System.Threading.Interlocked.CompareExchange(ref mouseWakeCacheVersion, 0, 0);
+            }
+        }
+
         private void EnableMouseWakeDetector(bool enable)
         {
             if (HardwareCommandBus.IsHardwareSandboxActive) return;
             try
             {
+                if (this.IsDisposed) return;
+                if (this.InvokeRequired)
+                {
+                    try
+                    {
+                        if (this.IsHandleCreated && !this.IsDisposed)
+                        {
+                            this.BeginInvoke(new Action(() => EnableMouseWakeDetector(enable)));
+                        }
+                    }
+                    catch { }
+                    return;
+                }
+
                 bool shouldStayEnabled = isDpiMonitorRunning && dpiOsdEnabled;
                 bool effectiveEnable = enable || shouldStayEnabled || ShouldMonitorMouseWakeInput();
                 IntPtr curHwnd = effectiveEnable ? this.Handle : IntPtr.Zero;
@@ -685,6 +723,96 @@ namespace RazerBatteryTray
 
         private string lastWakeMouseDeviceId = null;
 
+        private long lastWakeProcessTicks = 0;
+
+        // 原始输入 (WM_INPUT) 重入闸门：8K 回报率鼠标每秒可产生数千个报文，
+        // 处理链内一旦触发嵌套消息派发必须立即退出，避免同一次输入被反复重入。
+        private bool isHandlingMouseWakeInput = false;
+
+        // 唤醒后的界面重建合并位：0 = 空闲，1 = 已排队。
+        // 唤醒瞬间只允许存在一个待执行的 UpdateUI，后续报文全部折叠进这一次刷新。
+        private int pendingWakeUiRefresh = 0;
+        private MouseBatteryInfo pendingWakeUiTarget = null;
+
+        /// <summary>
+        /// 记录目标鼠标最近一次活动时间戳，并顺带唤醒休眠中的 DPI 监听线程。
+        /// 仅包含 O(1) 内存操作，可安全地在 8K WM_INPUT 热路径执行。
+        /// </summary>
+        private void MarkTargetMouseActivity()
+        {
+            System.Threading.Interlocked.Exchange(ref lastTargetMouseActivityTicks, DateTime.UtcNow.Ticks);
+            if (isDpiMonitorSleeping)
+            {
+                isDpiMonitorSleeping = false;
+                try
+                {
+                    if (dpiMonitorWakeEvent != null) dpiMonitorWakeEvent.Set();
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// 零分配的廉价闸门：整个桌面没有任何休眠/离线鼠标候选时，WM_INPUT 直接返回。
+        /// 在线且清醒时每次报文只做若干字段判读，绝不进入 P/Invoke、字符串匹配与硬件查询。
+        /// </summary>
+        private bool HasSleepingOrOfflineMouseCandidate()
+        {
+            if (lastInfo != null && lastInfo.Category == DeviceCategory.Mouse && (lastInfo.IsSleeping || !lastInfo.IsConnected)) return true;
+            if (selectedDevice != null && selectedDevice.Category == DeviceCategory.Mouse && (selectedDevice.IsSleeping || !selectedDevice.IsConnected)) return true;
+            if (activeDevices != null)
+            {
+                for (int i = 0; i < activeDevices.Count; i++)
+                {
+                    var d = activeDevices[i];
+                    if (d != null && d.Category == DeviceCategory.Mouse && (d.IsSleeping || !d.IsConnected)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 该原始输入设备路径是否真的存在待唤醒目标。
+        /// 返回 false 表示目标鼠标已在线且清醒——此时只刷新活动时间戳，绝不触发界面重建。
+        /// </summary>
+        private bool IsWakeNeededForPath(string devPath, List<MouseBatteryInfo> candidates)
+        {
+            if (string.IsNullOrEmpty(devPath) || candidates == null) return false;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                if (c == null || c.Category != DeviceCategory.Mouse) continue;
+                if (!c.IsSleeping && c.IsConnected) continue;
+                if (IsTargetMouseHardwarePath(devPath, c)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 把唤醒后的全量界面重建合并成一次异步刷新。
+        /// UpdateUI 会执行较多控件与状态更新，绝不能在 WM_INPUT 回调里按报文频次同步执行。
+        /// </summary>
+        private void QueueWakeUiRefresh(MouseBatteryInfo target)
+        {
+            if (target == null) return;
+            pendingWakeUiTarget = target;
+            if (System.Threading.Interlocked.CompareExchange(ref pendingWakeUiRefresh, 1, 0) != 0) return;
+            try
+            {
+                this.BeginInvoke(new Action(delegate
+                {
+                    System.Threading.Interlocked.Exchange(ref pendingWakeUiRefresh, 0);
+                    MouseBatteryInfo t = pendingWakeUiTarget;
+                    if (t == null || this.IsDisposed) return;
+                    try { UpdateUI(t, false); } catch { }
+                }));
+            }
+            catch
+            {
+                System.Threading.Interlocked.Exchange(ref pendingWakeUiRefresh, 0);
+            }
+        }
+
         internal bool TryProcessMouseWakePath(string devPath)
         {
             if (string.IsNullOrEmpty(devPath)) return false;
@@ -709,15 +837,29 @@ namespace RazerBatteryTray
 
                 bool isPrimaryCand = cand.IsPrimary || (lastInfo != null && AreSameWakeMouse(cand, lastInfo));
                 bool wasOnline = cand.IsConnected;
-                bool wasSleeping = cand.IsSleeping || (!wasOnline && cand.IsDonglePresent) || (isPrimaryCand && isMouseSleeping);
+
+                // 【唤醒判定铁律】必须以「该物理鼠标自身的全部镜像」为唯一依据，
+                // 严禁用窗体级聚合标记 isMouseSleeping 代表当前设备，避免副鼠标休眠时引发 8K 伪唤醒风暴。
+                var mirrors = new List<MouseBatteryInfo>();
+                if (lastInfo != null) mirrors.Add(lastInfo);
+                if (selectedDevice != null) mirrors.Add(selectedDevice);
+                if (activeDevices != null) mirrors.AddRange(activeDevices);
+
+                bool anyMirrorSleeping = cand.IsSleeping;
+                if (!anyMirrorSleeping)
+                {
+                    for (int mi = 0; mi < mirrors.Count; mi++)
+                    {
+                        var m = mirrors[mi];
+                        if (m != null && m.IsSleeping && AreSameWakeMouse(m, cand)) { anyMirrorSleeping = true; break; }
+                    }
+                }
+
+                bool wasSleeping = anyMirrorSleeping || (!wasOnline && cand.IsDonglePresent);
 
                 if (wasSleeping || !wasOnline)
                 {
                     // 同步清零同设备在 lastInfo / selectedDevice / activeDevices 上的所有副本，避免切换窗口或状态栏刷新时读到旧睡眠态
-                    var mirrors = new List<MouseBatteryInfo>();
-                    if (lastInfo != null) mirrors.Add(lastInfo);
-                    if (selectedDevice != null) mirrors.Add(selectedDevice);
-                    if (activeDevices != null) mirrors.AddRange(activeDevices);
                     for (int mi = 0; mi < mirrors.Count; mi++)
                     {
                         var m = mirrors[mi];
@@ -773,7 +915,8 @@ namespace RazerBatteryTray
             }
             if (anySelectedWoken && selectedToRender != null && !this.IsDisposed)
             {
-                UpdateUI(selectedToRender, false);
+                // 合并异步刷新：唤醒瞬间只排队一次全量界面重建，杜绝按报文频次同步重建
+                QueueWakeUiRefresh(selectedToRender);
             }
 
             if (!HardwareCommandBus.IsHardwareSandboxActive)
@@ -784,96 +927,130 @@ namespace RazerBatteryTray
             return true;
         }
 
+        internal bool TryHandleCachedMouseRawDevice(IntPtr hDev, Func<string> resolveDevicePath, out bool didResolvePath, out bool didRunWakeProcess)
+        {
+            didResolvePath = false;
+            didRunWakeProcess = false;
+            if (hDev == IntPtr.Zero) return false;
+
+            string cachedPath = null;
+            bool anyTargetMatched = false;
+            bool found = false;
+            lock (mouseDeviceWakeMatchCache)
+            {
+                found = mouseDeviceWakeMatchCache.TryGetValue(hDev, out anyTargetMatched);
+                if (found)
+                {
+                    mouseDevicePathCache.TryGetValue(hDev, out cachedPath);
+                }
+            }
+
+            if (!found)
+            {
+                didResolvePath = true;
+                cachedPath = (resolveDevicePath != null) ? (resolveDevicePath() ?? "") : "";
+                var candidates = CollectWakeCandidateMice();
+                if (!string.IsNullOrEmpty(cachedPath) && candidates.Count > 0)
+                {
+                    for (int ci = 0; ci < candidates.Count; ci++)
+                    {
+                        if (IsTargetMouseHardwarePath(cachedPath, candidates[ci]))
+                        {
+                            anyTargetMatched = true;
+                            break;
+                        }
+                    }
+                }
+                lock (mouseDeviceWakeMatchCache)
+                {
+                    mouseDeviceWakeMatchCache[hDev] = anyTargetMatched;
+                    mouseDevicePathCache[hDev] = cachedPath ?? "";
+                }
+            }
+
+            if (!anyTargetMatched) return false;
+
+            MarkTargetMouseActivity();
+
+            bool needsWakeCheck = HasSleepingOrOfflineMouseCandidate();
+            if (needsWakeCheck && !string.IsNullOrEmpty(cachedPath))
+            {
+                long nowTicks = DateTime.UtcNow.Ticks;
+                long prevWakeTicks = System.Threading.Interlocked.Read(ref lastWakeProcessTicks);
+                if (nowTicks - prevWakeTicks >= TimeSpan.FromMilliseconds(200).Ticks)
+                {
+                    System.Threading.Interlocked.Exchange(ref lastWakeProcessTicks, nowTicks);
+                    var wakeCandidates = CollectWakeCandidateMice();
+                    if (IsWakeNeededForPath(cachedPath, wakeCandidates))
+                    {
+                        didRunWakeProcess = TryProcessMouseWakePath(cachedPath);
+                    }
+                }
+            }
+            return true;
+        }
+
+        private string ResolveRawInputDeviceName(IntPtr hDev)
+        {
+            uint len = 0;
+            GetRawInputDeviceInfoW(hDev, RIDI_DEVICENAME, null, ref len);
+            if (len > 0)
+            {
+                StringBuilder sb = new StringBuilder((int)len);
+                if (GetRawInputDeviceInfoW(hDev, RIDI_DEVICENAME, sb, ref len) > 0)
+                {
+                    return sb.ToString();
+                }
+            }
+            return "";
+        }
+
         private void HandleMouseWakeInput(IntPtr hRawInput)
         {
+            if (isHandlingMouseWakeInput) return;
+            isHandlingMouseWakeInput = true;
             try
             {
-                var candidates = CollectWakeCandidateMice();
-                if (candidates.Count == 0) return;
-
-                string cacheKey = string.Empty;
-                for (int i = 0; i < candidates.Count; i++)
+                // 零分配廉价闸门：没有任何休眠/离线鼠标候选时直接跳过 GetRawInputData 与字符串匹配
+                if (!HasSleepingOrOfflineMouseCandidate())
                 {
-                    if (i > 0) cacheKey += "|";
-                    cacheKey += candidates[i].DeviceId ?? "";
-                }
-                if (!string.Equals(mouseWakeCacheDeviceId, cacheKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    lock (mouseDeviceWakeMatchCache)
-                    {
-                        mouseDeviceWakeMatchCache.Clear();
-                    }
-                    mouseWakeCacheDeviceId = cacheKey;
+                    MarkTargetMouseActivity();
+                    return;
                 }
 
                 int headerSize = Marshal.SizeOf(typeof(RAWINPUTHEADER));
                 RAWINPUTHEADER header;
-                if (GetRawInputData(hRawInput, RID_HEADER, out header, ref headerSize, headerSize) >= 0)
+                if (GetRawInputData(hRawInput, RID_HEADER, out header, ref headerSize, headerSize) < 0) return;
+                if (header.dwType != 0 || header.hDevice == IntPtr.Zero) return; // RIM_TYPEMOUSE only
+
+                IntPtr hDev = header.hDevice;
+                bool anyTargetMatched = false;
+                bool found = false;
+                lock (mouseDeviceWakeMatchCache)
                 {
-                    if (header.dwType == 0) // RIM_TYPEMOUSE
+                    found = mouseDeviceWakeMatchCache.TryGetValue(hDev, out anyTargetMatched);
+                }
+                if (found)
+                {
+                    if (!anyTargetMatched) return;
+                    long nowTicks = DateTime.UtcNow.Ticks;
+                    long prevWakeTicks = System.Threading.Interlocked.Read(ref lastWakeProcessTicks);
+                    if (nowTicks - prevWakeTicks < TimeSpan.FromMilliseconds(200).Ticks)
                     {
-                        IntPtr hDev = header.hDevice;
-                        if (hDev == IntPtr.Zero) return;
-
-                        string cachedPath = null;
-                        bool anyTargetMatched;
-                        bool found;
-                        lock (mouseDeviceWakeMatchCache)
-                        {
-                            found = mouseDeviceWakeMatchCache.TryGetValue(hDev, out anyTargetMatched);
-                        }
-
-                        if (!found || anyTargetMatched)
-                        {
-                            uint len = 0;
-                            GetRawInputDeviceInfoW(hDev, RIDI_DEVICENAME, null, ref len);
-                            if (len > 0)
-                            {
-                                StringBuilder sb = new StringBuilder((int)len);
-                                if (GetRawInputDeviceInfoW(hDev, RIDI_DEVICENAME, sb, ref len) > 0)
-                                {
-                                    cachedPath = sb.ToString();
-                                }
-                            }
-
-                            if (!found)
-                            {
-                                anyTargetMatched = false;
-                                if (!string.IsNullOrEmpty(cachedPath))
-                                {
-                                    for (int ci = 0; ci < candidates.Count; ci++)
-                                    {
-                                        if (IsTargetMouseHardwarePath(cachedPath, candidates[ci]))
-                                        {
-                                            anyTargetMatched = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                lock (mouseDeviceWakeMatchCache)
-                                {
-                                    mouseDeviceWakeMatchCache[hDev] = anyTargetMatched;
-                                }
-                            }
-                        }
-
-                        if (anyTargetMatched && !string.IsNullOrEmpty(cachedPath))
-                        {
-                            bool woke = TryProcessMouseWakePath(cachedPath);
-                            if (!woke)
-                            {
-                                System.Threading.Interlocked.Exchange(ref lastTargetMouseActivityTicks, DateTime.UtcNow.Ticks);
-                                if (isDpiMonitorSleeping)
-                                {
-                                    isDpiMonitorSleeping = false;
-                                    try { dpiMonitorWakeEvent.Set(); } catch { }
-                                }
-                            }
-                        }
+                        MarkTargetMouseActivity();
+                        return; // 零堆分配极速热路径：即使另有其它离线鼠标，也按 200ms 节流，绝不在 8K WM_INPUT 内构造闭包委托
                     }
                 }
+
+                bool didResolvePath;
+                bool didRunWakeProcess;
+                TryHandleCachedMouseRawDevice(hDev, () => ResolveRawInputDeviceName(hDev), out didResolvePath, out didRunWakeProcess);
             }
             catch { }
+            finally
+            {
+                isHandlingMouseWakeInput = false;
+            }
         }
 
 
@@ -946,13 +1123,7 @@ namespace RazerBatteryTray
 
         {
 
-            lock (mouseDeviceWakeMatchCache)
-
-            {
-
-                mouseDeviceWakeMatchCache.Clear();
-
-            }
+            InvalidateMouseWakeCache();
 
             NuphyDeviceHelper.CachedCommandPath = null;
             // [P1] 拓扑已变化：立刻作废扫描代次的 HID 枚举快照

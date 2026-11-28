@@ -21,6 +21,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── Program.cs          [应用入口、全局 Mutex 防多开、目录重置、异常兜底]
     │   ├── StartupManager.cs   [高鲁棒性自启动引擎：Run/StartupApproved 双键协同与快捷方式]
     │   ├── ConfigManager.cs    [统一注册表配置持久化管理]
+    │   ├── CacheResetManager.cs [清除缓存：先备份 .reg 再清设备/设置树与图标缓存，强制保留 adapters/自启动/快捷方式；含测试注入点]
     │   └── NativeMethods.cs    [Win32 P/Invoke API、COM 接口与 TaskbarCreated 消息定义]
     │
     ├── Models\                 [数据模型层（无副作用纯净模型）]
@@ -59,6 +60,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── EndgameGearDeviceHelper.cs [Endgame Gear XM2we (3367:1961) 双端点 Beken 驱动]
     │   ├── IroncatDeviceHelper.cs [因科特 Zero (25A7:FA7C) 17B Feature/Interrupt 驱动]
     │   ├── KzziDeviceHelper.cs  [珂芝 KZZI K75 (3554:FA09 避让识别与提示)]
+    │   ├── CompxFa09KeyboardHelper.cs [CompX 公版 3554:FA09 键盘族：0x05 子型号字节归属判定 (KZZI 0x02 / LEOBOG 0x03 / 未收录走中性名) + 0x4A 电量]
     │   ├── BleDeviceHelper.cs   [Windows 原生 BLE 通用外设电量集成 (Xbox/键盘/鼠标)]
     │   ├── LogitechMr0097Helper.cs [罗技 PRO X SUPERLIGHT 2 (MR0097) 内置 HID++ 协议、20B 端点隔离、只读性能与 8100 板载切档]
     │   ├── LogitechDeviceHelper.cs [罗技通用 HID++ 驱动；扫描前跳过 MR0097 独占及外置脚本接管路径]
@@ -66,7 +68,7 @@ D:\FerrisPulse · 灵脉\
     │   ├── NuphyDeviceHelper.cs [NuPhy 键盘电量协议与侧灯控制]
     │   ├── ValkyrieDeviceHelper.cs [瓦尔基里全系键盘/鼠标私有 HID 协议、2.4G 接收器多模解析、8K 回报率与 DPI 调节]
     │   ├── FlydigiDeviceHelper.cs [飞智 APEX 6 / Vader 5 Pro GPA6 协议、0xFFA0 33B 帧、电量/充电解析]
-    │   ├── MchoseDeviceHelper.cs [迈从 G87 V2 键盘 0x4A/0x87 电池协议、接收器休眠占位与离线缓存]
+    │   ├── MchoseDeviceHelper.cs [迈从 G87 V2/K99 V3 键盘 0x4A/0x87 电池协议、接收器休眠占位与离线缓存；0xFA09 归属判定已移交 CompxFa09KeyboardHelper]
     │   ├── MchoseMouseHelper.cs  [迈从 A5 V2 Ultra 三模无线鼠标 WebHID 协议、XY轴独立 DPI 调节与 8K 回报率]
     │   ├── SteelSeriesDeviceHelper.cs [赛睿 Arctis Nova 5 / 5X 无线耳机 0x00B0 报文、UsagePage 0xFFC0 通信]
     │   ├── RazerHeadsetHelper.cs [雷蛇旋风黑鲨 V2 Pro 2.4G 专属 64 字节中断 OUT 端点 PA/PI 协议]
@@ -125,7 +127,8 @@ D:\FerrisPulse · 灵脉\
             ├── DevicePriorityForm.cs     [外设优先级排序调整窗口]
             ├── AddDeviceWizardForm.cs    [手动添加新设备向导]
             ├── PromptDialog.cs           [通用输入提示对话框]
-            └── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
+            ├── CacheClearConfirmDialog.cs [清除缓存二次确认：列明清理范围/备份位置/保留项]
+            ├── DpiManagementDialog.cs    [DPI 档位高级配置管理窗口]
 ```
 
 ---
@@ -145,6 +148,7 @@ D:\FerrisPulse · 灵脉\
 | **DPI 档位管理与 XY 轴比例调节** | `src/UI/Forms/DpiManagementDialog.cs` / `src/UI/Controls/DpiStageRowControl.cs` | DPI 档位增删、XY 轴独立调节 (4:3/16:10 比例联动) 与板载固化 |
 | **屏幕悬浮 OSD 指示器** | `src/UI/Forms/DpiOsdForm.cs` | 游戏前台免切焦点悬浮 HUD、DPI/XY独立双轴显示与回报率变动提示 |
 | **多设备优先级拖拽与首选设备** | `src/Hardware/DeviceManager.cs` / `DevicePriorityForm.cs` | 外设优先级权重与展示顺序 |
+| **清除缓存 / 外设重新识别（含备份还原）** | `src/Core/CacheResetManager.cs` / `src/UI/Forms/CacheClearConfirmDialog.cs` | 备份 .reg → 清设备与设置注册表树 + 图标缓存，强制保留 adapters/自启动/快捷方式 |
 | **按钮、滑块、分段选项卡外观** | `src/UI/Controls/*.cs` | 独立的原子自定义双缓冲 GDI+ 控件 |
 
 ---
