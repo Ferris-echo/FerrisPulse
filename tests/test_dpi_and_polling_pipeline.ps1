@@ -21,7 +21,9 @@ $tUniv = $asm.GetType("RazerBatteryTray.UniversalGamingDeviceHelper", $true)
 Invoke-TestCase "1. 自适应 DPI 心跳降频与游戏/变档脉冲感知" {
     $mCalc = $tMain.GetMethod("CalculateAdaptiveDpiPollInterval", $BF, $null, [Type[]]@([double], [bool], [string], [bool], [long]), $null)
     if ($null -eq $mCalc) { $mCalc = $tMain.GetMethod("CalculateAdaptiveDpiPollInterval", $BF) }
-    Assert-Equal 50 ([int]$mCalc.Invoke($null, @([double]5.0, [bool]$false, "Razer", [bool]$false, [long]0))) "Razer active 50ms"
+    # P4 契约变更：普通桌面（非游戏/非脉冲）档由 50ms 放宽到 200ms（NormalDesktopDpiPollIntervalMs），
+    # 变档脉冲与游戏态仍保持 50ms（见本用例后两条断言）
+    Assert-Equal 200 ([int]$mCalc.Invoke($null, @([double]5.0, [bool]$false, "Razer", [bool]$false, [long]0))) "Razer normal desktop 200ms"
     Assert-Equal 200 ([int]$mCalc.Invoke($null, @([double]10.0, [bool]$false, "Rapoo", [bool]$true, [long]0))) "Rapoo gaming 200ms"
     Assert-Equal 1000 ([int]$mCalc.Invoke($null, @([double]60.0, [bool]$false, "Razer", [bool]$false, [long]0))) "Idle 60s backoff 1000ms"
     Assert-Equal 2000 ([int]$mCalc.Invoke($null, @([double]10.0, [bool]$true, "Razer", [bool]$false, [long]0))) "Sleep backoff 2000ms"

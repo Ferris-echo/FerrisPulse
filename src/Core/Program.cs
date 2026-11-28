@@ -52,11 +52,12 @@ namespace RazerBatteryTray
             }
             catch { }
 
-            // 1.1 静默清理自更新残留的旧版本备份 (.old)
+            // 1.1 清理自更新残留备份 (.old)：仅当"没有待确认更新"时才删（U2 —— .old 是唯一退路，
+            //     存在 UpdatePending 标记说明上次换版后新版本没走完主循环，必须留着它做回滚）
             try
             {
                 string oldBackup = Application.ExecutablePath + ".old";
-                if (File.Exists(oldBackup))
+                if (File.Exists(oldBackup) && !UpdateManager.HasPendingUpdate())
                 {
                     File.Delete(oldBackup);
                 }
@@ -251,6 +252,25 @@ namespace RazerBatteryTray
                     return;
                 }
             }
+
+            // 6.4 [U2] 自更新回滚检查：上次替换后新版本没走完主循环（标记仍在）→ 回滚到 .old 并重启
+            try
+            {
+                if (UpdateManager.TryRollbackPendingUpdate())
+                {
+                    ReleaseSingleInstanceMutex();
+                    return;
+                }
+            }
+            catch { }
+
+            // 6.5 [P2] 一次性历史数据迁移：把原先塞在"读取自定义设备"路径里的三类脏数据纠正
+            //     集中到启动时执行（幂等，凭 HKCU\Software\FerrisPulse\MigrationVersion 记录版本）
+            try
+            {
+                DeviceManager.MigrateCustomDevicesOnce();
+            }
+            catch { }
 
             // 7. 启动主窗体消息循环
             Application.EnableVisualStyles();

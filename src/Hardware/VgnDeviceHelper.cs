@@ -2,7 +2,9 @@
 // 模块名称: VgnDeviceHelper.cs
 // 所属区域: Hardware (硬件驱动层)
 // 核心职责:
-//   VGN / VXE / 蜻蜓 / ATK 系列鼠标私有 HID 协议通信实现
+//   VGN / VXE / 蜻蜓 / ATK 系列鼠标私有 HID 协议通信实现。
+//   端点路径守卫 IsVgnCandidatePath 强制排除 CompX 公版共用 PID 0xFA09（KZZI K75 / MCHOSE G75 PRO
+//   等共用），杜绝为别人的接收器伪造 VGN:3554:FA09 幽灵卡（PROJECT_MAP §12.3）。
 // 依赖关系: NativeMethods.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -288,6 +290,22 @@ namespace RazerBatteryTray
             report17[0] = 0x08; // Report ID
             Array.Copy(buf16, 0, report17, 1, 16);
             return report17;
+        }
+
+        /// <summary>
+        /// VGN 候选端点路径守卫：只接受 CompX 0x3554 家族，且必须排除公版共用 PID 0xFA09。
+        /// 0xFA09 被 KZZI K75 / MCHOSE G75 PRO / MARVO / AULA / YUNZII 等共用，本机无法仅凭
+        /// VID:PID 判定厂商；此前的放宽会给别人的接收器伪造一张 VGN:3554:FA09 幽灵卡
+        /// （IsConnected=false / IsSleeping=true），污染"桌面是否有休眠鼠标"聚合判断
+        /// （PROJECT_MAP §12.3 卡死放大器）。allowVgnName=true 时额外接受路径含 "vgn" 的端点。
+        /// </summary>
+        private static bool IsVgnCandidatePath(string devicePath, bool allowVgnName)
+        {
+            if (string.IsNullOrEmpty(devicePath)) return false;
+            string lower = devicePath.ToLower();
+            if (lower.Contains("pid_fa09")) return false;
+            if (lower.Contains("vid_3554")) return true;
+            return allowVgnName && lower.Contains("vgn");
         }
 
         public static bool IsVgnProtocolEndpoint(int vid, int pid, int usagePage, int usage, int inputLength, int outputLength)
@@ -890,8 +908,7 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
-                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
+                                if (IsVgnCandidatePath(devicePath, false))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -987,8 +1004,7 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
-                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
+                                if (IsVgnCandidatePath(devicePath, false))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -1135,8 +1151,7 @@ namespace RazerBatteryTray
                             {
                                 IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                                 string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                                string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
-                                if (pathLower.Contains("vid_3554") && !pathLower.Contains("pid_fa09"))
+                                if (IsVgnCandidatePath(devicePath, false))
                                 {
                                     IntPtr handle = RazerDeviceHelper.CreateFile(devicePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, IntPtr.Zero);
                                     if (handle != IntPtr.Zero && handle.ToInt64() != -1)
@@ -1289,8 +1304,7 @@ namespace RazerBatteryTray
                         {
                             IntPtr pDevicePath = new IntPtr(detailBuffer.ToInt64() + 4);
                             string devicePath = Marshal.PtrToStringAuto(pDevicePath);
-                            string pathLower = devicePath != null ? devicePath.ToLowerInvariant() : "";
-                            if ((pathLower.Contains("vid_3554") || pathLower.Contains("vgn")) && !pathLower.Contains("pid_fa09"))
+                            if (IsVgnCandidatePath(devicePath, true))
                             {
                                 IntPtr probeHandle = RazerDeviceHelper.CreateFile(
                                     devicePath,

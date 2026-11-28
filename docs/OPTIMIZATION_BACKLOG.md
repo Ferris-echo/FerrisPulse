@@ -1,0 +1,369 @@
+﻿# 🛠️ FerrisPulse · 灵脉 — 性能与稳定性待优化清单 (OPTIMIZATION_BACKLOG.md)
+
+> **用途**：把"哪里慢、哪里会崩、为什么、怎么改、怎么验"固化成可逐条开工的工单。每条都带真实代码证据（`文件:行号`，基于 `dev2.0` @ `2f9dc3e` 实测）。
+> **与其它文档的分工**：
+> - 开发铁律 13 条 ➡️ `AGENT_RULES.md`（最高约束）
+> - 项目全景与坑位 ➡️ `docs/PROJECT_MAP.md`（本清单不重复其内容，只引用章节号）
+> - 跨模块通用陷阱与发布 SOP ➡️ `docs/AGENT_HANDBOOK.md`
+> - 单品牌 HID 报文偏移 ➡️ `docs/HARDWARE_PROTOCOLS.md`（按需定点检索）
+
+---
+
+## 0. 结论摘要（按性价比排序）
+
+| 排名 | 问题 | 一句话影响 | 工单 |
+| ---: | :--- | :--- | :--- |
+| 1 | 全量扫描没有在途闸门 | 定时器、开机轮询、USB 通知、手动刷新会同时堆多个全量扫描，期间 UI 与硬件命令全部排队 | **M1** |
+| 2 | HID 枚举零缓存 | 一次扫描要重复做数十次 SetupAPI 全量枚举 + 逐接口开句柄，是扫描慢的主因 | **P1** |
+| 3 | 严格身份名单比文档少两项 | `3554:FA09` 同接收器裂成两张卡（`VGN:` 幽灵卡），污染"桌面是否有休眠鼠标"判断，放大卡死 | **M3** |
+| 4 | DPI 监听常态 50ms，且每轮重算驱动 | 20Hz 的注册表/锁/List 分配，笔记本上直接吃 CPU 与耗电 | **P4** |
+| 5 | 进程级 TLS 校验被关闭 | 自更新通道可被中间人替换，且 SHA256 来自同一通道，校验形同虚设 | **U1** |
+
+---
+
+## 1. 字段说明与开工流程
+
+每条工单固定六段：**症状 / 证据 / 根因 / 改法 / 风险 / 验证**。
+
+单个工单的开工流程：
+
+1. 只改该工单列出的文件，改完同步文件头部"核心职责/依赖关系"注释（铁律：契约同步更新）。
+2. 新/改的 `.cs` 存成 **UTF-8 with BOM + CRLF**，随后 `python tools/ensure_boms_safe.py`。
+3. 走到该工单的「验证」一栏，逐条跑。
+4. 需要新用例的工单，用例必须走全内存反射加载（铁律 10，`[System.IO.File]::ReadAllBytes` + `Assembly.Load`）。
+
+**每批收尾统一动作**：
+
+```powershell
+Stop-Process -Name FerrisPulse -Force -ErrorAction SilentlyContinue
+cmd.exe /c "build.bat"
+powershell -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
+```
+
+基线为 **17/18 PASS**，`test_dpi_and_polling_pipeline.ps1` 为既有失败（PROJECT_MAP §9.3），**任何批次都不得因它变红而改生产行为**，也不得让其它用例由绿转红。
+
+---
+
+## 2. 批 0 — 测量与止血
+
+> 目标：先拿到数字，再动性能代码；顺手堵住最容易复发的稳定性缺口。全部为小改动，可独立上线。
+
+### M1 · 全量扫描缺"在途闸门"，扫描会堆积
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 插拔设备、开机、点刷新、定时器同时命中时，多个全量扫描串在 `lock (ScanSyncRoot)` 上排队；排队期间 DPI 监听、托盘刷新、硬件写入全部被拖慢，表现为"点了没反应"或"界面一顿" |
+| 证据 | `src/UI/Forms/MainForm.Hardware.cs:2163-2195`（`RefreshBatteryStatus` 每次调用直接 `ThreadPool.QueueUserWorkItem`，无在途标志）；触发源：`updateTimer`（`MainForm.cs:1026-1035`）、`StartBootPolling` 8 次 × 1200ms（`MainForm.Hardware.cs:2130-2158`）、`OnDeviceHardwareChange` 的双定时器 250ms + 1000ms（`MainForm.Events.cs:945-1008`）、手动刷新与设备页签切换 |
+| 根因 | 刷新入口只判断 `PauseBackgroundRefresh`（暂停），没有"已在跑就不重入"的合流机制；`DeviceManager.QueryAllDevices()`（`DeviceManager.cs:1513-1517`）靠全局锁串行，锁不消除排队，只让排队变成阻塞 |
+| 改法 | 新增进程内合流器：`int scanInFlight` + `int pendingRescan`。入口用 `Interlocked.CompareExchange(ref scanInFlight, 1, 0)` 抢锁失败时只置 `pendingRescan=1` 并立即返回；扫描结束在 `finally` 里复位 `scanInFlight`，若 `pendingRescan` 被置位则清位并补跑一次。禁止用 `Thread.Sleep` 等锁 |
+| 风险 | 合流后"最后一次刷新"可能晚一个周期才生效（最长一次扫描时长）。要求补跑逻辑必须到位，否则表现为"插了设备不刷新" |
+| 验证 | ① 新增 `tests/test_scan_coalescing.ps1`：反射触发入口 10 次，断言实际进入 `QueryAllDevices` 的次数 ≤ 2（用测试注入的计数探针）；② 实机连续插拔接收器 5 次，观察只触发 1–2 次扫描且卡片状态最终正确；③ `test_device_lifecycle_and_sync.ps1`、`test_mouse_wake_input_storm.ps1`（该用例已存在）全绿 |
+| 预估 | 0.5 天 |
+
+### M2 · 扫描耗时与枚举次数无量化数据
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 讨论"扫描慢"时缺基线数字，无法判断改完到底快了多少；也无法定位是哪个品牌 helper 拖慢 |
+| 证据 | `DeviceManager.cs:1519+` 的 `QueryAllDevicesCore` 全流程无任何计时；`HidTransport.cs` 无枚举缓存（全文搜索 `Cache` 零命中），本机 `Get-PnpDevice -Class HIDClass -Present` 实测 **23** 个接口，扫描核心串行调用 **26** 个品牌 helper |
+| 根因 | 历史实现只关心"功能对不对"，从未留下可观测性 |
+| 改法 | 在 `QueryAllDevicesCore` 里加 `Stopwatch`，为每个 helper 调用包一层分段计时（建议抽 `ProbeTimer` 小工具类），扫描结束写一行汇总到 **exe 所在目录** 的 `scan_trace.log`（滚动保留最近 N 次）。日志落盘位置必须用 `AppDomain.CurrentDomain.BaseDirectory`，**禁用** `Path.GetTempPath()`（PROJECT_MAP §11.1） |
+| 风险 | 日志写入本身引入 I/O。要求：仅在文件行数 < 上限时写、单次扫描最多一行汇总、异常全部吞掉（该功能只用于测量，不得因写日志影响主流程） |
+| 验证 | 冷启动一次 + 等待一次 60s 定时刷新，产出基线表：总耗时、Top5 慢 helper 及各自 ms、每 helper 内部 HID 枚举次数。此表为 P1 的验收依据 |
+| 预估 | 0.5 天 |
+
+### M3 · 严格身份名单与文档不一致 → FA09 幽灵重复卡
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 同一 `3554:FA09` 接收器在列表里裂成两张卡（`VGN:3554:FA09` 与 `CompX:3554:FA09`，前者 `IsConnected=false, IsSleeping=true`），污染"桌面是否有休眠鼠标"的聚合判断；PROJECT_MAP §12.3 已确认这是 V3 Pro 卡死的**放大器**，当前只能"关于 → 清除缓存"临时处置 |
+| 证据 | `src/Hardware/HardwareDriverRegistry.cs:28-34` 的 `RequiresStrictIdentity` 只登记了 `BuiltIn:LogitechMR0097` 与 `BuiltIn:KeychronM6` 两项；而 PROJECT_MAP §6 明确要求 4 项：还应包含 `BuiltIn:KzziKeyboard` 与 `BuiltIn:CompxFa09Keyboard`。二者确有内置驱动实体（`KzziDeviceHelper.cs:30/181`） |
+| 根因 | 文档描述的是"应该有的名单"，代码只落地了 2 条；共用公版 PID 的驱动可以仅凭 `MatchesVidPid` 就吞下对方的设备 |
+| 改法 | ① 补齐两个 `DriverId` 到 `RequiresStrictIdentity`；② 补齐前**先复核**这两个驱动的 `CanHandle` 是否真的按"VID + PID + UsagePage/Usage + 精确报告长度"四元组判定（PROJECT_MAP §11.4、铁律 9），若只按 VID:PID 判定，需先补严格判定再登记，否则会从"重复卡"变成"丢卡" |
+| 风险 | 收紧后原本能识别的设备可能不再被接管（表现为卡片消失）。必须实机验证三台：FA09 接收器、KZZI 键盘、Logitech MR0097 |
+| 验证 | ① `tests/test_compx_fa09_identity.ps1`、`tests/test_core_driver_architecture.ps1` 全绿；② 实机插 FA09 接收器，列表只剩一张卡，`DeviceId` 命名空间稳定；③ 休眠/唤醒一次，确认不出现 `IsSleeping=true` 的幽灵卡 |
+| 预估 | 0.5 天（含实机复核） |
+
+---
+
+## 3. 批 1 — 扫描链路性能
+
+> 目标：把一次扫描的"重复劳动"砍掉。M2 的基线表是这批的验收尺。
+
+### P1 · HID 枚举零缓存，单次扫描数十次全量枚举
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 一次全量扫描期间，CPU 有明显尖峰、风扇起转；插拔后 UI 反应慢半拍 |
+| 证据 | `src/Hardware/HidTransport.cs:203-278`：每次 `EnumerateDevices` 都完整执行 `SetupDiGetClassDevs` → 逐接口 `SetupDiGetDeviceInterfaceDetail` → `CreateFile`/`CloseHandle`（:234、:278）；全项目 `EnumerateDevices` 调用点 **52 处**（`AcerDeviceHelper` 6、`MchoseDeviceHelper` 4、`VgnKeyboardHelper` 4 …），本机实测 23 个 HID 接口 |
+| 根因 | 每个品牌 helper 各自"从零问系统要一遍设备列表"，只为了筛出自己那一个 VID:PID；扫描核心又是串行调用 26 个 helper，重复成本线性叠加 |
+| 改法 | 在 `HidTransport` 增加**按扫描代次**的只读快照：`BeginScanGeneration()` 递增代次并清空缓存；`EnumerateDevicesCached()` 在同一代次内返回上次枚举结果（`List<HidDevicePath>` 的防御性副本或只读视图）。扫描入口（`DeviceManager.QueryAllDevices`）开头调 `BeginScanGeneration()`；`WM_DEVICECHANGE` 处理（`MainForm.Events.cs:275-297`）也 bump 一次代次，保证热插拔立即可见。写操作路径不变，仍走实时枚举/实时开路 |
+| 风险 | ① 缓存期内设备增删 → 用"代次 + 显式失效"兜住，且**只在单次扫描生命周期内有效**，不做跨扫描长缓存；② 快照被 helper 修改 → 必须返回副本或只读包装；③ 代码里存在"写指令前重新枚举以取句柄"的路径，改缓存时不得让写路径复用到过期句柄 |
+| 验证 | ① M2 日志：单次扫描的 HID 枚举次数由 30+ 降到 1–3；扫描总耗时下降（目标先定 ≥30%）；② 热插拔 5 次，设备在 2 秒内出现/消失；③ `test_core_driver_architecture.ps1`、`test_brand_*.ps1` 全绿；④ 至少 2 台真机（雷蛇 + 任一 2.4G 键盘）走一次"改 DPI → 生效"全链路 |
+| 预估 | 1.5 天 |
+
+### P2 · 读设备配置时顺带写注册表
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 每次刷新都在写 `HKCU`；偶发"配置读完立刻被改写"的困惑现场；注册表被频繁写会导致系统盘上的注册表 hive 持续 dirty |
+| 证据 | `src/Hardware/DeviceManager.cs:805-880`：`LoadCustomDevices()` 在**枚举子键的过程中**调用 `SaveCustomDevice(cfg)` — 键盘品类迁移（:844-852）与 `GanssDeviceHelper.NormalizeConfig(cfg)`（:854）；该函数在一次扫描/一次 UI 刷新中被调用 10+ 次（:569、:944、:962、:982、:1005、:1021、:1037、:1055、:1075、:1134、:1200 …） |
+| 根因 | 把"数据纠正"塞进了"读取"路径，且纠错条件写在读取循环里，导致读路径既慢又带副作用 |
+| 改法 | ① 读路径改为纯只读，删掉其中的 `SaveCustomDevice` 调用；② 数据迁移/纠错抽成 `MigrateCustomDevicesOnce()`，在启动时（`Program.Main` 的单实例确认之后）执行一次，并用 `HKCU\Software\FerrisPulse\MigrationVersion` 记录已迁移版本；③ 读结果加进程内缓存，在"添加/删除/改名/隐藏设备"等处显式失效 |
+| 风险 | 老用户的历史脏数据不再自动纠正 → 需要一次性迁移覆盖全部已知迁移规则（键盘品类、`Ganss NormalizeConfig`、复合外设品类纠错）。迁移必须幂等 |
+| 验证 | ① `test_device_lifecycle_and_sync.ps1`、`test_game_opt_engine_and_ui.ps1` 全绿；② Procmon 过滤 `RegSetValue` + 进程名 `FerrisPulse`，静置 3 分钟（≥3 次刷新）后写入次数为 0；③ 用一份含脏数据的 `CustomDevices` 备份导入，验证启动迁移后卡片品类正确 |
+| 预估 | 1 天 |
+
+### P3 · `GetDeviceIdVariants` 每次分配前缀表，且被 UI 线程循环调用
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 设备多时 UI 刷新有轻微卡顿（`UpdateUI` 本身约 6ms，但前置判定会放大）；GC 压力偏高 |
+| 证据 | `src/Hardware/DeviceManager.cs:38-86`：每次调用都 `new string[]{...29 个前缀...}`（:70），并对每个前缀做两次 `List.Contains`（:75-77），单设备最多生成 ~60 个候选字符串；`IsDeviceHidden`（:293-313）每次调用 `GetDeviceIdVariants` 且**打开一次注册表键**；该组合在 `GetAllKnownDevicesForPriority`（:558-565）里被逐设备调用，而后者由 UI 线程的 `ApplyDeviceStatus`（`MainForm.Hardware.cs:2218`）触发 |
+| 根因 | 前缀表写成了局部数组；隐藏判定每次都读注册表，没有快照 |
+| 改法 | ① 前缀表提为 `private static readonly string[] CommonPrefixes`；② 变体去重改 `HashSet<string>`（`OrdinalIgnoreCase`），返回仍为 `List<string>` 以保签名兼容；③ `IsDeviceHidden` 增加进程内隐藏集合快照（启动/首次使用时加载一次，`HideOrDeleteDevice`、`ShowDevice` 等写入口处失效），提供 `InvalidateHiddenCache()` |
+| 风险 | 隐藏/取消隐藏后若忘记失效，会表现为"隐藏不生效"。要求：所有写隐藏状态的入口**逐一**核对（`HideOrDeleteDevice` :315、相关 Show 方法、清除缓存 `CacheResetManager`） |
+| 验证 | ① `test_tray_and_ui_core.ps1`、`test_multi_tray_and_colors.ps1` 全绿；② 隐藏一台设备 → 立刻从列表消失；重启后仍隐藏；取消隐藏 → 立刻回来；③ 记录一次 `GetAllKnownDevicesForPriority` 的耗时，改造后应明显下降（3 台设备场景目标 <2ms） |
+| 预估 | 0.5 天 |
+
+---
+
+## 4. 批 2 — 高频轮询
+
+### P4 · DPI 监听常态 50ms 轮询，且每轮重算驱动与能力
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 主窗口开着时笔记本耗电/温度明显上升；进程 CPU 常驻偏高；与"电量管家"定位不符 |
+| 证据 | `src/UI/Forms/MainForm.Hardware.cs:45-63`：`CalculateAdaptiveDpiPollInterval` 在"非游戏且非空闲（idle<30s）"时仍返回 **50ms**（雷柏 200ms）；`DpiMonitorWorker` 每轮对每个鼠标目标调用 `EnsureCapabilitiesInitialized`（:122、:135）→ `HardwareDriverRegistry.ResolveDriver` → `GetAllDriversOrdered()`（`HardwareDriverRegistry.cs:183-190`，**每次 `new List<IHardwareDriver>(drivers)` 拷贝 31 个内置驱动并加全局锁**）→ `PopulateCapabilities`（`HardwareDriverRegistry.cs:251-273`）。按 20Hz × N 设备计算，每秒产生数十次列表分配 + 锁竞争 + 能力重算 |
+| 根因 | 轮询间隔只有"游戏/空闲"两档，缺少"普通桌面"档；能力与驱动解析被当成每轮必做的前置计算 |
+| 改法 | ① 新增普通档：非 burst、非游戏、非空闲时用 150–250ms；仅 `isGamingActive || burstUntilTicks` 保留 50ms（雷柏维持 200ms）；② 驱动解析结果按 `DeviceId` 缓存（`Dictionary<string, IHardwareDriver>`，在 `RegisterDriver`/`UnregisterDriverInstance`/`ReloadExternalPackages` 处清空），`ResolveDriver` 先查缓存；③ `EnsureCapabilitiesInitialized` 改为"仅当 `dev.Capabilities == null` 或缓存版本变化时重算"；④ `GetAllDriversOrdered` 增加只读快照缓存（写操作后失效），消灭每次 new List |
+| 风险 | ① 延迟变大 → OSD 响应变钝；以 burst 窗口补偿：检测到变化后 5 秒内回落到 50ms（现有 `dpiMonitorBurstUntilTicks` 机制可直接复用）；② 缓存不失效 → 外部包热加载后不生效（必须在三个注册入口清缓存） |
+| 验证 | ① `tests/test_dpi_and_polling_pipeline.ps1` 保持其既有断言状态（不得为了让其变绿改生产行为）；② 新增计时日志：每秒 `ResolveDriver` 次数、每秒硬件查询次数，改造后桌面静置场景应下降一个数量级；③ 实机拨 DPI 档位，OSD 弹出延迟感知无差异（目测 + 日志记录从硬件变化到 OSD 弹出的 ms）；④ 热加载一个 `.fp-adapter.json` 后能力立即生效 |
+| 预估 | 1 天 |
+
+### P5 · 提示音回收器 250ms 常驻定时器
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 即使从不播放提示音，一旦类被触碰过就永久每 250ms 唤醒一次线程池，妨碍 CPU 进入低功耗态 |
+| 证据 | `src/Services/ChimeSynthesizer.cs:255-269`：静态构造里 `new Timer(OnVoiceReaperTick, null, 250, 250)`；`OnVoiceReaperTick`（:271-305）在 `activeVoices` 为空时什么都不做 |
+| 根因 | 回收器挂在类型构造上，生命周期与"是否正在播放"无关 |
+| 改法 | 改为按需：首次 `PlayXxx` 入队时启动（`Timer.Change(250, 250)`），`activeVoices` 清空后 `Change(Timeout.Infinite, Timeout.Infinite)` 停表；静态构造只保留预热的 PCM 缓存 |
+| 风险 | 停表时机若漏判会泄漏 waveOut 句柄（音频句柄耗尽）。要求：`activeVoices` 非空就绝不真的销毁定时器，只停止触发 |
+| 验证 | ① 反射探针断言：未播放时定时器不再触发（用计数探针 + 等 2 秒）；② 连续播放 50 次提示音，句柄数（`GetGuiResources` 或进程句柄计数）回到基线；③ `test_game_opt_engine_and_ui.ps1` 全绿 |
+| 预估 | 0.5 天 |
+
+---
+
+## 5. 批 3 — 自更新链路
+
+### U1 · 进程级 TLS 证书校验被整体禁用
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 任何 HTTPS 请求（版本检查、release-notes、安装包下载）都接受任意证书；攻击者控制 DNS/代理即可下发伪造的 `version.json`，而 SHA256 与 `downloadUrl` **来自同一响应**，等于校验可被同时伪造 |
+| 证据 | `src/Services/UpdateManager.cs:29-37`：`ServicePointManager.ServerCertificateValidationCallback = delegate { return true; }`，同时把 `SecurityProtocol` 覆盖为含 `Tls`（TLS 1.0）的位组合；该校验是**进程级全局**设置，影响所有 `HttpWebRequest`（含 :247、:386 的下载） |
+| 根因 | 为兼容个别镜像源的证书问题，直接把进程内证书校验整体关掉 |
+| 改法 | ① 删除 `ServerCertificateValidationCallback` 赋值（回归 .NET 默认校验）；② `SecurityProtocol` 只显式设 `(SecurityProtocolType)3072`（Tls12），去掉 `Tls` 与魔法数字 12288；③ 若确有镜像源证书异常，改为**按 host 白名单**的局部回调（在回调内判断 `sender` 的 host，仅对白名单放行），绝不全局放行 |
+| 风险 | 老系统（Win7 且未打补丁）可能握手失败 → 表现为"检查更新失败"。要求：失败时给出明确文案（沿用现有 `lastError` 通道），不得静默 |
+| 验证 | ① 本机三源（github / gitee / ghproxy.net）各跑一次版本检查与一次下载，全部成功；② 用 Fiddler/mitmproxy 自签证书拦截，请求被拒绝（改造前会成功）；③ `test_app_update_startup_and_reset.ps1` 全绿 |
+| 预估 | 0.5 天 |
+
+### U2 · 原位替换后无回滚，坏包即永久起不来
+
+| 项 | 内容 |
+| :--- | :--- |
+| 症状 | 一旦下载到的 exe 能启动但随即崩溃/卡死，用户机器上就只剩这个坏版本；`.old` 在下一次启动时被无条件删除，等于删掉了唯一退路 |
+| 证据 | `src/Services/UpdateManager.cs:488-528`：`File.Move(exePath, oldExe)` → `File.Move(updateFilePath, exePath)` → `Process.Start(exePath, "--updated")`，无"启动是否成功"的确认；`src/Core/Program.cs:56-64`：启动第一件事就是 `File.Delete(exePath + ".old")` |
+| 根因 | 更新是"一次性不可逆动作"，没有 pending 状态与失败判定 |
+| 改法 | ① 替换前写标记 `HKCU\Software\FerrisPulse\UpdatePending = <版本> + <时间>`；② 新版本成功进入主循环（`MainForm` Load 完成）后清除标记与 `.old`；③ 启动时若发现标记存在（说明上次新版本没走完），且 `.old` 仍在 → 自动回滚（`.old` 移回原位并重启一次），并记录一条日志；④ `Program.cs` 的 `.old` 清理改为"仅在标记不存在时" |
+| 风险 | 回滚本身出错会留下"两个文件都不对"的状态 → 回滚实现必须"先复制到临时名、再原子重命名"，且失败时保留 `.old` 不动 |
+| 验证 | ① 手工演练：把 `version.json` 指向一个能启动但立刻退出的坏 exe，验证自动回滚到旧版并留下日志；② 正常更新一次，确认标记被清除、`.old` 被删除；③ `test_app_update_startup_and_reset.ps1` 全绿 |
+| 预估 | 1 天 |
+
+---
+
+## 6. 批 4 — 结构与诊断
+
+> 这批不直接带来帧率/耗电收益，但决定后续迭代速度与线上排障能力。可延后，但 S1 建议在下一轮需求之前做掉。
+
+### S1 · 扫描核心巨石 + 静默异常
+
+| 项 | 内容 |
+| :--- | :--- |
+| 证据 | `DeviceManager.cs:1519+` `QueryAllDevicesCore` 用 240+ 行顺序硬编码 26 个品牌 helper，每段一个 `try { } catch { }`（该文件裸 `catch {}` 共 **84** 处，全项目 **516** 处） |
+| 根因 | 每加一个品牌就往同一个函数里追加一段，异常一律吞掉；出问题只能靠复现 |
+| 改法 | ① 抽 `IHardwareProbe`（`Name / Priority / Probe() / IsEnabled()`）清单，扫描核心改为遍历清单；内置品牌各建一个 probe 适配器（先做 5 个高频品牌验证范式，再批量搬迁，每批保持 `run_all_tests` 全绿）；② 新增 `SafeLog`：`SafeLog.Capture(ex, "上下文")` 写滚动日志；只替换"硬件写路径 / 更新 / 托盘"三类关键位置的裸 catch，其余保持现状，避免一次性大爆改 |
+| 风险 | 搬迁过程中漏掉某个 helper 的副作用（有的 helper 内部会写 `DriverStateStore`）。要求：每个 probe 搬迁前后用同一台真机对比 `DeviceState` 注册表内容一致 |
+| 验证 | 每搬迁 5 个 probe 跑一次全量测试；全部搬完后 `QueryAllDevicesCore` 从 240+ 行降到 30 行以内，且 DeviceIds 集合与改造前**完全一致**（导出对比） |
+| 预估 | 3 天（分批） |
+
+### S2 · 三个超大分部类
+
+| 项 | 内容 |
+| :--- | :--- |
+| 证据 | `MainForm.Hardware.cs` 4058 行、`DeviceManager.cs` 3716 行、`MainForm.UI.cs` 3230 行（全项目 160 个 `.cs` / 90577 行） |
+| 改法 | 按职责拆 `partial`：`MainForm.Hardware` → 扫描 / DPI 监听 / 游戏感知 / 灯光；`DeviceManager` → 身份合并 / 配置读写 / 扫描编排。拆分**纯搬代码不改逻辑**，每拆一个文件跑一次全量测试 |
+| 风险 | 拆分中途合并冲突。要求：一次只拆一个文件，拆完立即提交 |
+| 验证 | 编译无新警告；全量测试保持 17/18；行数拆分后各文件 < 1500 行 |
+| 预估 | 2 天（可穿插） |
+
+### S3 · 测试与文档卫生
+
+| 项 | 内容 |
+| :--- | :--- |
+| 证据 | `tools/run_all_tests.ps1:14` 残留 `"test_mchose_onboard_truthfulness.ps1" = 60000`，该文件已不存在（`tests/` 实测 **15** 个用例文件，PROJECT_MAP §9.1 写 18 个）；`test_dpi_and_polling_pipeline.ps1` 既有失败；`docs/PROJECT_MAP.md` 尚未提交（`git status` 显示 `??`）；文档内"版本 2.4.1 / 分支 dev / 工作区 C 盘桌面"与实际 `dev2.0` @ `2f9dc3e` 有出入 |
+| 改法 | ① 删除残留超时项；② 既有失败用例在文件头加 `# EXPECTED-FAIL: 原因（见 PROJECT_MAP §9.3）`，并让套件汇总区分"预期失败"与"回归失败"；③ PROJECT_MAP 的用例数、分支、版本号与实测对齐并提交 |
+| 风险 | 改套件汇总逻辑可能与既有用例输出格式耦合 → 只改汇总展示，不改单文件断言 |
+| 验证 | 全量套件输出形如 `15 用例 / 14 PASS / 1 EXPECTED-FAIL / 0 REGRESSION` |
+| 预估 | 0.5 天 |
+
+---
+
+## 7. 开工顺序与依赖
+
+```
+批 0   M2（先测量，产出基线表） → M1 → M3
+        ↓
+批 1   P1（用 M2 基线验收） → P2 ∥ P3
+        ↓
+批 2   P4（依赖 P1 的解析/能力缓存思路） → P5
+        ↓
+批 3   U1 → U2
+        ↓
+批 4   S1（分批） → S2；S3 随时可插空
+```
+
+并行建议：P2 与 P3 互不重叠可同时开；U1 独立，任何批之间的空档都能做。
+
+**红线**：每批结束必须是"可编译 + 全量测试不劣化 + 实机验证过一次"的完整状态，禁止多批混在一个提交里。
+
+---
+
+## 8. 假设与约束
+
+- 允许新增 `internal` 诊断钩子（滚动日志、计时探针），不改变对外行为。
+- 清单中的"数十次枚举""20Hz"等量级来自静态计数与本机实测（23 个 HID 接口 / 31 个内置驱动），**绝对耗时的验收以 M2 基线表为准**。
+- 既有失败用例 `test_dpi_and_polling_pipeline.ps1` 保持失败状态，不作为任何批次的门禁。
+- 全部改动遵守：C# 5.0 / .NET Framework 4.0、零外部依赖、`csc.exe` 原生编译、源码 UTF-8 with BOM + CRLF。
+
+---
+
+## 9. 明确不做
+
+1. 不重做 PROJECT_MAP §12.2 已整体回退的 DPI 数值框补丁与托盘注册重试补丁。
+2. 不为让测试变绿去改生产逻辑（尤其 §9.3 记录的 DPI 徽标契约）。
+3. 不引入 NuGet 包、第三方 DLL、C# 6+ 语法。
+4. 不在工单范围外顺手重构无关品牌 helper。
+5. 不新增 `Thread.Sleep` 轮询式的"等锁"写法。
+
+---
+
+## 10. 复测记录（每批完成后填写）
+
+| 日期 | 工单 | 基线（扫描 ms / 枚举次数 / CPU） | 改造后 | 全量测试 | 实机设备 | 结论 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 2026-11-28 | M2 遥测 | 单次扫描 5050–5338ms / HID 枚举 46 次 / 53 段 | 仅新增观测，行为未变 | 16/16 PASS | 本机 1 台在线 | 基线表已产出，见 §11 |
+| 2026-11-28 | M1 合流 | 刷新间隔 5s、单次扫描 5s → 请求持续堆在 ScanSyncRoot | 并发 5 次触发仅 2 次核心扫描；令牌占用时 0 次 | 16/16 PASS | 本机 1 台在线 | 待连续插拔 5 次实机复核 |
+| 2026-11-28 | M3 身份 | 4 处 vid_3554 路径守卫会把 FA09 接收器铸成 VGN 幽灵卡 | KZZI 驱动登记严格身份 + 路径守卫排除 pid_fa09 | 16/16 PASS | 本机未接入 FA09 | 待插 FA09 接收器实机复核 |
+| 2026-11-28 | P1 枚举快照 | 46 次 HID 全量枚举/扫描 | **1 次**真实枚举（hidCached=32–45） | 22/22 PASS | 本机 1 台在线 | 枚举达标，但耗时收益有限（见 §12.1） |
+| 2026-11-28 | P2 配置只读 | 每次刷新写 HKCU 10+ 次 | 读路径零写入；一次扫描只读一次注册表 | 22/22 PASS | 本机 | 待 Procmon 复测写入次数 |
+| 2026-11-28 | P3 变体/隐藏 | 每设备 ~60 次线性 Contains + 每次开注册表键 | 静态前缀表 + HashSet 去重 + 隐藏集合进程内快照 | 22/22 PASS | 本机 | 完成 |
+| 2026-11-28 | P4 轮询档 | 常态 50ms（20Hz） | 普通桌面 200ms；游戏/脉冲仍 50ms；驱动解析缓存**主动放弃**（§12.2） | 22/22 PASS | 本机 | 完成 |
+| 2026-11-28 | P5 回收器 | 静态构造即 250ms 常驻 | 首个声部起表、声部清空停表 | 23/23 PASS | 本机 | 完成 |
+| 2026-11-28 | P4b 游戏侦测 | 周期 1000ms、单拍 10ms 跑在 UI 线程 | 周期 500ms + 探测挪线程池 + 预取票 | 23/23 PASS | 本机 | 判定延迟 1~2s → 0.5~1.0s；待实机 OSD 端到端复核 |
+| 2026-11-28 | U1 TLS | 进程级证书校验全关 | 只保留 TLS1.2 严格校验 | 22/22 PASS | 本机 | 待三源实测 + 自签证书拦截验证 |
+| 2026-11-28 | U2 回滚 | 坏包即永久起不来 | UpdatePending 标记 + 启动回滚 + 健康确认 | 22/22 PASS | 本机 | 待手工坏包演练 |
+| 2026-11-28 | S3 卫生 | 套件 15 用例、文档写 18、既有失败 | 22 用例全绿 + EXPECTED-FAIL 机制 + 文档对齐 | 22/22 PASS | 本机 | 完成 |
+
+> 注：套件实测为 **22 个用例全绿**（清单原写的 17/18 与「dpi 用例既有失败」已与现状不符，见 S3）。
+
+---
+
+## 11. 批 0 落地记录（2026-11-28）
+
+### M2 · 扫描遥测（已落地）
+- 新增 `src/Core/ScanTelemetry.cs`：`ScanTimer.Time(name, helper)` 逐品牌分段计时，配合 `HidTransport.EnumerationCount` 统计该段内的 HID 全量枚举次数；扫描结束写一行到 **exe 所在目录** 的 `scan_trace.log`（滚动保留 400 行、异常全吞、只在测量期生效）。
+- 实测基线（本机 1 台在线设备，刷新间隔 5s）：
+  - 总耗时 **5050–5338ms**，被计时分段合计 **5002–5277ms**，`HidTransport` 全量枚举 **46 次/扫描**，共 53 段；
+  - Top5 慢 helper：**Vgn=2250ms**、**Mchose=1465ms**、SinoWealth=477ms、Kzzi=452ms、Razer=147ms；其后是 UniversalGaming=92ms、LogitechMR0097=62ms、Apple=57ms。
+- 关键结论（P1 的验收前提）：**Vgn + Mchose 两段占 73%**；且 `Vgn=2250ms / 0e` 的耗时**不来自 `HidTransport` 枚举**（VGN 自建 SetupAPI 循环 + 多次 300–400ms 超时往返），P1 的枚举缓存解决不了它，需在批 1 单独处理。
+
+### M1 · 全量扫描在途合流（已落地）
+- `DeviceManager.QueryAllDevices` 增加 `scanInFlight` / `pendingRescan` 令牌与「最近一次完成扫描快照」：
+  - 抢不到令牌 → 只置补跑位并**立刻返回快照**，不再往 `ScanSyncRoot` 上堆扫描；
+  - 冷启动首个扫描期间尚无快照时有界等待（12s 上限）首个快照，避免 UI 先被空列表刷白；
+  - 在途扫描结束后若补跑位被置位，**补跑一次**（最多一次，防持续负载下饿死）；
+  - 全程未引入 `Thread.Sleep` 等锁写法。
+- 新增 `tests/test_scan_coalescing.ps1`（实测：并发 5 次触发 → 核心执行 **2** 次；令牌占用时 10 次触发 → 核心 **0** 次且 `pendingRescan=1`）。
+- 背景数据：本机刷新间隔 5s、单次扫描 5s，改造前每次刷新都会完整排队；改造后同一时刻最多「1 次在途 + 1 次补跑」。
+
+### M3 · 共用公版 PID 身份隔离（已落地，含清单事实校正）
+- **清单校正**：清单里写的 `BuiltIn:CompxFa09Keyboard` **在代码中并不存在**；真正覆盖 CompX `3554:FA09` 的内置驱动是 `BuiltIn:KzziKeyboard`（KZZI K75），该 PID 还被 MCHOSE G75 PRO / MARVO / AULA / YUNZII 共用。
+- 落地三件事：
+  1. `HardwareDriverRegistry.RequiresStrictIdentity` 补入 `BuiltIn:KzziKeyboard`：它的 `MatchesVidPid` 覆盖公版共用 PID，必须再过 `CanHandle`（品类 / 品牌 / `KZZI:` 命名空间）复核才允许接管；
+  2. 幽灵卡 `VGN:3554:FA09` 的**真正根因在 VGN 端点路径判定**：4 处 `devicePath.Contains("vid_3554")` 会把别人（KZZI / MCHOSE）的接收器铸成 VGN 卡且永远读不到状态（`IsConnected=false / IsSleeping=true`）。已抽出 `VgnDeviceHelper.IsVgnCandidatePath(devicePath, allowVgnName)`，统一排除 `pid_fa09`；
+  3. 新增 `tests/test_shared_pid_identity.ps1`：断言 FA09 不是 VGN 协议端点、4 处守卫统一走新函数、KZZI 键盘仍归 KZZI 驱动、VGN 幽灵卡与 MCHOSE 键盘都不会被 KZZI 驱动吞掉。
+- 仍待实机复核：插 FA09 接收器确认列表只剩一张卡、休眠/唤醒后不再出现 `IsSleeping=true` 幽灵卡（本机当前未接入该接收器）。
+
+---
+
+## 12. 批 1–3 落地记录（2026-11-28）
+
+### 12.1 P1 · HID 枚举按扫描代次快照（已落地，含验收口径校正）
+- 实现：`HidTransport.BeginScanGeneration()` / `EndScanGeneration()` / `NotifyTopologyChanged()`；`Enumerate` 命中本代次快照，`EnumerateFresh` 保留实时枚举。快照**只对扫描线程生效**（记录扫描线程 ID），因此写路径与 UI 线程永远拿活句柄；`WM_DEVICECHANGE` 立刻作废快照。
+- 实测：`hidEnums` 46 → **1**，`hidCached` 32–45；冷扫描 3004 → 2934ms，稳态 336–466ms。
+- **验收口径校正**：M2 基线显示 46 次枚举只占总耗时约 2%（每段 0–5ms），P1 原设想的「总耗时降 ≥30%」不成立。真正的大头是 **Mchose 协议阶梯 1478ms**（5 次枚举，占 45%）与 **Vgn 2250ms**（0 次枚举）。Vgn 那 2.25s 已被 M3 的 FA09 排除顺带消灭；Mchose 属品牌 helper 内部超时阶梯，按红线不在本工单范围内重写，另立 P1b。
+
+### 12.2 P2 · 自定义设备读路径纯只读（已落地）
+- `LoadCustomDevices` 拆成「缓存包装 + `LoadCustomDevicesFromRegistry`（纯只读）」，删除读取循环里的 3 处 `SaveCustomDevice`。
+- 一次扫描只读一次注册表；`SaveCustomDevice` / `DeleteCustomDevice` / 清理删除路径显式作废缓存，扫描开头再兜一次底。
+- 三类历史纠正（键盘品类 + 占位 100% 电量、Ganss 归一化、复合外设品类权威纠错）抽到 `MigrateCustomDevicesOnce()`，在 `Program.Main` 单实例确认后执行，凭 `HKCU\Software\FerrisPulse\MigrationVersion` 幂等。
+- 新增 `tests/test_custom_devices_readonly_cache.ps1`（4 用例）。
+
+### 12.3 P3 · 变体生成与隐藏集合（已落地）
+- 前缀表提为 `private static readonly string[] CommonDeviceIdPrefixes`；去重从 `List.Contains` 线性扫描换成 `HashSet<string>(OrdinalIgnoreCase)`。
+- `IsDeviceHidden` 改为读进程内隐藏集合快照（一次注册表遍历），`HideOrDeleteDevice` / `UnhideDevice` 写后立刻作废，扫描开头兜底（`AcerDeviceHelper` 会直接写该键）。
+- 新增 `tests/test_device_id_variants_and_hidden_cache.ps1`（3 用例）。
+
+### 12.4 P4 · 常态轮询降频（已落地，两处按实测与契约调整）
+- **① 生效**：新增普通桌面档 `NormalDesktopDpiPollIntervalMs = 200`；游戏 / 变档脉冲仍 50ms，雷柏 200ms，空闲 ≥30s 1000ms，休眠 2000ms。`test_dpi_and_polling_pipeline` 的「Razer active」断言随之由 50 改为 200 —— 这是工单本身要求的契约变更，不是为迁就测试。
+- **② 放弃「驱动解析结果缓存」**：按设备签名缓存会把「刚被 `AcceptIdentity` 验证的 LogitechMR0097 身份」永久判给旧驱动（`test_brand_logitech` 的 `Verified MR0097 routing` 立刻变红），而 `CanHandle` 依赖驱动内部可变状态，无法用设备字段签名兜住。剔除后 P4 收益仍成立：5Hz × N 设备 × 31 驱动 = 数百次字符串比较/秒，可忽略。
+- **③ 放弃「capabilities 只算一次」**：每次扫描都会重建 `MouseBatteryInfo`（`DeviceCapabilities` 也是新对象），跳过 `PopulateCapabilities` 会让未自行声明能力的设备丢失 `SupportsDpi` 等标志，属真实回归。
+- **④ 保留**：`GetAllDriversOrdered` 增加按注册变更失效的顺序快照。
+
+### 12.5 P5 · 提示音回收器按需（已落地）
+- 静态构造不再建定时器；`EnsureVoiceReaperRunning()` 在声部入队时起表，`StopVoiceReaperIfIdle()` 在声部清空后停表（`activeVoices` 非空时绝不停）。新增 `tests/test_chime_reaper_on_demand.ps1`（3 用例）。
+
+### 12.6 U1 · TLS 收紧（已落地）
+- 删除 `ServerCertificateValidationCallback` 全放行与 `SecurityProtocolType.Tls` / 魔法值 12288，只显式启用 TLS 1.2。
+- 待实测：github / gitee / ghproxy.net 三源版本检查与下载；mitmproxy 自签证书拦截应被拒。
+
+### 12.7 U2 · 更新回滚（已落地）
+- 替换前写 `HKCU\Software\FerrisPulse\UpdatePending`；`Program.Main` 在单实例确认后、迁移之前做回滚检查（坏版本 → 复制 .old 到 .rollback → 移走坏 exe → 原子换回 → 清标记 → 拉起旧版）；`MainForm.OnLoad` 成功后才 `ConfirmUpdateHealthy()` 清标记并删 .old；`Program.Main` 的 .old 清理改为「标记不存在时才删」。
+- 新增 `tests/test_update_tls_and_rollback.ps1`（4 用例）。
+
+### 12.8 S3 · 测试与文档卫生（已落地）
+- 删除 `run_all_tests.ps1` 里指向已不存在文件的 60s 宽限项。
+- 套件支持 `# EXPECTED-FAIL:` 标记与 `N 用例 / X PASS / Y EXPECTED-FAIL / Z REGRESSION` 汇总；当前 0 个预期失败。
+- `docs/PROJECT_MAP.md` 的用例数与基线（17/18）已对齐实测 22/22，用例清单按实际文件重写。
+- 说明：`test_dpi_and_polling_pipeline.ps1` 的「既有失败」在本轮开工前就已是绿的（文档描述滞后），因此没有给它加 EXPECTED-FAIL。
+
+### 12.9 P4b · 游戏侦测提速（已落地，2026-11-28）
+- **先量后改**：实测 `DetectCurrentGameRunning` **单拍 9.8ms**（仅 2 个守护进程时）、`GetActiveGameProfile` **单次 14.8ms**。原先两者都跑在 WinForms Timer（UI 线程）里，直接把周期 1000ms 砍到 500ms 会变成「每 0.5s 让 UI 阻塞 10ms」，所以没有只改一行。
+- 落地三件事：
+  1. 周期 1000ms → **500ms**（`MainForm.GameMonitorIntervalMs` 常量），2 拍确认门槛不变，进出游戏判定延迟 **1~2s → 0.5~1.0s**；
+  2. 探测整体挪到线程池：`gameDetectInFlight` 用 `Interlocked.CompareExchange` 做在途闸门，探测未回来不再发新拍（绝不堆叠）；结果 `BeginInvoke` 回 UI 线程，**所有状态变更（拍数 / `isGamingActive`）仍只在 UI 线程发生**，并加了「探测期间设备被切走则结果作废、计数归零」的保护；
+  3. **预取（方案 A）**：第 1 拍命中即在线程池里跑 `PrepareGameOptimization()`，把 `GameProfile` 查表与目标档位算成 `GameOptTicket`；第 2 拍确认时 `TakePendingGameOptTicket` 直接落盘。票一次性消费，并校验「设备一致 / 两个开关未被改过 / 3s 内有效」，任一不满足就回退现场计算。
+- **明确没做**：VGN 那类「预热硬件句柄」没有实现——在投机路径里提前开 HID 句柄属于对设备的真实副作用（会占用/干扰端点），收益只有 20–80ms，不值得。
+- 只开单个开关（仅回报率或仅 DPI）时走原分支，不吃预取票；两个开关都开（主流配置）才享受预取收益。
+- 新增 `tests/test_game_monitor_tuning.ps1`（4 用例：常量/类型契约、票一次性消费与三项校验、负向探测不触发下发、源码契约）。
+- 待实机复核：进/出游戏的实际感知延迟、「拨 DPI 档 → OSD 弹出」端到端延迟（仍建议目标 <300ms）。
+
+### 12.10 新增工单（测量驱动，待排期）
+- **P1b · 品牌 helper 负结果节流**：Mchose 冷扫描 1478ms（5 次枚举 + 四段 300–400ms 超时阶梯），Kzzi 455ms、SinoWealth 483ms 同源，都是「设备不在场也把超时阶梯跑满」。建议：记下上次探测结果与时间戳，命中「无设备/无应答」时在 N 秒内直接短路，`WM_DEVICECHANGE` 强制解除短路。
+- **P4c · 事件驱动替代轮询**：若要把进出游戏判定压到 200ms 内，正路是 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` 代替 500ms 轮询，代价是要处理 WinEvent 回调线程与重入。
+- **P4d · 单开关模式也吃预取**：目前只有「回报率 + DPI 同开」走 `ApplyGameOptimizationWithPrefetch`，单开关分支（`ApplyGamePollingRate` / `ApplyGameDpiStage`）仍会自己查一遍 GameProfile（~15ms），可后续统一。
+
+

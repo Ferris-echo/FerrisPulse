@@ -580,6 +580,18 @@ namespace RazerBatteryTray
 
         private int outOfGameTickCount = 0;
 
+        // ===== [P4b 游戏侦测提速] =====
+        // 侦测周期从 1000ms 降到 500ms（GameMonitorIntervalMs），把"进/出游戏"的判定延迟砍半；
+        // 但单拍 DetectCurrentGameRunning 实测约 10ms（仅 2 个守护进程时），原先跑在 UI 线程，
+        // 500ms 周期会变成每 0.5s 卡一下，因此探测整体挪到线程池 + 在途闸门（绝不堆叠）。
+        // 同时引入"预取票"：第 1 拍命中就在后台线程把 GameProfile 与目标档位算好
+        // （GetActiveGameProfile 实测约 15ms），第 2 拍确认时直接落盘。
+        public const int GameMonitorIntervalMs = 500;
+        private const int GameOptTicketMaxAgeMs = 3000;
+        private int gameDetectInFlight = 0;
+        private GameOptTicket pendingGameOptTicket = null;
+        private readonly object pendingGameOptTicketLock = new object();
+
         private bool gameRateNotifyOsd = true;
 
         private bool gameRateNotifyToast = true;
@@ -1297,6 +1309,9 @@ namespace RazerBatteryTray
                 base.OnLoad(e);
 
                 RestoreWindowPosition();
+
+                // [U2] 新版本已成功走到主循环：确认更新健康（清 pending 标记并删除 .old 退路）
+                UpdateManager.ConfirmUpdateHealthy();
 
             }
 

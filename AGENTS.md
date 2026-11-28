@@ -63,6 +63,7 @@
 2. **按需查阅（平时严禁盲目通读，仅在相关任务时定点检索）**：
    - 涉及**硬件扩展包格式、AI 提示词或动态脚本编写**时 ➡️ 查阅 **[docs/ADAPTER_SPECIFICATION.md](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/docs/ADAPTER_SPECIFICATION.md)**
    - 涉及**排查或修改某一特定老品牌底层 HID 报文偏移**时 ➡️ 定点检索 **[docs/HARDWARE_PROTOCOLS.md](file:///D:/FerrisPulse%20%C2%B7%20%E7%81%B5%E8%84%89/docs/HARDWARE_PROTOCOLS.md)** 对应品牌章节
+   - 涉及**性能优化、稳定性整治或优化批次排期**时 ➡️ 定点查阅 `docs/OPTIMIZATION_BACKLOG.md` 对应工单
 
 3. **完工反哺义务**：
    - 解决新的跨模块架构共性陷阱时，更新 `docs/AGENT_HANDBOOK.md`；

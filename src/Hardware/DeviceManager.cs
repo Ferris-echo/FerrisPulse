@@ -4,6 +4,8 @@
 // 核心职责:
 //   全品牌外设扫描调度中心：统一设备轮询、多设备优先级仲裁与缓存管理
 //   包含 Logitech MR0097 与 Keychron M6 内置专用驱动调度及物理身份合并。
+//   扫描链路带 ScanTelemetry 分段遥测（各品牌 helper 耗时 + HID 枚举次数 → scan_trace.log）。
+//   全量扫描有在途合流闸门（scanInFlight/pendingRescan）；自定义设备配置为只读缓存 + 启动期一次性迁移。
 // 依赖关系: 所有品牌 DeviceHelper, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -35,16 +37,54 @@ namespace RazerBatteryTray
         private const string CustomDevicesRegPath = @"Software\RazerBatteryTray\CustomDevices";
         private const string HiddenDevicesRegPath = @"Software\RazerBatteryTray\HiddenDevices";
 
+        // ===== [M1 全量扫描在途合流器] =====
+        // 背景：定时器 / 开机轮询 / USB 设备变更 / 手动刷新 / 页签切换会同时命中刷新入口，
+        // 而 QueryAllDevicesCore 内部靠 ScanSyncRoot 串行，锁只把排队变成阻塞，扫描照样堆积。
+        // 策略：scanInFlight 做在途令牌，抢不到令牌的调用只置 pendingRescan 并立刻返回最近一次快照；
+        //       在途扫描结束后若发现 pendingRescan 被置位，补跑一次（最多一次，防止持续负载下饿死）。
+        //       严禁用 Thread.Sleep 等锁。
+        private static int scanInFlight;
+        private static int pendingRescan;
+        private static int coreScanInvocationCount;
+        private static List<MouseBatteryInfo> lastScanSnapshot;
+        private static readonly object scanSnapshotLock = new object();
+        private static readonly ManualResetEvent scanSnapshotReady = new ManualResetEvent(false);
+        private const int ColdStartSnapshotWaitMs = 12000;
+
+        // ===== [P2 自定义设备配置只读缓存] =====
+        // 改造前 LoadCustomDevices 在"枚举子键"的同时写回注册表（键盘品类迁移 / Ganss 归一化 /
+        // 复合外设品类纠错），一次刷新被调用 10+ 次 → 每轮都在写 HKCU。现在：
+        //   1. 读路径严格只读，且带进程内缓存（一次扫描只读一次注册表）；
+        //   2. 写入口（Save/Delete）与每次扫描开头显式作废缓存；
+        //   3. 历史脏数据纠正集中到 MigrateCustomDevicesOnce()（启动时一次性、幂等、带版本号）。
+        private static List<CustomDeviceConfig> customDevicesCache;
+        private static readonly object customDevicesCacheLock = new object();
+        private const string MigrationRootRegPath = @"Software\FerrisPulse";
+        private const string MigrationVersionValName = "MigrationVersion";
+        private const int CurrentMigrationVersion = 1;
+
+        // [P3] 前缀表提为静态只读：原实现每次调用都 new 一个 30 元素数组，而本函数在 UI 刷新
+        // 与设备合并热路径上按设备反复调用（单设备最多生成 ~60 个候选串）。
+        private static readonly string[] CommonDeviceIdPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "VXE", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron", "CompX", "LEOBOG" };
+
+        private static void AddDeviceIdVariant(List<string> variants, HashSet<string> seen, string candidate)
+        {
+            if (string.IsNullOrEmpty(candidate)) return;
+            if (seen.Add(candidate)) variants.Add(candidate);
+        }
+
         public static List<string> GetDeviceIdVariants(string deviceId)
         {
-            var variants = new List<string>();
+            List<string> variants = new List<string>(64);
             if (string.IsNullOrEmpty(deviceId)) return variants;
-            variants.Add(deviceId);
+
+            // [P3] 去重从 List.Contains 线性扫描换成 HashSet(OrdinalIgnoreCase)，命中仍是 O(1)
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AddDeviceIdVariant(variants, seen, deviceId);
 
             if (deviceId.StartsWith("Razer:1532:", StringComparison.OrdinalIgnoreCase))
             {
-                string norm = RazerDeviceHelper.NormalizeRazerDeviceId(deviceId);
-                if (!variants.Contains(norm)) variants.Add(norm);
+                AddDeviceIdVariant(variants, seen, RazerDeviceHelper.NormalizeRazerDeviceId(deviceId));
             }
 
             int colonIdx = deviceId.IndexOf(':');
@@ -67,22 +107,17 @@ namespace RazerBatteryTray
                     }
                 }
 
-                // CompX 公版 0x3554:0xFA09 的命名空间必须参与前缀归一：
-                // 同一台接收器可能被记成 "CompX:3554:FA09"（通用扫描/手动添加）、
-                // "HID:3554:FA09"（旧通用记录）或 "LEOBOG:3554:FA09"（原生族助手判定）。
-                // 少了这两个前缀，同一把键盘会在主界面裂成两张卡（一张永远 -1%/记忆值）。
-                string[] commonPrefixes = new string[] { "Razer", "Gaming", "HID", "FDAS", "Script", "Valkyrie", "Rapoo", "RapooVT", "VGN", "VXE", "Zaopin", "Logitech", "Apple", "AppleHID", "AppleBT", "BT", "BLE", "HyperX", "Flydigi", "MCHOSE", "Sony", "SteelSeries", "Corsair", "ACER", "ASUS", "ATK", "EGG", "Ironcat", "KZZI", "Keychron", "CompX", "LEOBOG" };
-                for (int i = 0; i < commonPrefixes.Length; i++)
+                // CompX 公版 0x3554:0xFA09 的命名空间必须参与前缀归一：同一台接收器可能被记成
+                // "CompX:3554:FA09"（通用扫描/手动添加）、"HID:3554:FA09"（旧通用记录）或
+                // "LEOBOG:3554:FA09"（原生族助手判定）；少了这些前缀，同一把键盘会裂成两张卡。
+                for (int i = 0; i < CommonDeviceIdPrefixes.Length; i++)
                 {
-                    string p = commonPrefixes[i];
-                    string cand1 = p + ":" + suffix;
-                    if (!variants.Contains(cand1)) variants.Add(cand1);
-                    string cand2 = p + ":" + cleanSuffix;
-                    if (!variants.Contains(cand2)) variants.Add(cand2);
+                    string p = CommonDeviceIdPrefixes[i];
+                    AddDeviceIdVariant(variants, seen, p + ":" + suffix);
+                    AddDeviceIdVariant(variants, seen, p + ":" + cleanSuffix);
                     if (!string.IsNullOrEmpty(normRazerSuffix))
                     {
-                        string cand3 = p + ":" + normRazerSuffix;
-                        if (!variants.Contains(cand3)) variants.Add(cand3);
+                        AddDeviceIdVariant(variants, seen, p + ":" + normRazerSuffix);
                     }
                 }
             }
@@ -294,22 +329,56 @@ namespace RazerBatteryTray
                    !prefix.Equals("BLE", StringComparison.OrdinalIgnoreCase);
         }
 
+        // [P3] 隐藏集合进程内快照：原实现每次 IsDeviceHidden 都打开一次注册表键，
+        // 而它在 UI 刷新与 GetAllKnownDevicesForPriority 里按设备反复调用。
+        private static HashSet<string> hiddenDeviceIdSet;
+        private static readonly object hiddenCacheLock = new object();
+
+        public static void InvalidateHiddenDevicesCache()
+        {
+            lock (hiddenCacheLock) { hiddenDeviceIdSet = null; }
+        }
+
+        private static HashSet<string> GetHiddenDeviceIdSet()
+        {
+            lock (hiddenCacheLock)
+            {
+                if (hiddenDeviceIdSet != null) return hiddenDeviceIdSet;
+                HashSet<string> set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    using (var key = Registry.CurrentUser.OpenSubKey(HiddenDevicesRegPath, false))
+                    {
+                        if (key != null)
+                        {
+                            string[] names = key.GetValueNames();
+                            for (int i = 0; i < names.Length; i++)
+                            {
+                                object val = key.GetValue(names[i]);
+                                if (val == null) continue;
+                                try { if (Convert.ToInt32(val) == 1) set.Add(names[i]); }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+                hiddenDeviceIdSet = set;
+                return set;
+            }
+        }
+
         public static bool IsDeviceHidden(string deviceId)
         {
             if (string.IsNullOrEmpty(deviceId)) return false;
             try
             {
+                HashSet<string> hidden = GetHiddenDeviceIdSet();
+                if (hidden.Count == 0) return false;
                 var variants = GetDeviceIdVariants(deviceId);
-                using (var key = Registry.CurrentUser.OpenSubKey(HiddenDevicesRegPath, false))
+                for (int i = 0; i < variants.Count; i++)
                 {
-                    if (key != null)
-                    {
-                        for (int i = 0; i < variants.Count; i++)
-                        {
-                            object val = key.GetValue(variants[i]);
-                            if (val != null && Convert.ToInt32(val) == 1) return true;
-                        }
-                    }
+                    if (hidden.Contains(variants[i])) return true;
                 }
             }
             catch { }
@@ -373,6 +442,8 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+            // [P3] 隐藏状态已变，立刻作废隐藏集合快照
+            InvalidateHiddenDevicesCache();
 
             for (int i = 0; i < variants.Count; i++)
             {
@@ -415,6 +486,8 @@ namespace RazerBatteryTray
                 }
             }
             catch { }
+            // [P3] 取消隐藏后立刻可见
+            InvalidateHiddenDevicesCache();
         }
 
         public static string GetConfiguredPrimaryDeviceId()
@@ -843,7 +916,62 @@ namespace RazerBatteryTray
             return dev;
         }
 
+        /// <summary>
+        /// 读取已登记的自定义设备（纯只读）。进程内带缓存，写入口显式失效，
+        /// 每次全量扫描开始时也会失效一次，保证一次刷新只读一次注册表。
+        /// </summary>
         public static List<CustomDeviceConfig> LoadCustomDevices()
+        {
+            lock (customDevicesCacheLock)
+            {
+                if (customDevicesCache != null) return CloneCustomDevices(customDevicesCache);
+            }
+
+            List<CustomDeviceConfig> loaded = LoadCustomDevicesFromRegistry();
+            lock (customDevicesCacheLock)
+            {
+                customDevicesCache = loaded;
+                return CloneCustomDevices(loaded);
+            }
+        }
+
+        /// <summary>
+        /// 作废自定义设备缓存。所有写 CustomDevices 注册表的入口都必须调用。
+        /// </summary>
+        public static void InvalidateCustomDevicesCache()
+        {
+            lock (customDevicesCacheLock) { customDevicesCache = null; }
+        }
+
+        private static List<CustomDeviceConfig> CloneCustomDevices(List<CustomDeviceConfig> source)
+        {
+            List<CustomDeviceConfig> copy = new List<CustomDeviceConfig>();
+            if (source == null) return copy;
+            for (int i = 0; i < source.Count; i++)
+            {
+                CustomDeviceConfig src = source[i];
+                if (src == null) continue;
+                CustomDeviceConfig dst = new CustomDeviceConfig();
+                dst.DeviceId = src.DeviceId;
+                dst.HardwareFingerprint = src.HardwareFingerprint;
+                dst.CustomName = src.CustomName;
+                dst.OriginalName = src.OriginalName;
+                dst.Category = src.Category;
+                dst.Transport = src.Transport;
+                dst.CachedBattery = src.CachedBattery;
+                dst.LastSeen = src.LastSeen;
+                dst.ThemeColorHex = src.ThemeColorHex;
+                dst.TrayColorHex = src.TrayColorHex;
+                dst.LinkTrayColorToTheme = src.LinkTrayColorToTheme;
+                copy.Add(dst);
+            }
+            return copy;
+        }
+
+        /// <summary>
+        /// 真正读注册表的实现（纯只读，绝不在读路径写回）。历史脏数据纠正见 MigrateCustomDevicesOnce。
+        /// </summary>
+        private static List<CustomDeviceConfig> LoadCustomDevicesFromRegistry()
         {
             var list = new List<CustomDeviceConfig>();
             try
@@ -873,39 +1001,9 @@ namespace RazerBatteryTray
                                         if (DateTime.TryParse(ls, out dt)) cfg.LastSeen = dt;
                                         else cfg.LastSeen = DateTime.Now;
 
-                                        // Auto-migration for keyboards misclassified as mice or with dummy 100% battery
-                                        string lowerCheck = (cfg.DeviceId + " " + cfg.OriginalName + " " + cfg.CustomName).ToLowerInvariant();
-                                        bool isKnownKeyboard = lowerCheck.Contains("nuphy") || lowerCheck.Contains("wh80") ||
-                                                               lowerCheck.Contains("air75") || lowerCheck.Contains("air96") ||
-                                                               lowerCheck.Contains("air60") || lowerCheck.Contains("halo") ||
-                                                               lowerCheck.Contains("keychron") || lowerCheck.Contains("keyboard") ||
-                                                               (cfg.OriginalName != null && cfg.OriginalName.Contains("键盘")) ||
-                                                               (cfg.CustomName != null && cfg.CustomName.Contains("键盘"));
+                                        // 历史脏数据纠正已抽到 MigrateCustomDevicesOnce()（启动时一次性执行），
+                                        // 读路径严格只读，绝不再顺带写注册表（P2）。
 
-                                        if (isKnownKeyboard && (cfg.Category != DeviceCategory.Keyboard || cfg.CachedBattery == 100))
-                                        {
-                                            cfg.Category = DeviceCategory.Keyboard;
-                                            if (cfg.CachedBattery == 100 && (cfg.Transport.Contains("2.4G") || cfg.Transport.Contains("USB") || cfg.DeviceId.StartsWith("HID:19F5")))
-                                            {
-                                                cfg.CachedBattery = -1;
-                                            }
-                                            SaveCustomDevice(cfg);
-                                        }
-
-                                        if (GanssDeviceHelper.NormalizeConfig(cfg)) SaveCustomDevice(cfg);
-
-                                        // 品类权威纠错：VID/PID 能唯一确定品类时以硬件事实为准。
-                                        // 复合外设（如 3837:1018）同时暴露键盘与鼠标接口，手动添加时
-                                        // 容易被记成 Keyboard；错误一旦固化，鼠标驱动 CanHandle 会
-                                        // 拒绝接管，DPI/回报率控件整块消失，且原逻辑只做键盘单向迁移、
-                                        // 没有反向纠错，用户无法自行恢复。此处立即写回正确品类。
-                                        DeviceCategory authoritativeCat;
-                                        if (MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out authoritativeCat) &&
-                                            cfg.Category != authoritativeCat)
-                                        {
-                                            cfg.Category = authoritativeCat;
-                                            SaveCustomDevice(cfg);
-                                        }
                                         list.Add(cfg);
                                     }
                                 }
@@ -917,6 +1015,102 @@ namespace RazerBatteryTray
             }
             catch { }
             return list;
+        }
+
+        /// <summary>
+        /// 一次性历史数据迁移（幂等）：把改造前塞在读取路径里的三类纠正集中到启动时执行。
+        /// 规则：① 键盘被误记成鼠标/占位 100% 电量；② Ganss 配置归一化；③ 复合外设品类权威纠错。
+        /// 执行完成后写入 MigrationVersion，之后启动不再重复纠正。
+        /// </summary>
+        public static void MigrateCustomDevicesOnce()
+        {
+            bool migrated = false;
+            try
+            {
+                using (var verKey = Registry.CurrentUser.OpenSubKey(MigrationRootRegPath, false))
+                {
+                    if (verKey != null)
+                    {
+                        int done = 0;
+                        try { done = Convert.ToInt32(verKey.GetValue(MigrationVersionValName, 0)); }
+                        catch { }
+                        if (done >= CurrentMigrationVersion) return;
+                    }
+                }
+
+                List<CustomDeviceConfig> configs = LoadCustomDevicesFromRegistry();
+                for (int i = 0; i < configs.Count; i++)
+                {
+                    CustomDeviceConfig cfg = configs[i];
+                    if (cfg == null || string.IsNullOrEmpty(cfg.DeviceId)) continue;
+                    DeviceCategory beforeCategory = cfg.Category;
+                    int beforeBattery = cfg.CachedBattery;
+                    if (ApplyLegacyConfigNormalization(cfg) ||
+                        cfg.Category != beforeCategory || cfg.CachedBattery != beforeBattery)
+                    {
+                        SaveCustomDevice(cfg);
+                    }
+                }
+                migrated = true;
+            }
+            catch { }
+
+            if (!migrated) return;
+            try
+            {
+                using (var verKey = Registry.CurrentUser.CreateSubKey(MigrationRootRegPath))
+                {
+                    if (verKey != null) verKey.SetValue(MigrationVersionValName, CurrentMigrationVersion);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 历史脏数据纠正规则（原实现写在 LoadCustomDevices 的读取循环里）。返回是否被改写。
+        /// </summary>
+        private static bool ApplyLegacyConfigNormalization(CustomDeviceConfig cfg)
+        {
+            if (cfg == null || string.IsNullOrEmpty(cfg.DeviceId)) return false;
+            bool changed = false;
+            try
+            {
+                // ① 键盘被误记成鼠标，或 2.4G/USB 键盘被记成占位 100% 电量
+                string lowerCheck = (cfg.DeviceId + " " + cfg.OriginalName + " " + cfg.CustomName).ToLowerInvariant();
+                bool isKnownKeyboard = lowerCheck.Contains("nuphy") || lowerCheck.Contains("wh80") ||
+                                       lowerCheck.Contains("air75") || lowerCheck.Contains("air96") ||
+                                       lowerCheck.Contains("air60") || lowerCheck.Contains("halo") ||
+                                       lowerCheck.Contains("keychron") || lowerCheck.Contains("keyboard") ||
+                                       (cfg.OriginalName != null && cfg.OriginalName.Contains("键盘")) ||
+                                       (cfg.CustomName != null && cfg.CustomName.Contains("键盘"));
+
+                if (isKnownKeyboard && (cfg.Category != DeviceCategory.Keyboard || cfg.CachedBattery == 100))
+                {
+                    cfg.Category = DeviceCategory.Keyboard;
+                    changed = true;
+                    string transport = cfg.Transport ?? "";
+                    if (cfg.CachedBattery == 100 && (transport.Contains("2.4G") || transport.Contains("USB") || cfg.DeviceId.StartsWith("HID:19F5")))
+                    {
+                        cfg.CachedBattery = -1;
+                    }
+                }
+
+                // ② Ganss 配置归一化
+                if (GanssDeviceHelper.NormalizeConfig(cfg)) changed = true;
+
+                // ③ 品类权威纠错：VID/PID 能唯一确定品类时以硬件事实为准。
+                // 复合外设（如 3837:1018）同时暴露键盘与鼠标接口，手动添加时容易被记成 Keyboard；
+                // 错误一旦固化，鼠标驱动 CanHandle 会拒绝接管，DPI/回报率控件整块消失。
+                DeviceCategory authoritativeCat;
+                if (MchoseDeviceHelper.TryGetAuthoritativeCategory(cfg.DeviceId, cfg.HardwareFingerprint, out authoritativeCat) &&
+                    cfg.Category != authoritativeCat)
+                {
+                    cfg.Category = authoritativeCat;
+                    changed = true;
+                }
+            }
+            catch { }
+            return changed;
         }
 
         public static void SaveCustomDevice(CustomDeviceConfig dev)
@@ -938,6 +1132,7 @@ namespace RazerBatteryTray
                         key.SetValue("LastSeen", dev.LastSeen.ToString("o"));
                     }
                 }
+                InvalidateCustomDevicesCache();
             }
             catch { }
         }
@@ -952,6 +1147,7 @@ namespace RazerBatteryTray
                     if (key != null)
                     {
                         key.DeleteSubKeyTree(deviceId);
+                InvalidateCustomDevicesCache();
                     }
                 }
             }
@@ -1301,6 +1497,7 @@ namespace RazerBatteryTray
                                     sub.StartsWith("BLE:004C:", StringComparison.OrdinalIgnoreCase))
                                 {
                                     rootKey.DeleteSubKeyTree(sub, false);
+                InvalidateCustomDevicesCache();
                                 }
                             }
                         }
@@ -1553,15 +1750,99 @@ namespace RazerBatteryTray
 
         public static List<MouseBatteryInfo> QueryAllDevices()
         {
-            // A complete scan owns its script claim snapshot through built-in enumeration.
-            lock (HardwareDriverRegistry.ScanSyncRoot) { return QueryAllDevicesCore(); }
+            // [M1 扫描合流] 抢不到在途令牌说明已有全量扫描在跑：只登记"需要补跑"，
+            // 立刻返回最近一次完成扫描的快照，绝不再往 ScanSyncRoot 上堆第二个扫描。
+            if (Interlocked.CompareExchange(ref scanInFlight, 1, 0) != 0)
+            {
+                Interlocked.Exchange(ref pendingRescan, 1);
+                // 冷启动首个扫描期间尚无任何快照：有界等待首个快照就绪，避免 UI 先被空列表刷白。
+                // 这不是"等锁"——令牌已由他人持有，本次调用不会再发起扫描；超时后照常返回空快照。
+                if (!HasScanSnapshot()) { try { scanSnapshotReady.WaitOne(ColdStartSnapshotWaitMs); } catch { } }
+                return GetLastScanSnapshot();
+            }
+
+            List<MouseBatteryInfo> result = null;
+            try
+            {
+                bool rescanned = false;
+                while (true)
+                {
+                    Interlocked.Exchange(ref pendingRescan, 0);
+                    // [P1] 本代次扫描期内的 HID 枚举快照只对扫描线程生效；扫描一结束立刻作废，
+                    // 写路径与 UI 线程永远走实时枚举。
+                    HidTransport.BeginScanGeneration();
+                    try
+                    {
+                        // A complete scan owns its script claim snapshot through built-in enumeration.
+                        lock (HardwareDriverRegistry.ScanSyncRoot) { result = QueryAllDevicesCore(); }
+                    }
+                    finally
+                    {
+                        HidTransport.EndScanGeneration();
+                    }
+                    StoreLastScanSnapshot(result);
+                    if (Interlocked.CompareExchange(ref pendingRescan, 0, 0) != 1) break;
+                    if (rescanned) break; // 只补跑一次，避免持续触发下扫描永不停歇
+                    rescanned = true;
+                }
+                return result;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref pendingRescan, 0);
+                Interlocked.Exchange(ref scanInFlight, 0);
+            }
+        }
+
+        private static bool HasScanSnapshot()
+        {
+            lock (scanSnapshotLock) { return lastScanSnapshot != null; }
+        }
+
+        private static List<MouseBatteryInfo> GetLastScanSnapshot()
+        {
+            lock (scanSnapshotLock)
+            {
+                if (lastScanSnapshot == null) return new List<MouseBatteryInfo>();
+                return new List<MouseBatteryInfo>(lastScanSnapshot);
+            }
+        }
+
+        private static void StoreLastScanSnapshot(List<MouseBatteryInfo> devices)
+        {
+            try
+            {
+                lock (scanSnapshotLock) { lastScanSnapshot = devices == null ? null : new List<MouseBatteryInfo>(devices); }
+                scanSnapshotReady.Set();
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 测试探针：实际进入扫描核心的次数（合流后应为 1~2 次，与入口调用次数无关）。
+        /// </summary>
+        internal static int CoreScanInvocationCount
+        {
+            get { return Interlocked.CompareExchange(ref coreScanInvocationCount, 0, 0); }
+        }
+
+        internal static void ResetScanCoalescingProbe()
+        {
+            Interlocked.Exchange(ref coreScanInvocationCount, 0);
         }
 
         private static List<MouseBatteryInfo> QueryAllDevicesCore()
         {
-            BuiltInDrivers.EnsureRegistered();
-            CsScriptDriverLoader.LoadAndRegisterScriptDrivers();
-            List<MouseBatteryInfo> scriptDevices = HardwareDriverRegistry.QueryExternalDevices();
+            Interlocked.Increment(ref coreScanInvocationCount);
+            // [M2 扫描遥测] 分段计时基线：扫描结束由 ScanTelemetry.Complete 汇总一行写入 scan_trace.log
+            ScanTimer scanTimer = ScanTelemetry.Begin();
+            // [P2] 一次全量扫描只读一次自定义设备注册表；扫描开头的作废同时兜住"绕过写入口的外部改动"
+            InvalidateCustomDevicesCache();
+            // [P3] 隐藏集合同理（AcerDeviceHelper 等会直接写 HiddenDevices 键）
+            InvalidateHiddenDevicesCache();
+            scanTimer.TimeAction("EnsureRegistry", BuiltInDrivers.EnsureRegistered);
+            scanTimer.Time("ScriptDriverLoader", CsScriptDriverLoader.LoadAndRegisterScriptDrivers);
+            List<MouseBatteryInfo> scriptDevices = scanTimer.Time("ExternalScripts", HardwareDriverRegistry.QueryExternalDevices);
             CleanupDuplicateNuphyDevices();
             CleanupDuplicateRazerDevices();
             CleanupDuplicateCorsairDevices();
@@ -1573,7 +1854,7 @@ namespace RazerBatteryTray
             // 1. Query Razer
             try
             {
-                var razerList = RazerDeviceHelper.QueryAllRazerDevices();
+                var razerList = scanTimer.Time("Razer", RazerDeviceHelper.QueryAllRazerDevices);
                 if (razerList != null && razerList.Count > 0)
                 {
                     foreach (var rz in razerList)
@@ -1589,12 +1870,12 @@ namespace RazerBatteryTray
             catch { }
 
             // Nova 2 Lite: native device-information query, wired/wireless deduplication.
-            try { list.AddRange(GameSirDeviceHelper.QueryDevices()); } catch { }
+            try { list.AddRange(scanTimer.Time("GameSir", GameSirDeviceHelper.QueryDevices)); } catch { }
 
             // GS3108T-PRO: identify by product string AND descriptor, never Apple VID alone.
             try
             {
-                var ganss = GanssDeviceHelper.QueryDevice();
+                var ganss = scanTimer.Time("Ganss", GanssDeviceHelper.QueryDevice);
                 if (ganss != null) list.Add(ganss);
             }
             catch { }
@@ -1602,7 +1883,7 @@ namespace RazerBatteryTray
             // 公版 CompX 2.4G 无线键盘 (05AC:024F "2.4G Wireless Receiver", 33B 0xFF60/0x61 电量端点)
             try
             {
-                var compX = CompxWirelessKeyboardHelper.QueryDevice();
+                var compX = scanTimer.Time("CompxKeyboard", CompxWirelessKeyboardHelper.QueryDevice);
                 if (compX != null && (compX.IsConnected || compX.IsDonglePresent))
                 {
                     compX.IsCustom = false;
@@ -1614,7 +1895,7 @@ namespace RazerBatteryTray
             // 2. Query Rapoo
             try
             {
-                var rapoo = RapooDeviceHelper.QueryRapooDeviceInfo();
+                var rapoo = scanTimer.Time("Rapoo", RapooDeviceHelper.QueryRapooDeviceInfo);
                 if (rapoo != null && (rapoo.IsConnected || rapoo.IsDonglePresent))
                 {
                     rapoo.Category = DeviceCategory.Mouse;
@@ -1627,7 +1908,7 @@ namespace RazerBatteryTray
             // 2.05 Query Rapoo MT760 office series (24AE:1870, FF00:000E 32-byte vendor collection)
             try
             {
-                var rapooOffice = RapooDeviceHelper.QueryRapooOfficeDeviceInfo();
+                var rapooOffice = scanTimer.Time("RapooMT760", RapooDeviceHelper.QueryRapooOfficeDeviceInfo);
                 if (rapooOffice != null && (rapooOffice.IsConnected || rapooOffice.IsDonglePresent))
                 {
                     rapooOffice.Category = DeviceCategory.Mouse;
@@ -1644,7 +1925,7 @@ namespace RazerBatteryTray
             // 2.1 Query Rapoo VT-series 2.4G receiver 24AE:1851 (0xBA protocol, no feature endpoint)
             try
             {
-                var rapooVt = RapooVt1851DeviceHelper.QueryDevice();
+                var rapooVt = scanTimer.Time("RapooVT", RapooVt1851DeviceHelper.QueryDevice);
                 if (rapooVt != null)
                 {
                     rapooVt.Category = DeviceCategory.Mouse;
@@ -1657,7 +1938,7 @@ namespace RazerBatteryTray
             // 2.45 Query VGN (2.4G wireless keyboard receiver, VID 3151 / PID 5038)
             try
             {
-                var royuan = VgnKeyboardHelper.QueryVgnKeyboardInfo();
+                var royuan = scanTimer.Time("VgnKeyboard", VgnKeyboardHelper.QueryVgnKeyboardInfo);
                 if (royuan != null && (royuan.IsConnected || royuan.IsDonglePresent))
                 {
                     royuan.IsCustom = false;
@@ -1673,7 +1954,7 @@ namespace RazerBatteryTray
             // 2.46 Query VGN V108 (2.4G wireless keyboard receiver, VID 391D / PID 2A02)
             try
             {
-                var v108 = VgnKeyboardHelper.QueryVgnV108Info();
+                var v108 = scanTimer.Time("VgnV108", VgnKeyboardHelper.QueryVgnV108Info);
                 if (v108 != null && (v108.IsConnected || v108.IsDonglePresent))
                 {
                     v108.IsCustom = false;
@@ -1689,7 +1970,7 @@ namespace RazerBatteryTray
             // 2.5 Query VGN
             try
             {
-                var vgn = VgnDeviceHelper.QueryVgnDeviceInfo();
+                var vgn = scanTimer.Time("Vgn", VgnDeviceHelper.QueryVgnDeviceInfo);
                 if (vgn != null && (vgn.IsConnected || vgn.IsDonglePresent))
                 {
                     vgn.Category = DeviceCategory.Mouse;
@@ -1702,7 +1983,7 @@ namespace RazerBatteryTray
             // 2.6 Query NuPhy
             try
             {
-                var nuphy = NuphyDeviceHelper.QueryNuphyDeviceInfo();
+                var nuphy = scanTimer.Time("NuPhy", NuphyDeviceHelper.QueryNuphyDeviceInfo);
                 if (nuphy != null && (nuphy.IsConnected || nuphy.IsDonglePresent))
                 {
                     nuphy.Category = DeviceCategory.Keyboard;
@@ -1721,7 +2002,7 @@ namespace RazerBatteryTray
             // 2.69 Query Logitech MR0097 (PRO X SUPERLIGHT 2, Built-in Dedicated Driver)
             try
             {
-                var mr0097Devices = LogitechMr0097Helper.QueryDevices();
+                var mr0097Devices = scanTimer.Time("LogitechMR0097", LogitechMr0097Helper.QueryDevices);
                 if (mr0097Devices != null && mr0097Devices.Count > 0)
                 {
                     foreach (var dev in mr0097Devices)
@@ -1743,7 +2024,7 @@ namespace RazerBatteryTray
             // 2.7 Query Logitech (Lightspeed, Unifying, Nano, Wired)
             try
             {
-                var logiDevices = LogitechDeviceHelper.QueryAllLogitechDevices();
+                var logiDevices = scanTimer.Time("Logitech", LogitechDeviceHelper.QueryAllLogitechDevices);
                 if (logiDevices != null && logiDevices.Count > 0)
                 {
                     foreach (var dev in logiDevices)
@@ -1770,7 +2051,7 @@ namespace RazerBatteryTray
             // 2.8 Query Valkyrie (Keyboards, Mice, 2.4G Dongles)
             try
             {
-                var vkDevices = ValkyrieDeviceHelper.QueryAllValkyrieDevices();
+                var vkDevices = scanTimer.Time("Valkyrie", ValkyrieDeviceHelper.QueryAllValkyrieDevices);
                 if (vkDevices != null && vkDevices.Count > 0)
                 {
                     foreach (var dev in vkDevices)
@@ -1792,9 +2073,9 @@ namespace RazerBatteryTray
             // 2.88 Query VXE Dragonfly R1 NearLink & ATK Phantom Ultimate (BITMOUSE 64B, by 冻干咸鱼 & @ertutio)
             try
             {
-                var bitMouseDevices = VxeNearLinkDeviceHelper.QueryAllDevices();
+                var bitMouseDevices = scanTimer.Time("VxeNearLink", VxeNearLinkDeviceHelper.QueryAllDevices);
                 if (bitMouseDevices == null) bitMouseDevices = new List<MouseBatteryInfo>();
-                bitMouseDevices.AddRange(AtkPhantomDeviceHelper.QueryAllDevices());
+                bitMouseDevices.AddRange(scanTimer.Time("AtkPhantom", AtkPhantomDeviceHelper.QueryAllDevices));
                 if (bitMouseDevices.Count > 0)
                 {
                     foreach (var dev in bitMouseDevices)
@@ -1829,7 +2110,7 @@ namespace RazerBatteryTray
             // 2.9 Query Universal Gaming Devices (OpenMouse & All-in-One: Lamzu, Vaxee, WLmouse, Pulsar, ATK/VXE, Attack Shark, etc.)
             try
             {
-                var gamingDevices = UniversalGamingDeviceHelper.QueryAllGamingDevices();
+                var gamingDevices = scanTimer.Time("UniversalGaming", UniversalGamingDeviceHelper.QueryAllGamingDevices);
                 if (gamingDevices != null && gamingDevices.Count > 0)
                 {
                     foreach (var dev in gamingDevices)
@@ -1865,7 +2146,7 @@ namespace RazerBatteryTray
             // 2.92 Query Endgame Gear (XM2we / OP1we 2.4G 双端点 Beken 引擎)
             try
             {
-                var eggDevices = EndgameGearDeviceHelper.QueryAllEndgameGearDevices();
+                var eggDevices = scanTimer.Time("EndgameGear", EndgameGearDeviceHelper.QueryAllEndgameGearDevices);
                 if (eggDevices != null && eggDevices.Count > 0)
                 {
                     foreach (var dev in eggDevices)
@@ -1901,7 +2182,7 @@ namespace RazerBatteryTray
             // 2.95 Query Flydigi (APEX 6 / APEX 6 Pro / Vader 5 Pro gamepads)
             try
             {
-                var flydigiDevices = FlydigiDeviceHelper.QueryAllFlydigiDevices();
+                var flydigiDevices = scanTimer.Time("Flydigi", FlydigiDeviceHelper.QueryAllFlydigiDevices);
                 if (flydigiDevices != null && flydigiDevices.Count > 0)
                 {
                     foreach (var dev in flydigiDevices)
@@ -1937,7 +2218,7 @@ namespace RazerBatteryTray
             // 2.96 Query MCHOSE (G87 V2 tri-mode mechanical keyboard + CompX 公版 0xFA09 键盘族)
             try
             {
-                var mchoseDevices = MchoseDeviceHelper.QueryAllMchoseDevices();
+                var mchoseDevices = scanTimer.Time("Mchose", MchoseDeviceHelper.QueryAllMchoseDevices);
                 if (mchoseDevices != null && mchoseDevices.Count > 0)
                 {
                     foreach (var dev in mchoseDevices)
@@ -1973,7 +2254,7 @@ namespace RazerBatteryTray
             // 2.965 Query MCHOSE Mouse (A5 V2 Ultra tri-mode gaming mouse)
             try
             {
-                var mchoseMice = MchoseMouseHelper.QueryAllMchoseMice();
+                var mchoseMice = scanTimer.Time("MchoseMouse", MchoseMouseHelper.QueryAllMchoseMice);
                 if (mchoseMice != null && mchoseMice.Count > 0)
                 {
                     foreach (var dev in mchoseMice)
@@ -2009,7 +2290,7 @@ namespace RazerBatteryTray
             // 2.965 Query KZZI (K75 tri-mode keyboard, CompX 3554:FA09 shared PID)
             try
             {
-                var kzzi = KzziDeviceHelper.QueryKzziDevice();
+                var kzzi = scanTimer.Time("Kzzi", KzziDeviceHelper.QueryKzziDevice);
                 if (kzzi != null && kzzi.IsDonglePresent)
                 {
                     bool alreadyInList = false;
@@ -2034,7 +2315,7 @@ namespace RazerBatteryTray
             // 2.965b Query BLE peripherals (Xbox controller / Bluetooth keyboard / mouse)
             try
             {
-                var bleDevices = BleDeviceHelper.QueryAllBlePeripherals();
+                var bleDevices = scanTimer.Time("Ble", BleDeviceHelper.QueryAllBlePeripherals);
                 if (bleDevices != null && bleDevices.Count > 0)
                 {
                     foreach (var dev in bleDevices)
@@ -2070,7 +2351,7 @@ namespace RazerBatteryTray
             // 2.966 Query Ironcat Zero wireless mouse (25A7:FA7C 2.4G)
             try
             {
-                var ironcatDevices = IroncatDeviceHelper.QueryAllIroncatDevices();
+                var ironcatDevices = scanTimer.Time("Ironcat", IroncatDeviceHelper.QueryAllIroncatDevices);
                 if (ironcatDevices != null && ironcatDevices.Count > 0)
                 {
                     foreach (var dev in ironcatDevices)
@@ -2106,7 +2387,7 @@ namespace RazerBatteryTray
             // 2.967 Query MCHOSE G series mouse (G7 2.4G receiver, A8A5:2255)
             try
             {
-                var mchoseGMice = MchoseGMouseHelper.QueryAllMchoseGMice();
+                var mchoseGMice = scanTimer.Time("MchoseG", MchoseGMouseHelper.QueryAllMchoseGMice);
                 if (mchoseGMice != null && mchoseGMice.Count > 0)
                 {
                     foreach (var dev in mchoseGMice)
@@ -2142,7 +2423,7 @@ namespace RazerBatteryTray
             // 2.968 Query MOONDROP headset (GM-01 PRO, 35D8:0133)
             try
             {
-                var moondropDevices = MoondropDeviceHelper.QueryAllMoondropDevices();
+                var moondropDevices = scanTimer.Time("Moondrop", MoondropDeviceHelper.QueryAllMoondropDevices);
                 if (moondropDevices != null && moondropDevices.Count > 0)
                 {
                     foreach (var dev in moondropDevices)
@@ -2173,7 +2454,7 @@ namespace RazerBatteryTray
             // 2.97 Query Sony (INZONE Buds WF-G700N wireless earbuds)
             try
             {
-                var sonyDevices = SonyInzoneHelper.QueryAllSonyInzoneDevices();
+                var sonyDevices = scanTimer.Time("SonyInzone", SonyInzoneHelper.QueryAllSonyInzoneDevices);
                 if (sonyDevices != null && sonyDevices.Count > 0)
                 {
                     foreach (var dev in sonyDevices)
@@ -2209,7 +2490,7 @@ namespace RazerBatteryTray
             // 2.98 Query Edifier (Halo Space 2.4G wireless headset, EC private protocol)
             try
             {
-                var edifierDevices = EdifierDeviceHelper.QueryAllEdifierDevices();
+                var edifierDevices = scanTimer.Time("Edifier", EdifierDeviceHelper.QueryAllEdifierDevices);
                 if (edifierDevices != null && edifierDevices.Count > 0)
                 {
                     foreach (var dev in edifierDevices)
@@ -2245,7 +2526,7 @@ namespace RazerBatteryTray
             // 2.995 Query VGN N75 PRO (320F:5088 2.4G, 产品串隔离)
             try
             {
-                var vgnN75 = VgnN75ProHelper.QueryDevices();
+                var vgnN75 = scanTimer.Time("VgnN75", VgnN75ProHelper.QueryDevices);
                 if (vgnN75 != null && vgnN75.Count > 0)
                 {
                     foreach (var dev in vgnN75)
@@ -2278,7 +2559,7 @@ namespace RazerBatteryTray
             // 2.996 Query LEOBOG GM5 PRO (04F3:026F 2.4G, 0x000A/0x0000 32 字节状态帧)
             try
             {
-                var leobogDevices = LeobogDeviceHelper.QueryDevices();
+                var leobogDevices = scanTimer.Time("Leobog", LeobogDeviceHelper.QueryDevices);
                 if (leobogDevices != null && leobogDevices.Count > 0)
                 {
                     foreach (var dev in leobogDevices)
@@ -2311,7 +2592,7 @@ namespace RazerBatteryTray
             // 2.99 Query ATK (V75X / VGN V98 PRO) & Sony (DualSense Edge / PULSE Explore)
             try
             {
-                var atkDevices = AtkDeviceHelper.QueryAllAtkDevices();
+                var atkDevices = scanTimer.Time("Atk", AtkDeviceHelper.QueryAllAtkDevices);
                 if (atkDevices != null && atkDevices.Count > 0)
                 {
                     foreach (var dev in atkDevices)
@@ -2344,13 +2625,13 @@ namespace RazerBatteryTray
             catch { }
 
             // 2.995 Query ATK A87 PRO 键盘 / 迈从 V9 Turbo+ 耳机 / 北通 BTP-KP20D 手柄 (PR #93, @gallopcsy)
-            try { AddDiscoveredDevicesIfAbsent(list, AtkA87ProHelper.QueryAllA87ProDevices()); } catch { }
-            try { AddDiscoveredDevicesIfAbsent(list, MchoseHeadsetHelper.QueryAllMchoseHeadsetDevices()); } catch { }
-            try { AddDiscoveredDevicesIfAbsent(list, BeitongDeviceHelper.QueryAllBeitongDevices()); } catch { }
+            try { AddDiscoveredDevicesIfAbsent(list, scanTimer.Time("AtkA87Pro", AtkA87ProHelper.QueryAllA87ProDevices)); } catch { }
+            try { AddDiscoveredDevicesIfAbsent(list, scanTimer.Time("MchoseHeadset", MchoseHeadsetHelper.QueryAllMchoseHeadsetDevices)); } catch { }
+            try { AddDiscoveredDevicesIfAbsent(list, scanTimer.Time("Beitong", BeitongDeviceHelper.QueryAllBeitongDevices)); } catch { }
 
             try
             {
-                var sonyDevices = SonyDeviceHelper.QueryAllSonyDevices();
+                var sonyDevices = scanTimer.Time("Sony", SonyDeviceHelper.QueryAllSonyDevices);
                 if (sonyDevices != null && sonyDevices.Count > 0)
                 {
                     foreach (var dev in sonyDevices)
@@ -2385,7 +2666,7 @@ namespace RazerBatteryTray
             // 2.10 Query Apple & Beats Devices (AirPods, Beats Studio/Fit/Solo, Magic Mouse/Trackpad/Keyboard)
             try
             {
-                var appleDevices = AppleDeviceHelper.QueryAllAppleDevices();
+                var appleDevices = scanTimer.Time("Apple", AppleDeviceHelper.QueryAllAppleDevices);
                 if (appleDevices != null && appleDevices.Count > 0)
                 {
                     foreach (var dev in appleDevices)
@@ -2421,7 +2702,7 @@ namespace RazerBatteryTray
             // 2.11 Query HyperX Devices (Cloud III Wireless, etc.)
             try
             {
-                var hp = HyperXDeviceHelper.QueryHyperXDeviceInfo();
+                var hp = scanTimer.Time("HyperX", HyperXDeviceHelper.QueryHyperXDeviceInfo);
                 if (hp != null && (hp.IsConnected || hp.IsDonglePresent))
                 {
                     bool alreadyInList = false;
@@ -2451,15 +2732,15 @@ namespace RazerBatteryTray
             // 2.11.1 Query HyperX Cloud III S Wireless (03F0:02CC / 06BE, 64B 0x01C0 电量集合)
             try
             {
-                HyperXCloud3SHelper.LoadHardwareCache();
-                AddDiscoveredDeviceIfAbsent(list, HyperXCloud3SHelper.QueryDevice());
+                scanTimer.TimeAction("HyperXCloud3SCache", HyperXCloud3SHelper.LoadHardwareCache);
+                scanTimer.TimeAction("HyperXCloud3S", delegate { AddDiscoveredDeviceIfAbsent(list, HyperXCloud3SHelper.QueryDevice()); });
             }
             catch { }
 
                         // 2.12 Query SteelSeries Devices (Arctis Nova 5 / 5X Wireless Headset)
             try
             {
-                var ss = SteelSeriesDeviceHelper.QuerySteelSeriesDeviceInfo();
+                var ss = scanTimer.Time("SteelSeries", SteelSeriesDeviceHelper.QuerySteelSeriesDeviceInfo);
                 if (ss != null && (ss.IsConnected || ss.IsDonglePresent))
                 {
                     bool alreadyInList = false;
@@ -2489,7 +2770,7 @@ namespace RazerBatteryTray
             // 2.12b Query Corsair HS80 MAX Wireless headset (1B1C:0A97, Bragi HID control collection)
             try
             {
-                var corsair = CorsairDeviceHelper.QueryCorsairDeviceInfo();
+                var corsair = scanTimer.Time("Corsair", CorsairDeviceHelper.QueryCorsairDeviceInfo);
                 if (corsair != null && (corsair.IsConnected || corsair.IsDonglePresent))
                 {
                     bool alreadyInList = false;
@@ -2519,7 +2800,7 @@ namespace RazerBatteryTray
             // 2.12c Query Corsair M75 AIR Wireless mouse (SLIPSTREAM 1B1C:1BDC / child PID 1BF2, Bragi 65B)
             try
             {
-                var corsairMouse = CorsairDeviceHelper.QueryCorsairMouseInfo();
+                var corsairMouse = scanTimer.Time("CorsairMouse", CorsairDeviceHelper.QueryCorsairMouseInfo);
                 if (corsairMouse != null && (corsairMouse.IsConnected || corsairMouse.IsDonglePresent))
                 {
                     bool alreadyInList = false;
@@ -2549,7 +2830,8 @@ namespace RazerBatteryTray
             // 2.13 Query Razer wireless headsets (BlackShark V2 Pro 2.4, 64B PA/PI protocol)
             try
             {
-                var razerHeadsets = RazerHeadsetHelper.QueryAllRazerHeadsets();
+                // 保留显式调用写法：test_brand_razer.ps1 的源码契约断言要求 DeviceManager 中出现 RazerHeadsetHelper.QueryAllRazerHeadsets()
+            var razerHeadsets = scanTimer.Time("RazerHeadset", delegate { return RazerHeadsetHelper.QueryAllRazerHeadsets(); });
                 if (razerHeadsets != null && razerHeadsets.Count > 0)
                 {
                     foreach (var dev in razerHeadsets)
@@ -2586,7 +2868,7 @@ namespace RazerBatteryTray
             // 2.13b Query Acer OMR Series Mice (OMR331 Flagship 2.4G / Wired)
             try
             {
-                var acerDevices = AcerDeviceHelper.QueryAllAcerDevices();
+                var acerDevices = scanTimer.Time("Acer", AcerDeviceHelper.QueryAllAcerDevices);
                 if (acerDevices != null && acerDevices.Count > 0)
                 {
                     foreach (var dev in acerDevices)
@@ -2622,7 +2904,7 @@ namespace RazerBatteryTray
             // 2.13c Query SinoWealth (赛诺韦尔 / Valkyrie 贴牌) 2.4G 鼠标 (VID 258A / PID 010C)
             try
             {
-                var swDevices = SinoWealthDeviceHelper.QueryAllSinoWealthDevices();
+                var swDevices = scanTimer.Time("SinoWealth", SinoWealthDeviceHelper.QueryAllSinoWealthDevices);
                 if (swDevices != null && swDevices.Count > 0)
                 {
                     foreach (var dev in swDevices)
@@ -2658,7 +2940,7 @@ namespace RazerBatteryTray
             // 2.13d Query ASUS Devices (PELTA, Scope II RX, Azoth Omni Keyboards)
             try
             {
-                var asusDevices = AsusDeviceHelper.QueryAllAsusDevices();
+                var asusDevices = scanTimer.Time("Asus", AsusDeviceHelper.QueryAllAsusDevices);
                 if (asusDevices != null && asusDevices.Count > 0)
                 {
                     foreach (var dev in asusDevices)
@@ -2671,7 +2953,7 @@ namespace RazerBatteryTray
                     }
                 }
 
-                var asusKbs = AsusDeviceHelper.QueryAllKeyboards();
+                var asusKbs = scanTimer.Time("AsusKeyboard", AsusDeviceHelper.QueryAllKeyboards);
                 if (asusKbs != null && asusKbs.Count > 0)
                 {
                     foreach (var dev in asusKbs)
@@ -2685,7 +2967,7 @@ namespace RazerBatteryTray
                 }
 
                 // 2.13d1 ROG DELTA II 无线耳机 (0B05:1AFA)
-                var rogDevices = AsusDeviceHelper.QueryAllRogDevices();
+                var rogDevices = scanTimer.Time("AsusRog", AsusDeviceHelper.QueryAllRogDevices);
                 if (rogDevices != null && rogDevices.Count > 0)
                 {
                     foreach (var dev in rogDevices)
@@ -2699,7 +2981,7 @@ namespace RazerBatteryTray
                 }
 
                 // 2.13d2 ROG AZOTH 96 HE 无线/有线键盘 (0B05:1AD0 / 0B05:1C10)
-                var rogKbs = AsusDeviceHelper.QueryAllRogKeyboards();
+                var rogKbs = scanTimer.Time("AsusRogKeyboard", AsusDeviceHelper.QueryAllRogKeyboards);
                 if (rogKbs != null && rogKbs.Count > 0)
                 {
                     foreach (var dev in rogKbs)
@@ -2717,7 +2999,7 @@ namespace RazerBatteryTray
             // 2.14 Query FDAS Runtime Dynamic Devices (Local adapters/*.fp-adapter.json, Priority 200)
             try
             {
-                var fdasDevices = FdasRuntimeHelper.QueryAllFdasDevices();
+                var fdasDevices = scanTimer.Time("Fdas", FdasRuntimeHelper.QueryAllFdasDevices);
                 if (fdasDevices != null && fdasDevices.Count > 0)
                 {
                     foreach (var dev in fdasDevices)
@@ -2738,7 +3020,7 @@ namespace RazerBatteryTray
             // 2.14b Query Keychron M6 (Link-KM / USB, Built-in Dedicated Driver)
             try
             {
-                var m6Devices = KeychronM6Helper.QueryDevices();
+                var m6Devices = scanTimer.Time("KeychronM6", KeychronM6Helper.QueryDevices);
                 if (m6Devices != null && m6Devices.Count > 0)
                 {
                     foreach (var dev in m6Devices)
@@ -3634,6 +3916,7 @@ namespace RazerBatteryTray
                 HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
             }
 
+            ScanTelemetry.Complete(scanTimer, list.Count);
             return list;
         }
 

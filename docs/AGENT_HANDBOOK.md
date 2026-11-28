@@ -112,3 +112,26 @@
 - **现象**：设备向导或扫描列表中出现 `HID VHF Driver / 2.4G 无线 / HID:5E2A:71B4` 等假设备。
 - **本质**：Windows VHF（Virtual HID Framework）设备。网易 UU 远程（uuycinput.sys）等远程控制/串流/按键映射工具通过内核驱动调用 VHF 注册虚拟键鼠集合。虚拟设备没有物理电池或无线实体，误报“2.4G 无线 / 0%”会误导用户。
 - **治理法则**：`VirtualHidFilter` 统一按 VHF 总线结构（`HID_DEVICE_SYSTEM_VHF`、`VHF\VID_`、`vhf#`）识别，严禁写死单一厂商黑名单，并在 `GenericHidHelper.ScanGenericHidMice` 扫描阶段与 `DeviceManager.QueryAllDevices` 最终列表实行双层过滤。
+
+---
+
+## 8. Agent 编辑陷阱三则（2026-11-28 实战踩坑）
+
+### 8.1 编辑工具会吃掉 BOM —— 每次改完必须跑 `ensure_boms_safe.py`
+- **现象**：用通用编辑/写入工具改过的 `.ps1` 在 `powershell.exe`（Windows PowerShell 5.1）里报出「缺少 `}`」「意外的 `)`」这类离谱语法错误，而文件看起来完全正常。
+- **根因**：写入时丢了 UTF-8 BOM，5.1 按 ANSI 代码页解码，中文注释里的多字节序列可能与后面的 `{` / `}` / `(` 合成一个双字节字符，直接把语法结构吃掉。
+- **铁律**：任何对 `.cs` / `.ps1` / `.md` 的编辑批次结束后，**立刻**执行 `python tools/ensure_boms_safe.py`（它会补 BOM + 统一 CRLF），再编译/跑测试。
+
+### 8.2 源码文本契约断言：别随手改写调用形态
+- 多个用例（如 `test_brand_razer.ps1`）是读 `src/**/*.cs` 原文做 `Contains("RazerHeadsetHelper.QueryAllRazerHeadsets()")` 断言的。
+- 包装调用（改成方法组、加超时包装、抽成委托）会让这类断言失效。**要么保留原调用形态**（如 `delegate { return X(); }`），**要么同步更新断言并在提交说明里写清契约变更**，不要直接删断言。
+
+### 8.3 方法组重载歧义（CS0121）：`Func<T>` 与 `Action` 不能同名
+- **现象**：`timer.Time("X", SomeHelper.Query)` 报 `CS0121 调用不明确`。
+- **根因**：同时存在 `Time<T>(string, Func<T>)` 与 `Time(string, Action)` 时，方法组到两个候选的转换无法比较优劣。
+- **解法**：给无返回值版本换名（如 `TimeAction`），或显式写 `delegate { ... }` / `new Func<T>(...)`。
+
+### 8.4 性能改造前先拿数字（本项目已固化的方法论）
+- `docs/OPTIMIZATION_BACKLOG.md` 的 M2 遥测（`scan_trace.log`）就是为这条服务的：**先测，再改**。
+- 本轮实测推翻了清单里两处前提：① 「HID 枚举是扫描慢的主因」——46 次枚举只占 ~2%，大头是 `Mchose`/`Vgn` 的超时阶梯；② 「解析/能力缓存能省大钱」——按设备缓存会把状态相关的 `CanHandle` 判错。改造前若没有基线表，这两处都会被做错。
+
