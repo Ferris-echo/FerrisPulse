@@ -346,45 +346,50 @@ namespace RazerBatteryTray
             autoGameRateMenu.DropDownItems.Add(notifySub);
             contextMenu.Items.Add(autoGameRateMenu);
 
-            nuphySleepMenuItem = new ToolStripMenuItem("自动休眠: 已开启");
-            nuphySleepMenuItem.Click += (s, e) => {
-                var dev = ResolveTrayContextDevice();
-                var act = GetDeviceToggleAction(dev, 0, "auto_sleep");
-                bool newEn = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
-                string actId = act != null ? act.ActionId : "auto_sleep";
-                ThreadPool.QueueUserWorkItem(_ => {
-                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newEn ? 1 : 0);
-                    try
-                    {
-                        this.BeginInvoke(new Action(() => {
-                            ApplyNuphySettingsToUI();
-                            UpdateTrayDeviceMenuItems();
-                        }));
-                    }
-                    catch { }
-                });
+            Action<ToolStripMenuItem, int, string, string> bindNuphyTrayToggle = (item, fallbackIndex, defaultActionId, offSuffix) => {
+                item.CheckOnClick = false;
+                item.Click += (s, e) => {
+                    var dev = ResolveTrayContextDevice();
+                    var act = GetDeviceToggleAction(dev, fallbackIndex, defaultActionId);
+                    bool newEn = act != null ? !(act.BoolValue || act.IntValue != 0) : !item.Checked;
+                    string actId = act != null ? act.ActionId : defaultActionId;
+                    ThreadPool.QueueUserWorkItem(_ => {
+                        bool ok = HardwareCommandBus.ExecuteCustomAction(dev, actId, newEn ? 1 : 0);
+                        try
+                        {
+                            this.BeginInvoke(new Action(() => {
+                                if (ok && act != null)
+                                {
+                                    act.BoolValue = newEn;
+                                    act.IntValue = newEn ? 1 : 0;
+                                }
+                                bool curEn = act != null ? (act.BoolValue || act.IntValue != 0) : item.Checked;
+                                item.Checked = curEn;
+                                if (act != null)
+                                {
+                                    item.Text = curEn ? (act.Title + ": 已开启") : (act.Title + offSuffix);
+                                }
+                                if (contextMenu != null && contextMenu.Visible)
+                                {
+                                    contextMenu.PerformLayout();
+                                    contextMenu.Invalidate();
+                                }
+                                ApplyNuphySettingsToUI();
+                                UpdateTrayDeviceMenuItems();
+                            }));
+                        }
+                        catch { }
+                    });
+                };
             };
+
+            nuphySleepMenuItem = new ToolStripMenuItem("自动休眠: 已开启");
+            bindNuphyTrayToggle(nuphySleepMenuItem, 0, "auto_sleep", ": 已关闭 (常亮)");
             nuphySleepMenuItem.Visible = false;
             contextMenu.Items.Add(nuphySleepMenuItem);
 
             nuphyWinLockMenuItem = new ToolStripMenuItem("Win键锁定: 已关闭");
-            nuphyWinLockMenuItem.Click += (s, e) => {
-                var dev = ResolveTrayContextDevice();
-                var act = GetDeviceToggleAction(dev, 1, "win_lock");
-                bool newLock = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
-                string actId = act != null ? act.ActionId : "win_lock";
-                ThreadPool.QueueUserWorkItem(_ => {
-                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newLock ? 1 : 0);
-                    try
-                    {
-                        this.BeginInvoke(new Action(() => {
-                            ApplyNuphySettingsToUI();
-                            UpdateTrayDeviceMenuItems();
-                        }));
-                    }
-                    catch { }
-                });
-            };
+            bindNuphyTrayToggle(nuphyWinLockMenuItem, 1, "win_lock", ": 已关闭");
             nuphyWinLockMenuItem.Visible = false;
             contextMenu.Items.Add(nuphyWinLockMenuItem);
 
@@ -400,10 +405,20 @@ namespace RazerBatteryTray
                     var sliderAct = GetDeviceSliderAction(dev, "backlight_brightness");
                     string actId = sliderAct != null ? sliderAct.ActionId : "backlight_brightness";
                     ThreadPool.QueueUserWorkItem(_ => {
-                        HardwareCommandBus.ExecuteCustomAction(dev, actId, bVal);
+                        bool ok = HardwareCommandBus.ExecuteCustomAction(dev, actId, bVal);
                         try
                         {
                             this.BeginInvoke(new Action(() => {
+                                if (ok && sliderAct != null) sliderAct.IntValue = bVal;
+                                int curVal = sliderAct != null ? sliderAct.IntValue : bVal;
+                                for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
+                                {
+                                    var child = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
+                                    if (child != null && child.Tag is int)
+                                    {
+                                        child.Checked = ((int)child.Tag == curVal);
+                                    }
+                                }
                                 ApplyNuphySettingsToUI();
                                 UpdateTrayDeviceMenuItems();
                             }));
@@ -418,23 +433,7 @@ namespace RazerBatteryTray
             contextMenu.Items.Add(nuphyBacklightMenu);
 
             nuphySidelightMenuItem = new ToolStripMenuItem("前置灯带: 已开启");
-            nuphySidelightMenuItem.Click += (s, e) => {
-                var dev = ResolveTrayContextDevice();
-                var act = GetDeviceToggleAction(dev, 3, "sidelight_toggle");
-                bool newSide = act != null ? !(act.BoolValue || act.IntValue != 0) : true;
-                string actId = act != null ? act.ActionId : "sidelight_toggle";
-                ThreadPool.QueueUserWorkItem(_ => {
-                    HardwareCommandBus.ExecuteCustomAction(dev, actId, newSide ? 1 : 0);
-                    try
-                    {
-                        this.BeginInvoke(new Action(() => {
-                            ApplyNuphySettingsToUI();
-                            UpdateTrayDeviceMenuItems();
-                        }));
-                    }
-                    catch { }
-                });
-            };
+            bindNuphyTrayToggle(nuphySidelightMenuItem, 3, "sidelight_toggle", ": 已关闭");
             nuphySidelightMenuItem.Visible = false;
             contextMenu.Items.Add(nuphySidelightMenuItem);
 
@@ -888,6 +887,54 @@ namespace RazerBatteryTray
                    string.Equals(actionId, "sidelight_toggle", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static string FormatDynamicCustomActionText(CustomDeviceAction act, bool isOn)
+        {
+            if (act == null) return "";
+            if (!string.IsNullOrEmpty(act.ActiveText) && !string.IsNullOrEmpty(act.InactiveText))
+            {
+                return (act.Title ?? act.ActionId ?? "") + ": " + (isOn ? act.ActiveText : act.InactiveText);
+            }
+            return act.Title ?? act.ActionId ?? "";
+        }
+
+        private void RefreshDynamicCustomActionTrayItemInPlace(
+            ToolStripMenuItem item,
+            MouseBatteryInfo dev,
+            string actionId,
+            CustomDeviceAction fallbackAct,
+            bool executedOk,
+            bool targetOn)
+        {
+            if (item == null || item.IsDisposed) return;
+
+            CustomDeviceAction act = GetDeviceToggleAction(dev, actionId) ?? fallbackAct;
+            bool finalOn;
+            if (executedOk)
+            {
+                finalOn = targetOn;
+                if (act != null)
+                {
+                    act.BoolValue = finalOn;
+                    act.IntValue = finalOn ? 1 : 0;
+                }
+            }
+            else
+            {
+                finalOn = (act != null) ? (act.BoolValue || act.IntValue != 0) : item.Checked;
+            }
+
+            item.Checked = finalOn;
+            if (act != null)
+            {
+                item.Text = FormatDynamicCustomActionText(act, finalOn);
+            }
+            if (contextMenu != null && contextMenu.Visible)
+            {
+                contextMenu.PerformLayout();
+                contextMenu.Invalidate();
+            }
+        }
+
         private void UpdateTrayDeviceMenuItems()
         {
             if (contextMenu == null) return;
@@ -1212,9 +1259,7 @@ namespace RazerBatteryTray
                         if (string.IsNullOrEmpty(act.ActionId) || IsLegacyNuphyTrayActionId(act.ActionId)) continue;
 
                         bool isOn = act.BoolValue || act.IntValue != 0;
-                        string itemText = (!string.IsNullOrEmpty(act.ActiveText) && !string.IsNullOrEmpty(act.InactiveText))
-                            ? (act.Title + ": " + (isOn ? act.ActiveText : act.InactiveText))
-                            : (act.Title ?? act.ActionId);
+                        string itemText = FormatDynamicCustomActionText(act, isOn);
 
                         var dynItem = new ToolStripMenuItem(itemText);
                         dynItem.CheckOnClick = false;
@@ -1222,19 +1267,40 @@ namespace RazerBatteryTray
                         dynItem.Tag = act.ActionId;
 
                         string capturedActionId = act.ActionId;
-                        int targetValue = isOn ? 0 : 1;
+                        CustomDeviceAction capturedAct = act;
+                        bool inFlight = false;
                         dynItem.Click += (s, e) => {
+                            if (inFlight) return;
                             var dev = ResolveTrayContextDevice();
                             if (dev == null) return;
+                            var clickedItem = s as ToolStripMenuItem ?? dynItem;
+                            var curAct = GetDeviceToggleAction(dev, capturedActionId) ?? capturedAct;
+                            bool currentOn = (curAct != null)
+                                ? (curAct.BoolValue || curAct.IntValue != 0)
+                                : clickedItem.Checked;
+                            bool nextOn = !currentOn;
+                            inFlight = true;
                             ThreadPool.QueueUserWorkItem(_ => {
-                                HardwareCommandBus.ExecuteCustomAction(dev, capturedActionId, targetValue);
+                                bool ok = false;
                                 try
                                 {
-                                    this.BeginInvoke(new Action(() => {
-                                        UpdateTrayDeviceMenuItems();
-                                    }));
+                                    ok = HardwareCommandBus.ExecuteCustomAction(dev, capturedActionId, nextOn ? 1 : 0);
                                 }
-                                catch { }
+                                finally
+                                {
+                                    try
+                                    {
+                                        this.BeginInvoke(new Action(() => {
+                                            inFlight = false;
+                                            RefreshDynamicCustomActionTrayItemInPlace(clickedItem, dev, capturedActionId, curAct, ok, nextOn);
+                                            UpdateTrayDeviceMenuItems();
+                                        }));
+                                    }
+                                    catch
+                                    {
+                                        inFlight = false;
+                                    }
+                                }
                             });
                         };
 

@@ -276,6 +276,18 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndTrayCustomActions" {
         Assert-Equal 1 $dynCustom.Count "1 dynamic CustomAction tray item rendered"
         Assert-True ($dynCustom[0].Available -and $dynCustom[0].Checked -and (-not $dynCustom[0].CheckOnClick) -and $dynCustom[0].Tag -eq "competitive_mode") "Dynamic tray CustomAction checked & CheckOnClick=false"
 
+        # In-place tray item refresh while context menu stays open (no menu reopen required)
+        $mInPlace = $tMain.GetMethod("RefreshDynamicCustomActionTrayItemInPlace", $bfNonPubInst)
+        Assert-True ($null -ne $mInPlace) "RefreshDynamicCustomActionTrayItemInPlace exists"
+        $compItem = $dynCustom[0]
+        $compAct = $dev.Capabilities.CustomActions[0]
+        [void]$mInPlace.Invoke($form, @($compItem, $dev, "competitive_mode", $compAct, $true, $false))
+        Assert-True ((-not $compItem.Checked) -and ($compItem.Text -like "*基础模式*") -and (-not $compAct.BoolValue)) "In-place refresh toggles competitive_mode OFF"
+        [void]$mInPlace.Invoke($form, @($compItem, $dev, "competitive_mode", $compAct, $false, $true))
+        Assert-True ((-not $compItem.Checked) -and ($compItem.Text -like "*基础模式*")) "Failed execute does not flip Checked state"
+        [void]$mInPlace.Invoke($form, @($compItem, $dev, "competitive_mode", $compAct, $true, $true))
+        Assert-True ($compItem.Checked -and ($compItem.Text -like "*ATK绝鲨竞技固件*") -and $compAct.BoolValue) "In-place refresh toggles competitive_mode ON"
+
         # Switching to NuPhy keyboard cleans dynamicCustomActionTrayItems and shows NuPhy auto_sleep with Checked state
         $tVxe.GetField("competitiveModeState", $bfNonPubStatic).SetValue($null, $false)
         $kb = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.MouseBatteryInfo"))
