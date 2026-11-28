@@ -27,14 +27,14 @@ namespace RazerBatteryTray
 {
     public static class UpdateManager
     {
-        // [U1] 只显式启用 TLS 1.2，且【禁止】再设置进程级 ServerCertificateValidationCallback：
+        // [U1] 显式启用 TLS 1.2 / 1.3，且【禁止】再设置进程级 ServerCertificateValidationCallback：
         // 版本检查、release-notes 与安装包下载全走 HTTPS，sha256 与 downloadUrl 又来自同一个响应，
         // 一旦放行任意证书，中间人可同时伪造包与校验值，校验形同虚设。
         private static void EnsureTlsSecurity()
         {
             try
             {
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)12288;
             }
             catch { }
         }
@@ -490,30 +490,32 @@ namespace RazerBatteryTray
 
         // ===== [U2 原位替换回滚] =====
         // 更新是"一次性不可逆动作"：新 exe 能启动但随即崩溃/卡死时，用户机器上只剩坏版本。
-        // 这里引入 pending 标记：
-        //   1. 替换前写 HKCU\Software\FerrisPulse\UpdatePending；
-        //   2. 新版本进入主循环（MainForm.OnLoad 之后）才清标记并删除 .old；
-        //   3. 下次启动若发现标记仍在且 .old 存在 → 自动回滚到旧版并重启一次。
+        // 这里引入两阶段状态机标记：
+        //   1. 替换前 LaunchSelfReplace 写 UpdatePending = "staged|<ver>|<time>"；
+        //   2. 新版首次启动进入 TryRollbackPendingUpdate() 见到 staged| → 翻转为 "booting|..." 并放行进入主循环；
+        //   3. MainForm.OnLoad 走完确认健康后调用 ConfirmUpdateHealthy() 清标记并删除 .old；
+        //   4. 若第 2 步启动后在中途崩溃未走到 OnLoad，下次启动见到 "booting|..." 且 .old 存在 → 触发自动回滚。
         private const string UpdateStateRegPath = @"Software\FerrisPulse";
         private const string UpdatePendingValName = "UpdatePending";
+        private const string UpdatePendingStageStaged = "staged";
+        private const string UpdatePendingStageBooting = "booting";
 
-        public static bool HasPendingUpdate()
+        private static string GetUpdatePendingRaw()
         {
             try
             {
                 using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(UpdateStateRegPath, false))
                 {
-                    if (key == null) return false;
+                    if (key == null) return null;
                     object v = key.GetValue(UpdatePendingValName);
-                    return v != null && !string.IsNullOrEmpty(v.ToString());
+                    return v != null ? v.ToString() : null;
                 }
             }
             catch { }
-            return false;
+            return null;
         }
 
-        /// <summary>替换前写标记：记录目标版本与时间（仅用于排查，不参与判定）。</summary>
-        public static void MarkUpdatePending(string targetVersion)
+        private static void SetUpdatePendingRaw(string value)
         {
             try
             {
@@ -521,11 +523,26 @@ namespace RazerBatteryTray
                 {
                     if (key != null)
                     {
-                        key.SetValue(UpdatePendingValName, (targetVersion == null ? "" : targetVersion) + "|" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                        key.SetValue(UpdatePendingValName, value ?? "");
                     }
                 }
             }
             catch { }
+        }
+
+        public static bool HasPendingUpdate()
+        {
+            string raw = GetUpdatePendingRaw();
+            return !string.IsNullOrEmpty(raw);
+        }
+
+        /// <summary>替换前写标记：首阶段为 staged，记录目标版本与时间。</summary>
+        public static void MarkUpdatePending(string targetVersion)
+        {
+            SetUpdatePendingRaw(
+                UpdatePendingStageStaged + "|" +
+                (targetVersion == null ? "" : targetVersion) + "|" +
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         }
 
         private static void ClearUpdatePendingMarker()
@@ -556,12 +573,20 @@ namespace RazerBatteryTray
         }
 
         /// <summary>
-        /// 启动期回滚：上次替换后新版本没走完主循环（标记仍在）。返回 true 表示已回滚并拉起旧版，
-        /// 调用方必须立刻退出当前进程。全程"先复制到临时名、再原子重命名"，失败时保留 .old 不动。
+        /// 启动期回滚：上次启动进入 booting 后未走到主循环即崩溃，本轮自动回滚到 .old 并拉起旧版。
+        /// 对替换后的第一次启动（staged|...），仅将标记推进到 booting|... 并返回 false 放行启动，避免误杀健康新版。
         /// </summary>
         public static bool TryRollbackPendingUpdate()
         {
-            if (!HasPendingUpdate()) return false;
+            string raw = GetUpdatePendingRaw();
+            if (string.IsNullOrEmpty(raw)) return false;
+
+            if (raw.StartsWith(UpdatePendingStageStaged + "|", StringComparison.OrdinalIgnoreCase))
+            {
+                SetUpdatePendingRaw(UpdatePendingStageBooting + raw.Substring(UpdatePendingStageStaged.Length));
+                return false;
+            }
+
             try
             {
                 string exePath = Application.ExecutablePath;

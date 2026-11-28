@@ -1116,6 +1116,7 @@ namespace RazerBatteryTray
         public static void SaveCustomDevice(CustomDeviceConfig dev)
         {
             if (dev == null || string.IsNullOrEmpty(dev.DeviceId)) return;
+            ApplyLegacyConfigNormalization(dev);
             try
             {
                 using (var key = Registry.CurrentUser.CreateSubKey(CustomDevicesRegPath + @"\" + dev.DeviceId))

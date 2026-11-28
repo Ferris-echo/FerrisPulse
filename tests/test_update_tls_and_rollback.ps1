@@ -32,7 +32,7 @@ Invoke-TestCase "2. pending 标记生命周期" {
         $mMark.Invoke($null, @("v9.9.9")) | Out-Null
         Assert-True ([bool]$mHas.Invoke($null, @())) "pending marker recorded"
         $val = (Get-ItemProperty -Path $regPath -Name "UpdatePending").UpdatePending
-        Assert-True ($val -like "v9.9.9|*") "marker records target version and time"
+        Assert-True ($val -like "staged|v9.9.9|*") "marker starts in staged phase with version and time"
         $mConfirm.Invoke($null, @()) | Out-Null
         Assert-True (-not [bool]$mHas.Invoke($null, @())) "ConfirmUpdateHealthy clears the marker"
         $mMark.Invoke($null, @($null)) | Out-Null
@@ -42,14 +42,19 @@ Invoke-TestCase "2. pending 标记生命周期" {
     }
 }
 
-Invoke-TestCase "3. 无 .old 退路时回滚不误动作，只清标记" {
+Invoke-TestCase "3. 两阶段状态机：staged 首次放行推进 booting，booting 无 .old 时不误动作并清标记" {
     $hostExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
     $hostOld = $hostExe + ".old"
     Assert-True (-not (Test-Path $hostOld)) "test host has no .old backup (precondition)"
     try {
         $mMark.Invoke($null, @("v9.9.9")) | Out-Null
+        $firstBoot = [bool]$mRollback.Invoke($null, @())
+        Assert-True (-not $firstBoot) "first launch in staged phase must proceed without rolling back"
+        $midVal = (Get-ItemProperty -Path $regPath -Name "UpdatePending").UpdatePending
+        Assert-True ($midVal -like "booting|v9.9.9|*") "first launch advances marker from staged to booting"
+
         $rolled = [bool]$mRollback.Invoke($null, @())
-        Assert-True (-not $rolled) "rollback reports false when there is no .old"
+        Assert-True (-not $rolled) "rollback reports false when booting marker has no .old"
         Assert-True (-not [bool]$mHas.Invoke($null, @())) "marker cleared after a no-op rollback"
         Assert-True (Test-Path $hostExe) "test host executable untouched"
     } finally {

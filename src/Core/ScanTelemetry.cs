@@ -128,7 +128,8 @@ namespace RazerBatteryTray
 
         private static readonly object fileSyncRoot = new object();
         private static int scanSequence;
-        private static volatile bool enabled = true;
+        // 默认关闭按需启用（设环境变量 FERRISPULSE_SCAN_TRACE=1 开启），避免日常在用户目录写入 scan_trace.log
+        private static volatile bool enabled = string.Equals(Environment.GetEnvironmentVariable("FERRISPULSE_SCAN_TRACE"), "1", StringComparison.OrdinalIgnoreCase);
 
         public static bool Enabled
         {
@@ -241,6 +242,17 @@ namespace RazerBatteryTray
 
         private static string ResolveTraceDirectory()
         {
+            try
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrEmpty(localAppData))
+                {
+                    string appDir = Path.Combine(localAppData, "FerrisPulse");
+                    if (!Directory.Exists(appDir)) Directory.CreateDirectory(appDir);
+                    return appDir;
+                }
+            }
+            catch { }
             try
             {
                 string location = typeof(ScanTelemetry).Assembly.Location;
