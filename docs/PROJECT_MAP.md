@@ -21,7 +21,7 @@
 | 分支 | `dev` @ `12c9c07 修复雷蛇V3pro启动后卡死`（ahead origin/dev 1）；`main` @ `2f9dc3e` (v2.4.1 发布提交) |
 | 远端 | `https://github.com/yamlling/FerrisPulse.git` |
 | 构建 | `build.bat` 通过；产物 `FerrisPulse.exe` 1,591,808 B，SHA256 `522A356A…273A6AAD7E` |
-| 测试基线 | **22 / 22 PASS**（2026-11-28 实测，含 5 个本轮新增用例）；`test_dpi_and_polling_pipeline.ps1` 已全绿，不再是既有失败（见 §9.3） |
+| 测试基线 | **23 / 23 PASS**（2026-11-28 实测，含 6 个本轮新增用例）；`test_dpi_and_polling_pipeline.ps1` 已全绿，不再是既有失败（见 §9.3） |
 | 语言环境 | 本机 Windows 中文版（zh-CN）、高分屏缩放 115% |
 
 ---
@@ -185,7 +185,7 @@ WM_INPUT → MainForm.Events.cs → 唤醒判定（只允许 O(1) 字段判读�
 ## 9. 测试体系
 
 ### 9.1 约定
-- 位置 `tests/test_*.ps1`，**22 个**，`tools/run_all_tests.ps1` 顺序执行，单文件 **12 秒**看门狗超时即判 FAIL（个别需要真实硬件往返的用例在脚本内单独给宽限预算）。
+- 位置 `tests/test_*.ps1`，**23 个**，`tools/run_all_tests.ps1` 顺序执行，单文件 **12 秒**看门狗超时即判 FAIL（个别需要真实硬件往返的用例在脚本内单独给宽限预算）。
 - 用例文件头 8 行内写 `# EXPECTED-FAIL: 原因` 会被汇总识别为**预期失败**（不计回归），若它反而通过则标 `PASS-BUT-EXPECTED-FAIL` 提示摘标记；当前**没有**任何用例登记为预期失败。
 - 加载被测程序集的唯一合法方式（铁律 10）：
   ```powershell
@@ -195,15 +195,16 @@ WM_INPUT → MainForm.Events.cs → 唤醒判定（只允许 O(1) 字段判读�
 - 套件自动设置 `FERRISPULSE_TEST_MODE=1`（开启硬件写沙盒）并在结束时回滚注册表快照（`tools/TestRegistryGuard.ps1`）。
 - 被反射的方法**严禁新增同名重载**（`GetMethod(name, flags)` 会抛 `AmbiguousMatchException`，整个脚本崩）。
 
-### 9.2 用例分布（按主题，2026-11-28 实测 22 个）
+### 9.2 用例分布（按主题，2026-11-28 实测 23 个）
 - 框架与仲裁：`test_core_driver_architecture`、`test_device_lifecycle_and_sync`、`test_shared_pid_identity`（共用公版 PID 身份隔离）
 - 品牌族：`test_brand_razer`、`test_brand_logitech`、`test_brand_rapoo`、`test_brand_mchose`、`test_brand_vgn_atk_vxe`、`test_brand_asus_valkyrie_zaopin`、`test_brand_audio_ble_gamepad`
 - 扫描链路性能：`test_scan_coalescing`（在途合流）、`test_hid_enumeration_cache`（代次枚举快照）、`test_custom_devices_readonly_cache`（只读缓存与一次性迁移）、`test_device_id_variants_and_hidden_cache`、`test_dpi_and_polling_pipeline`
 - UI / 托盘 / 音效：`test_tray_and_ui_core`、`test_multi_tray_and_colors`、`test_game_opt_engine_and_ui`、`test_chime_reaper_on_demand`
+- 游戏侦测提速：`test_game_monitor_tuning`（500ms 周期 + 线程池探测在途闸门 + 预取票一次性消费）
 - 自更新与安全：`test_app_update_startup_and_reset`、`test_update_tls_and_rollback`、`test_sandbox_and_guard`
 
 ### 9.3 当前基线（2026-11-28 更新）
-- **22/22 PASS**，耗时约 25 秒。
+- **23/23 PASS**，耗时约 26 秒。
 - 过去的「既有失败」`test_dpi_and_polling_pipeline.ps1`（XY DPI 徽标断言）现已通过，不再是基线噪声；该用例已随 P4 把普通桌面轮询档从 50ms 放宽到 200ms 而同步更新契约断言。
 - 历史遗留（仅供追溯）：
 - **既有失败**：`test_dpi_and_polling_pipeline.ps1` 断言 `XY DPI badge text` 为空。原因是该用例构造的设备没开「自动电竞优化」，而 DPI 徽标按现行 UI 契约仅在 `autoGameRateEnabled || autoGameDpiEnabled` 时呈现。**改动前基线同样失败**，不要误判为回归，也不要为了让套件变绿去改生产行为。
@@ -288,5 +289,5 @@ WM_INPUT → MainForm.Events.cs → 唤醒判定（只允许 O(1) 字段判读�
 2. 能力判断走 `dev.Capabilities`，写入走 `HardwareCommandBus`，UI 不碰 `Brand`。
 3. 改完同步文件头部的「核心职责/依赖关系」注释（铁律：契约同步更新）。
 4. 新增行为补一条 `tests/test_*.ps1`（全内存反射加载）。
-5. `build.bat` → `run_all_tests.ps1`（基线 22/22）→ 实机验证一次。
+5. `build.bat` → `run_all_tests.ps1`（基线 23/23）→ 实机验证一次。
 6. 解决新的跨模块共性陷阱 → 补 `docs/AGENT_HANDBOOK.md`；新增私有报文 → 补 `docs/HARDWARE_PROTOCOLS.md`。

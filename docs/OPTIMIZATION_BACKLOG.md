@@ -271,7 +271,8 @@ powershell -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
 | 2026-11-28 | P2 配置只读 | 每次刷新写 HKCU 10+ 次 | 读路径零写入；一次扫描只读一次注册表 | 22/22 PASS | 本机 | 待 Procmon 复测写入次数 |
 | 2026-11-28 | P3 变体/隐藏 | 每设备 ~60 次线性 Contains + 每次开注册表键 | 静态前缀表 + HashSet 去重 + 隐藏集合进程内快照 | 22/22 PASS | 本机 | 完成 |
 | 2026-11-28 | P4 轮询档 | 常态 50ms（20Hz） | 普通桌面 200ms；游戏/脉冲仍 50ms；驱动解析缓存**主动放弃**（§12.2） | 22/22 PASS | 本机 | 完成 |
-| 2026-11-28 | P5 回收器 | 静态构造即 250ms 常驻 | 首个声部起表、声部清空停表 | 22/22 PASS | 本机 | 完成 |
+| 2026-11-28 | P5 回收器 | 静态构造即 250ms 常驻 | 首个声部起表、声部清空停表 | 23/23 PASS | 本机 | 完成 |
+| 2026-11-28 | P4b 游戏侦测 | 周期 1000ms、单拍 10ms 跑在 UI 线程 | 周期 500ms + 探测挪线程池 + 预取票 | 23/23 PASS | 本机 | 判定延迟 1~2s → 0.5~1.0s；待实机 OSD 端到端复核 |
 | 2026-11-28 | U1 TLS | 进程级证书校验全关 | 只保留 TLS1.2 严格校验 | 22/22 PASS | 本机 | 待三源实测 + 自签证书拦截验证 |
 | 2026-11-28 | U2 回滚 | 坏包即永久起不来 | UpdatePending 标记 + 启动回滚 + 健康确认 | 22/22 PASS | 本机 | 待手工坏包演练 |
 | 2026-11-28 | S3 卫生 | 套件 15 用例、文档写 18、既有失败 | 22 用例全绿 + EXPECTED-FAIL 机制 + 文档对齐 | 22/22 PASS | 本机 | 完成 |
@@ -349,8 +350,20 @@ powershell -ExecutionPolicy Bypass -File tools/run_all_tests.ps1
 - `docs/PROJECT_MAP.md` 的用例数与基线（17/18）已对齐实测 22/22，用例清单按实际文件重写。
 - 说明：`test_dpi_and_polling_pipeline.ps1` 的「既有失败」在本轮开工前就已是绿的（文档描述滞后），因此没有给它加 EXPECTED-FAIL。
 
-### 12.9 新增工单（测量驱动，待排期）
+### 12.9 P4b · 游戏侦测提速（已落地，2026-11-28）
+- **先量后改**：实测 `DetectCurrentGameRunning` **单拍 9.8ms**（仅 2 个守护进程时）、`GetActiveGameProfile` **单次 14.8ms**。原先两者都跑在 WinForms Timer（UI 线程）里，直接把周期 1000ms 砍到 500ms 会变成「每 0.5s 让 UI 阻塞 10ms」，所以没有只改一行。
+- 落地三件事：
+  1. 周期 1000ms → **500ms**（`MainForm.GameMonitorIntervalMs` 常量），2 拍确认门槛不变，进出游戏判定延迟 **1~2s → 0.5~1.0s**；
+  2. 探测整体挪到线程池：`gameDetectInFlight` 用 `Interlocked.CompareExchange` 做在途闸门，探测未回来不再发新拍（绝不堆叠）；结果 `BeginInvoke` 回 UI 线程，**所有状态变更（拍数 / `isGamingActive`）仍只在 UI 线程发生**，并加了「探测期间设备被切走则结果作废、计数归零」的保护；
+  3. **预取（方案 A）**：第 1 拍命中即在线程池里跑 `PrepareGameOptimization()`，把 `GameProfile` 查表与目标档位算成 `GameOptTicket`；第 2 拍确认时 `TakePendingGameOptTicket` 直接落盘。票一次性消费，并校验「设备一致 / 两个开关未被改过 / 3s 内有效」，任一不满足就回退现场计算。
+- **明确没做**：VGN 那类「预热硬件句柄」没有实现——在投机路径里提前开 HID 句柄属于对设备的真实副作用（会占用/干扰端点），收益只有 20–80ms，不值得。
+- 只开单个开关（仅回报率或仅 DPI）时走原分支，不吃预取票；两个开关都开（主流配置）才享受预取收益。
+- 新增 `tests/test_game_monitor_tuning.ps1`（4 用例：常量/类型契约、票一次性消费与三项校验、负向探测不触发下发、源码契约）。
+- 待实机复核：进/出游戏的实际感知延迟、「拨 DPI 档 → OSD 弹出」端到端延迟（仍建议目标 <300ms）。
+
+### 12.10 新增工单（测量驱动，待排期）
 - **P1b · 品牌 helper 负结果节流**：Mchose 冷扫描 1478ms（5 次枚举 + 四段 300–400ms 超时阶梯），Kzzi 455ms、SinoWealth 483ms 同源，都是「设备不在场也把超时阶梯跑满」。建议：记下上次探测结果与时间戳，命中「无设备/无应答」时在 N 秒内直接短路，`WM_DEVICECHANGE` 强制解除短路。
-- **P4b · 实测 OSD 延迟**：轮询档放宽后需实测「拨 DPI 档 → OSD 弹出」端到端延迟（目标 <300ms）。
+- **P4c · 事件驱动替代轮询**：若要把进出游戏判定压到 200ms 内，正路是 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` 代替 500ms 轮询，代价是要处理 WinEvent 回调线程与重入。
+- **P4d · 单开关模式也吃预取**：目前只有「回报率 + DPI 同开」走 `ApplyGameOptimizationWithPrefetch`，单开关分支（`ApplyGamePollingRate` / `ApplyGameDpiStage`）仍会自己查一遍 GameProfile（~15ms），可后续统一。
 
 

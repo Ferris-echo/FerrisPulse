@@ -3,6 +3,8 @@
 // 2. 编码规范：所有文件严格保存为 UTF-8 带签名（BOM）格式，防止中文字符乱码。
 // 3. 架构规范：本文件属于 MainForm 的分部类 (partial class) 之一。修改时请保持职责清晰，任何新增方法或逻辑请同步维护 ARCHITECTURE.md。
 // 模块描述: MainForm 硬件通信调度、后台状态轮询、DPI实时监听、游戏全屏感知与界面状态同步
+//   [P4b] 游戏侦测周期 500ms（GameMonitorIntervalMs）、探测跑线程池（在途闸门防堆叠）、
+//         第 1 拍命中即预取 GameProfile 与目标档位（GameOptTicket），第 2 拍确认直接落盘。
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -1216,39 +1218,199 @@ namespace RazerBatteryTray
         {
             if (gameMonitorTimer != null) return;
             gameMonitorTimer = new System.Windows.Forms.Timer();
-            gameMonitorTimer.Interval = 1000;
+            // [P4b] 500ms 一拍：进出游戏的判定门槛仍是"连续 2 拍"，故延迟由 1~2s 降到 0.5~1.0s
+            gameMonitorTimer.Interval = GameMonitorIntervalMs;
             gameMonitorTimer.Tick += (s, e) => {
-                if (!autoGameRateEnabled && !autoGameDpiEnabled) return;
-                var curDev = GetActiveMouseDevice();
-                if (curDev == null || !IsDeviceSupportingAutoGameRate(curDev)) return;
+                if (!autoGameRateEnabled && !autoGameDpiEnabled) { DiscardPendingGameOptTicket(); return; }
+                string probeDeviceId;
+                try
+                {
+                    var curDev = GetActiveMouseDevice();
+                    if (curDev == null || !IsDeviceSupportingAutoGameRate(curDev)) { DiscardPendingGameOptTicket(); return; }
+                    probeDeviceId = curDev.DeviceId;
+                }
+                catch { return; }
 
-                string procTitle;
-                bool isGame = DetectCurrentGameRunning(out procTitle);
+                // 在途闸门：上一次探测还没回来就不再发新的，绝不堆叠（探测本身是线程池任务）
+                if (System.Threading.Interlocked.CompareExchange(ref gameDetectInFlight, 1, 0) != 0) return;
+
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate(object state)
+                {
+                    bool isGame = false;
+                    GameOptTicket prefetched = null;
+                    try
+                    {
+                        string procTitle;
+                        isGame = DetectCurrentGameRunning(out procTitle);
+                        // 第 1 拍命中即预取：把 ~15ms 的 GameProfile 查表挪出确认路径（纯计算，不碰硬件）
+                        if (isGame && !isGamingActive) prefetched = PrepareGameOptimization();
+                    }
+                    catch { isGame = false; prefetched = null; }
+                    finally
+                    {
+                        System.Threading.Interlocked.Exchange(ref gameDetectInFlight, 0);
+                    }
+                    try
+                    {
+                        this.BeginInvoke(new Action(() => OnGameProbeCompleted(isGame, prefetched, probeDeviceId)));
+                    }
+                    catch { }
+                });
+            };
+            gameMonitorTimer.Start();
+        }
+
+        /// <summary>
+        /// [P4b] 进游戏预取票：第 1 拍命中就在后台线程算好"要写什么"，第 2 拍确认直接落盘。
+        /// 只承载纯计算产物，绝不持有已打开的硬件句柄（投机路径里绝不碰设备）。
+        /// </summary>
+        private sealed class GameOptTicket
+        {
+            public string DeviceId;
+            public bool ApplyRate;
+            public bool ApplyDpi;
+            public int TargetHz;
+            public int TargetDpi;
+            public int TargetDpiY;
+            public int TargetStage;
+            public GameProfile ActiveProfile;
+            public DateTime PreparedUtc;
+        }
+
+        /// <summary>
+        /// 计算进游戏需要下发的目标值（纯 CPU：无硬件写入、无 UI 更新、无配置写入）。
+        /// 供后台预取线程调用，也是 ApplyGameOptimizationWithPrefetch 的兜底计算口径。
+        /// </summary>
+        private GameOptTicket PrepareGameOptimization()
+        {
+            try
+            {
+                MouseBatteryInfo curDev = GetActiveMouseDevice();
+                if (curDev == null) return null;
+                bool applyRate = autoGameRateEnabled;
+                bool applyDpi = autoGameDpiEnabled;
+                if (!applyRate && !applyDpi) return null;
+                if (!IsDeviceSupportingAutoGameRate(curDev)) return null;
+
+                GameProfile activeProfile = GetActiveGameProfile();
+                int targetHz = (activeProfile != null && activeProfile.CustomPollingRate > 0)
+                    ? activeProfile.CustomPollingRate
+                    : gamePollingRate;
+
+                int stageCap = (dpiStageValues != null) ? dpiStageValues.Length : 0;
+                int targetStage = gameDpiStage;
+                if (activeProfile != null && activeProfile.CustomDpiStage >= 1 &&
+                    (stageCap <= 0 || activeProfile.CustomDpiStage <= stageCap))
+                {
+                    targetStage = activeProfile.CustomDpiStage;
+                }
+                if (targetStage < 1 || (stageCap > 0 && targetStage > stageCap)) targetStage = 1;
+
+                int targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length)
+                    ? dpiStageValues[targetStage - 1]
+                    : ((curDev.Dpi > 0) ? curDev.Dpi : 0);
+                if (applyDpi && targetDpi <= 0) return null;
+
+                int targetDpiY = targetDpi;
+                if (curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
+                {
+                    targetDpiY = curDev.DpiStagesY[targetStage - 1];
+                }
+
+                GameOptTicket ticket = new GameOptTicket();
+                ticket.DeviceId = curDev.DeviceId;
+                ticket.ApplyRate = applyRate;
+                ticket.ApplyDpi = applyDpi;
+                ticket.TargetHz = targetHz;
+                ticket.TargetDpi = targetDpi;
+                ticket.TargetDpiY = targetDpiY;
+                ticket.TargetStage = targetStage;
+                ticket.ActiveProfile = activeProfile;
+                ticket.PreparedUtc = DateTime.UtcNow;
+                return ticket;
+            }
+            catch { return null; }
+        }
+
+        private void StorePendingGameOptTicket(GameOptTicket ticket)
+        {
+            lock (pendingGameOptTicketLock) { pendingGameOptTicket = ticket; }
+        }
+
+        private void DiscardPendingGameOptTicket()
+        {
+            lock (pendingGameOptTicketLock) { pendingGameOptTicket = null; }
+        }
+
+        /// <summary>
+        /// 取出并作废预取票。设备换了 / 票过期 / 两个开关在两拍之间被改过，一律判无效（回退现场计算）。
+        /// </summary>
+        private GameOptTicket TakePendingGameOptTicket(MouseBatteryInfo curDev)
+        {
+            GameOptTicket ticket;
+            lock (pendingGameOptTicketLock)
+            {
+                ticket = pendingGameOptTicket;
+                pendingGameOptTicket = null;
+            }
+            if (ticket == null || curDev == null) return null;
+            if (!string.Equals(ticket.DeviceId, curDev.DeviceId, StringComparison.OrdinalIgnoreCase)) return null;
+            if (ticket.ApplyRate != autoGameRateEnabled || ticket.ApplyDpi != autoGameDpiEnabled) return null;
+            if ((DateTime.UtcNow - ticket.PreparedUtc).TotalMilliseconds > GameOptTicketMaxAgeMs) return null;
+            return ticket;
+        }
+
+        /// <summary>
+        /// 探测结果回到 UI 线程后推进状态机 —— 所有状态变更（含 isGamingActive 与拍数）仍然只在 UI 线程发生。
+        /// </summary>
+        private void OnGameProbeCompleted(bool isGame, GameOptTicket prefetched, string probeDeviceId)
+        {
+            try
+            {
+                MouseBatteryInfo curDev = GetActiveMouseDevice();
+                if (curDev == null || !IsDeviceSupportingAutoGameRate(curDev) ||
+                    !string.Equals(curDev.DeviceId, probeDeviceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 探测期间设备被切走/拔掉：本次结果作废，计数归零重来
+                    inGameTickCount = 0;
+                    outOfGameTickCount = 0;
+                    DiscardPendingGameOptTicket();
+                    return;
+                }
+
                 if (isGame)
                 {
                     outOfGameTickCount = 0;
                     inGameTickCount++;
+                    if (prefetched != null) StorePendingGameOptTicket(prefetched);
                     if (inGameTickCount >= 2 && !isGamingActive)
                     {
-                        isGamingActive = true; if (autoGameRateEnabled && autoGameDpiEnabled) { ApplyGameOptimization(true); } else
-                        if (autoGameRateEnabled)
+                        isGamingActive = true;
+                        if (autoGameRateEnabled && autoGameDpiEnabled)
                         {
-                            ApplyGamePollingRate();
+                            ApplyGameOptimizationWithPrefetch(true, TakePendingGameOptTicket(curDev));
                         }
-                        else if (autoGameDpiEnabled)
+                        else
                         {
-                            ApplyGameDpiStage();
+                            DiscardPendingGameOptTicket();
+                            if (autoGameRateEnabled) ApplyGamePollingRate();
+                            else if (autoGameDpiEnabled) ApplyGameDpiStage();
                         }
                     }
                 }
                 else
                 {
                     inGameTickCount = 0;
+                    DiscardPendingGameOptTicket();
                     outOfGameTickCount++;
                     if (outOfGameTickCount >= 2 && isGamingActive)
                     {
-                        isGamingActive = false; if (autoGameRateEnabled && autoGameDpiEnabled) { ApplyGameOptimization(false); } else
-                        if (autoGameRateEnabled)
+                        isGamingActive = false;
+                        if (autoGameRateEnabled && autoGameDpiEnabled)
+                        {
+                            ApplyGameOptimizationWithPrefetch(false, null);
+                        }
+                        else if (autoGameRateEnabled)
                         {
                             RestoreDesktopPollingRate();
                         }
@@ -1258,8 +1420,8 @@ namespace RazerBatteryTray
                         }
                     }
                 }
-            };
-            gameMonitorTimer.Start();
+            }
+            catch { }
         }
 
         private void SyncMonitoredDpiState(int targetDpi, int targetStage, string deviceId = null)
@@ -1348,6 +1510,16 @@ namespace RazerBatteryTray
 
         private void ApplyGameOptimization(bool isEntering)
         {
+            // 兼容入口：启动校准等非预取路径照旧现场计算
+            ApplyGameOptimizationWithPrefetch(isEntering, null);
+        }
+
+        /// <summary>
+        /// [P4b] 带预取票的下发入口：prefetched 非空时直接采用第 1 拍算好的 GameProfile 与目标档位，
+        /// 省掉确认路径上约 15ms 的 GameProfile 查表；为空则完全按原口径现场计算。
+        /// </summary>
+        private void ApplyGameOptimizationWithPrefetch(bool isEntering, GameOptTicket prefetched)
+        {
             var curDev = GetActiveMouseDevice();
             if (curDev == null) return;
 
@@ -1361,8 +1533,14 @@ namespace RazerBatteryTray
             if (!applyRate && !applyDpi) return;
 
             string brand = curDev.Brand;
-            GameProfile activeProfile = isEntering ? GetActiveGameProfile() : null;
-            int targetHz = isEntering ? ((activeProfile != null && activeProfile.CustomPollingRate > 0) ? activeProfile.CustomPollingRate : gamePollingRate) : desktopPollingRate;
+            GameProfile activeProfile = isEntering
+                ? ((prefetched != null) ? prefetched.ActiveProfile : GetActiveGameProfile())
+                : null;
+            int targetHz = isEntering
+                ? ((prefetched != null)
+                    ? prefetched.TargetHz
+                    : ((activeProfile != null && activeProfile.CustomPollingRate > 0) ? activeProfile.CustomPollingRate : gamePollingRate))
+                : desktopPollingRate;
 
             int targetStage = 1;
             if (applyDpi)
@@ -1376,9 +1554,11 @@ namespace RazerBatteryTray
                         desktopDpiStage = (curDev.DpiStage > 0) ? curDev.DpiStage : 1;
                         SaveConfig();
                     }
-                    targetStage = (activeProfile != null && activeProfile.CustomDpiStage >= 1 && (stageCapGame <= 0 || activeProfile.CustomDpiStage <= stageCapGame))
-                        ? activeProfile.CustomDpiStage
-                        : gameDpiStage;
+                    targetStage = (prefetched != null)
+                        ? prefetched.TargetStage
+                        : ((activeProfile != null && activeProfile.CustomDpiStage >= 1 && (stageCapGame <= 0 || activeProfile.CustomDpiStage <= stageCapGame))
+                            ? activeProfile.CustomDpiStage
+                            : gameDpiStage);
                 }
                 else
                 {
@@ -1393,12 +1573,14 @@ namespace RazerBatteryTray
             int targetDpiY = 0;
             if (applyDpi)
             {
-                targetDpi = (dpiStageValues != null && targetStage - 1 < dpiStageValues.Length)
-                    ? dpiStageValues[targetStage - 1]
-                    : ((curDev.Dpi > 0) ? curDev.Dpi : 0);
+                targetDpi = (prefetched != null)
+                    ? prefetched.TargetDpi
+                    : ((dpiStageValues != null && targetStage - 1 < dpiStageValues.Length)
+                        ? dpiStageValues[targetStage - 1]
+                        : ((curDev.Dpi > 0) ? curDev.Dpi : 0));
                 if (targetDpi <= 0) return;
-                targetDpiY = targetDpi;
-                if (curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
+                targetDpiY = (prefetched != null) ? prefetched.TargetDpiY : targetDpi;
+                if (prefetched == null && curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
                 {
                     targetDpiY = curDev.DpiStagesY[targetStage - 1];
                 }
