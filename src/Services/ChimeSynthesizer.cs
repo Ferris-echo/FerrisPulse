@@ -9,6 +9,7 @@
 //      基于原生 Win32 waveOut 纯内存即时并发多复音引擎（On-Demand WaveOut Dispatcher），
 //      零磁盘临时文件、零 ThreadPool 调度排队延迟、零 waveOutReset 驱动阻塞、零掐音，
 //      急速连续点击 100% 毫无阻滞、无缝并发重叠泛音共鸣！
+//   声部回收器（voiceReaperTimer）按需启停：首个声部入队起表，声部清空停表，杜绝空闲期 250ms 常驻唤醒。
 // 依赖关系: 无外部依赖 (使用 Windows winmm.dll 底层硬件混音)
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -254,9 +255,8 @@ namespace RazerBatteryTray
 
         static ChimeSynthesizer()
         {
-            // 启动定时回收器，每 250ms 静默回收播放完毕的 waveOut 音频句柄
-            voiceReaperTimer = new Timer(OnVoiceReaperTick, null, 250, 250);
-
+            // [P5] 回收器改为按需启动：静态构造只预热 PCM，绝不在没人播放时每 250ms
+            // 唤醒一次线程池（会妨碍 CPU 进入低功耗态）。首个声部入队时由 EnsureVoiceReaperRunning 起表。
             // 启动时在后台线程池全量预热 PCM 泛音数据
             ThreadPool.QueueUserWorkItem(delegate(object state)
             {
@@ -266,6 +266,39 @@ namespace RazerBatteryTray
                 }
                 catch { }
             });
+        }
+
+        /// <summary>
+        /// [P5] 按需起表：只要有声部在播就必须有回收器，否则 waveOut 句柄永不释放。
+        /// </summary>
+        private static void EnsureVoiceReaperRunning()
+        {
+            try
+            {
+                lock (voiceLock)
+                {
+                    if (voiceReaperTimer == null) voiceReaperTimer = new Timer(OnVoiceReaperTick, null, 250, 250);
+                    else voiceReaperTimer.Change(250, 250);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// [P5] 声部全部回收后停表（只停触发，不销毁句柄池）。activeVoices 非空时绝不真的停。
+        /// </summary>
+        private static void StopVoiceReaperIfIdle()
+        {
+            try
+            {
+                lock (voiceLock)
+                {
+                    if (voiceReaperTimer == null) return;
+                    if (activeVoices.Count > 0) return;
+                    voiceReaperTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                }
+            }
+            catch { }
         }
 
         private static void OnVoiceReaperTick(object state)
@@ -302,6 +335,9 @@ namespace RazerBatteryTray
                     catch { }
                 }
             }
+
+            // [P5] 声部全部回收后停表，避免没人播放时仍每 250ms 唤醒线程池
+            StopVoiceReaperIfIdle();
         }
 
         public static void PrewarmScaleCache()
@@ -383,6 +419,8 @@ namespace RazerBatteryTray
                         {
                             activeVoices.Add(v);
                         }
+                        // [P5] 有活跃声部就必须有回收器，否则 waveOut 句柄永不释放
+                        EnsureVoiceReaperRunning();
                         return;
                     }
                 }

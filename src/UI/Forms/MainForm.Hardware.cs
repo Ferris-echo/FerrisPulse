@@ -37,6 +37,12 @@ namespace RazerBatteryTray
             RapooDeviceHelper.CloseRapooStream();
         }
 
+        /// <summary>
+        /// [P4] 普通桌面档轮询间隔（毫秒）。仅在非游戏、非脉冲爆发、未空闲时使用；
+        /// 游戏 / 变档脉冲仍维持 50ms，雷柏始终 200ms，休眠 2000ms，空闲 ≥30s 回落到 1000ms。
+        /// </summary>
+        public const int NormalDesktopDpiPollIntervalMs = 200;
+
         public static int CalculateAdaptiveDpiPollInterval(double idleSeconds, bool isSleeping, string brand)
         {
             return CalculateAdaptiveDpiPollInterval(idleSeconds, isSleeping, brand, false, 0);
@@ -59,7 +65,10 @@ namespace RazerBatteryTray
             {
                 return 200;
             }
-            return 50;
+            // [P4] 普通桌面档：非游戏、非脉冲爆发、未空闲时不再 20Hz 轮询。
+            // 变化检测最坏延迟一个档期（200ms）；检测到变化后 dpiMonitorBurstUntilTicks
+            // 立刻切回 50ms，OSD 手感不变，但常态 CPU/耗电下降一个数量级。
+            return NormalDesktopDpiPollIntervalMs;
         }
 
         public static bool EvaluateDpiCalibrationResult(int hwDpi, int hwStage, int recordedDpi, int recordedStage)
