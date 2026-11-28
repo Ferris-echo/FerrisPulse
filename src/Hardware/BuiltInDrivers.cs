@@ -3002,45 +3002,51 @@ namespace RazerBatteryTray
         }
 
         public override void PopulateCapabilities(MouseBatteryInfo dev)
-
         {
-
             if (dev == null) return;
-
             if (dev.Capabilities == null) dev.Capabilities = new DeviceCapabilities();
-
             if (string.IsNullOrEmpty(dev.DriverId)) dev.DriverId = DriverId;
-
-            dev.Capabilities.SupportsBattery = true;
-
-            dev.Capabilities.SupportsDpi = false;
-
-            dev.Capabilities.SupportsDpiStages = false;
-
-            dev.Capabilities.SupportsPollingRate = false;
-
-            dev.Capabilities.SupportsHardwareDpiMonitor = false;
-
-            dev.Capabilities.SupportsXyIndependence = false;
-
+            VxeNearLinkDeviceHelper.PopulateCapabilities(dev);
         }
 
         public override List<MouseBatteryInfo> QueryDevices()
-
         {
-
             List<MouseBatteryInfo> list = VxeNearLinkDeviceHelper.QueryAllDevices();
-
             if (list != null)
-
             {
-
                 for (int i = 0; i < list.Count; i++) PopulateCapabilities(list[i]);
-
             }
-
             return list ?? new List<MouseBatteryInfo>();
+        }
 
+        public override bool FastQueryDpi(MouseBatteryInfo dev, out int dpiX, out int dpiY, out int stage, out int count)
+        {
+            return VxeNearLinkDeviceHelper.FastQueryDpi(dev, out dpiX, out dpiY, out stage, out count);
+        }
+
+        public override bool SetDpi(MouseBatteryInfo dev, int dpiX, int dpiY, int stage)
+        {
+            return VxeNearLinkDeviceHelper.SetDpi(dev, dpiX, dpiY, stage);
+        }
+
+        public override bool UpdateHardwareStages(MouseBatteryInfo dev, int activeStage, int[] stagesX, int[] stagesY)
+        {
+            return VxeNearLinkDeviceHelper.UpdateHardwareStages(dev, activeStage, stagesX, stagesY);
+        }
+
+        public override bool SetPollingRate(MouseBatteryInfo dev, int rateHz)
+        {
+            return VxeNearLinkDeviceHelper.SetPollingRate(dev, rateHz);
+        }
+
+        public override bool SyncCustomActions(MouseBatteryInfo dev)
+        {
+            return VxeNearLinkDeviceHelper.SyncCustomActions(dev);
+        }
+
+        public override bool ExecuteCustomAction(MouseBatteryInfo dev, string actionId, int value)
+        {
+            return VxeNearLinkDeviceHelper.ExecuteCustomAction(dev, actionId, value);
         }
 
     }

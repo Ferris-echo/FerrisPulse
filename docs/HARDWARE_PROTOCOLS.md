@@ -101,9 +101,11 @@
 - **ATK A87 PRO 三模键盘 (`373B:111F`, `AtkA87ProHelper.cs`, PR #93, 贡献者 `@gallopcsy`)**:
   - `UsagePage 0xFF60 / Usage 0x0061` 33 字节中断端点（禁在 `WriteReport` 前 `DrainReports`，写超时需 `400ms`）。
   - 查询 `00 02 96 24`，回复 `00 02 96 24 <pct> <status>`（`status & 0x01` 为充电标志；`pct==0 && status==0` 为休眠帧须丢弃）。`UniversalGamingDeviceHelper` 按 `pid_111f` 排除。
-- **VXE 蜻蜓 R1 星闪版 (`373B:1216`, `VxeNearLinkDeviceHelper.cs`, 贡献者 “冻干咸鱼”)**:
-  - `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点（`HidD_SetOutputReport` 下发 + OVERLAPPED `ReadFile` 读取），走 **BITMOUSE 63B 帧 + Report ID `0x08`**（逆向自 ATK HUB 3.2.30 `app.asar`）。
-  - 报文布局：`[0]=0x08`, `[1]=sum([2..63])&0xFF`, `[2]=0x72`, `[3]=2`, `[4]=sn`, `[5]=target(0x01)`, `[6]=cmdId`, `[7]=1`；`cmd 7` 返回 `rx[1]=0x72, rx[5]=0x07, rx[7]=pct(0..100), rx[8..9]=mV(LE)`，`cmd 15 (0x0F)` 返回 `rx[7]!=0` 为充电标志；`SupportsDpi = false`、`SupportsPollingRate = false`，并在 `UniversalGamingDeviceHelper` 按 `pid_1216` 隔离。
+- **VXE 蜻蜓 R1 星闪版 (`373B:1216` 接收器 / `373B:124C` 有线 USB, `VxeNearLinkDeviceHelper.cs`, 贡献者 “冻干咸鱼”)**:
+  - `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点（`WriteFile`/`ReadFile` 单读通道会话复用），走 **BITMOUSE 63B 帧 + Report ID `0x08`**（逆向自 ATK HUB 3.2.30~3.2.34）。
+  - 报文布局：`[0]=0x08`, `[1]=sum([2..63])&0xFF`, `[2]=0x72`, `[3]=paramLen`, `[4]=sn`, `[5]=target(0x01)`, `[6]=cmdId`, `[7]=cmdLen`, `[8..]=body`。
+  - 已验证指令：`cmd 0x07` 返回 `rx[1]=0x72, rx[5]=0x07, rx[7]=pct(0..100), rx[8..9]=mV(LE)`；`cmd 0x0F` 返回 `rx[7]!=0` 为充电标志；`cmd 0x17`（`seq=0x01+0x0A*n`）连续 6×10B 流拼包读取板载 DPI 表与每档 4B `[B,G,R,A]` 灯色；`cmd 0x02` 写单档 XY DPI 并原样回填灯色（读不到灯色严禁盲写默认红）；`cmd 0x01` 降序写回报率（`125->3, 250->2, 500->1, 1000->0`）；`cmd 0x17 + key 0x4A` / `cmd 0x1F` (`0x00` 基础 / `0x04` 绝鲨竞技) 读写竞技固件；物理切档主动上报帧 `frame[0]=0x08, frame[2]=0x73, frame[6..7]=X, frame[8..9]=Y`。
+  - 并在 `UniversalGamingDeviceHelper` 按 `pid_1216` 与 `pid_124c` 隔离；插线态 `373B:124C` 在线时短路跳过静音接收器探测并直显 `"有线 USB"` 供电态。
 - **ATK Phantom Ultimate (`373B:12CD`, `AtkPhantomDeviceHelper.cs`, PR #101, 贡献者 `@ertutio`)**:
   - 共享 Nano 接收器 `UsagePage 0xFF05 / Usage 0x0001` 64 字节厂商端点；先发送 BITMOUSE `0x4A` 确认下游 `CID=1 / MID=10|21`，再发 `0x07`/`0x0F` 读取电量与充电状态（等待有效响应忽略非匹配通知帧）；`UniversalGamingDeviceHelper` 按 `pid_12cd` 排除。
 

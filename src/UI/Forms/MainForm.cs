@@ -741,6 +741,8 @@ namespace RazerBatteryTray
 
         private ToolStripSeparator nuphyTraySep;
 
+        private readonly List<ToolStripMenuItem> dynamicCustomActionTrayItems = new List<ToolStripMenuItem>();
+
 
 
         // Visual controls - Card 3: Settings & Preferences

@@ -863,6 +863,31 @@ namespace RazerBatteryTray
             }
         }
 
+        private void ClearDynamicCustomActionTrayItems()
+        {
+            if (dynamicCustomActionTrayItems == null || dynamicCustomActionTrayItems.Count == 0) return;
+            for (int i = 0; i < dynamicCustomActionTrayItems.Count; i++)
+            {
+                var item = dynamicCustomActionTrayItems[i];
+                if (item != null)
+                {
+                    if (contextMenu != null && contextMenu.Items.Contains(item))
+                    {
+                        contextMenu.Items.Remove(item);
+                    }
+                    item.Dispose();
+                }
+            }
+            dynamicCustomActionTrayItems.Clear();
+        }
+
+        private static bool IsLegacyNuphyTrayActionId(string actionId)
+        {
+            return string.Equals(actionId, "auto_sleep", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(actionId, "win_lock", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(actionId, "sidelight_toggle", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void UpdateTrayDeviceMenuItems()
         {
             if (contextMenu == null) return;
@@ -882,6 +907,7 @@ namespace RazerBatteryTray
                 }
             }
             dynamicDeviceMenuItems.Clear();
+            ClearDynamicCustomActionTrayItems();
 
             var primary = ResolveTrayContextDevice();
             var onlineDevices = new List<MouseBatteryInfo>();
@@ -1000,72 +1026,9 @@ namespace RazerBatteryTray
                 var drv = HardwareDriverRegistry.FindDriverForDevice(primary);
                 if (drv != null) drv.PopulateCapabilities(primary);
 
-                bool hasCustomActions = (primary.Capabilities != null && primary.Capabilities.CustomActions != null && primary.Capabilities.CustomActions.Count > 0);
-                if (hasCustomActions || primary.Category == DeviceCategory.Keyboard)
+                // 1. 鼠标专属区：DPI / 回报率 / 巴蛇终极版灯光，与 CustomActions 彻底解耦
+                if (primary.Category == DeviceCategory.Mouse)
                 {
-                    if (dpiMenu != null) dpiMenu.Visible = false;
-                    if (rateMenu != null) rateMenu.Visible = false;
-                    if (lightingMenu != null) lightingMenu.Visible = false;
-
-                    var actSleep = GetDeviceToggleAction(primary, 0, "auto_sleep");
-                    var actWin = GetDeviceToggleAction(primary, 1, "win_lock");
-                    var actSide = GetDeviceToggleAction(primary, 3, "sidelight_toggle");
-                    var actBright = GetDeviceSliderAction(primary, "backlight_brightness");
-
-                    if (nuphySleepMenuItem != null)
-                    {
-                        nuphySleepMenuItem.Visible = (actSleep != null);
-                        if (actSleep != null)
-                        {
-                            bool en = actSleep.BoolValue || actSleep.IntValue != 0;
-                            nuphySleepMenuItem.Text = en ? (actSleep.Title + ": 已开启") : (actSleep.Title + ": 已关闭 (常亮)");
-                        }
-                    }
-                    if (nuphyWinLockMenuItem != null)
-                    {
-                        nuphyWinLockMenuItem.Visible = (actWin != null);
-                        if (actWin != null)
-                        {
-                            bool en = actWin.BoolValue || actWin.IntValue != 0;
-                            nuphyWinLockMenuItem.Text = en ? (actWin.Title + ": 已开启") : (actWin.Title + ": 已关闭");
-                        }
-                    }
-                    if (nuphyBacklightMenu != null)
-                    {
-                        nuphyBacklightMenu.Visible = (actBright != null);
-                        if (actBright != null)
-                        {
-                            ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
-                            for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
-                            {
-                                var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
-                                if (sub != null && sub.Tag is int)
-                                {
-                                    sub.Checked = ((int)sub.Tag == actBright.IntValue);
-                                }
-                            }
-                        }
-                    }
-                    if (nuphySidelightMenuItem != null)
-                    {
-                        nuphySidelightMenuItem.Visible = (actSide != null);
-                        if (actSide != null)
-                        {
-                            bool en = actSide.BoolValue || actSide.IntValue != 0;
-                            nuphySidelightMenuItem.Text = en ? (actSide.Title + ": 已开启") : (actSide.Title + ": 已关闭");
-                        }
-                    }
-                    if (nuphyTraySep != null) nuphyTraySep.Visible = hasCustomActions;
-                }
-                else if (primary.Category == DeviceCategory.Mouse)
-                {
-                    // Primary is Mouse (Razer, Rapoo, etc.): Show DPI/Rate, hide NuPhy controls
-                    if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
-                    if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
-                    if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
-                    if (nuphySidelightMenuItem != null) nuphySidelightMenuItem.Visible = false;
-                    if (nuphyTraySep != null) nuphyTraySep.Visible = false;
-
                     if (dpiMenu != null)
                     {
                         dpiMenu.Visible = true;
@@ -1172,15 +1135,118 @@ namespace RazerBatteryTray
                 }
                 else
                 {
-                    // Other device (Headset, Gamepad)
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
                     if (lightingMenu != null) lightingMenu.Visible = false;
-                    if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
-                    if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
-                    if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;
-                    if (nuphySidelightMenuItem != null) nuphySidelightMenuItem.Visible = false;
-                    if (nuphyTraySep != null) nuphyTraySep.Visible = false;
+                }
+
+                // 2. 声明式 CustomActions 区（同时适配 NuPhy 经典控制项与任意第三方/内置 Toggle 开关）
+                var actSleep = GetDeviceToggleAction(primary, "auto_sleep");
+                var actWin = GetDeviceToggleAction(primary, "win_lock");
+                var actSide = GetDeviceToggleAction(primary, "sidelight_toggle");
+                var actBright = GetDeviceSliderAction(primary, "backlight_brightness");
+
+                bool anyNuphyVisible = false;
+                if (nuphySleepMenuItem != null)
+                {
+                    nuphySleepMenuItem.Visible = (actSleep != null);
+                    if (actSleep != null)
+                    {
+                        anyNuphyVisible = true;
+                        bool en = actSleep.BoolValue || actSleep.IntValue != 0;
+                        nuphySleepMenuItem.CheckOnClick = false;
+                        nuphySleepMenuItem.Checked = en;
+                        nuphySleepMenuItem.Text = en ? (actSleep.Title + ": 已开启") : (actSleep.Title + ": 已关闭 (常亮)");
+                    }
+                }
+                if (nuphyWinLockMenuItem != null)
+                {
+                    nuphyWinLockMenuItem.Visible = (actWin != null);
+                    if (actWin != null)
+                    {
+                        anyNuphyVisible = true;
+                        bool en = actWin.BoolValue || actWin.IntValue != 0;
+                        nuphyWinLockMenuItem.CheckOnClick = false;
+                        nuphyWinLockMenuItem.Checked = en;
+                        nuphyWinLockMenuItem.Text = en ? (actWin.Title + ": 已开启") : (actWin.Title + ": 已关闭");
+                    }
+                }
+                if (nuphyBacklightMenu != null)
+                {
+                    nuphyBacklightMenu.Visible = (actBright != null);
+                    if (actBright != null)
+                    {
+                        anyNuphyVisible = true;
+                        ConfigureSubMenuDropDown(nuphyBacklightMenu.DropDown);
+                        for (int k = 0; k < nuphyBacklightMenu.DropDownItems.Count; k++)
+                        {
+                            var sub = nuphyBacklightMenu.DropDownItems[k] as ToolStripMenuItem;
+                            if (sub != null && sub.Tag is int)
+                            {
+                                sub.Checked = ((int)sub.Tag == actBright.IntValue);
+                            }
+                        }
+                    }
+                }
+                if (nuphySidelightMenuItem != null)
+                {
+                    nuphySidelightMenuItem.Visible = (actSide != null);
+                    if (actSide != null)
+                    {
+                        anyNuphyVisible = true;
+                        bool en = actSide.BoolValue || actSide.IntValue != 0;
+                        nuphySidelightMenuItem.CheckOnClick = false;
+                        nuphySidelightMenuItem.Checked = en;
+                        nuphySidelightMenuItem.Text = en ? (actSide.Title + ": 已开启") : (actSide.Title + ": 已关闭");
+                    }
+                }
+
+                if (primary.Capabilities != null && primary.Capabilities.CustomActions != null)
+                {
+                    int sepIdx = (nuphyTraySep != null) ? contextMenu.Items.IndexOf(nuphyTraySep) : -1;
+                    int customInsertIdx = (sepIdx >= 0) ? sepIdx : contextMenu.Items.Count;
+                    for (int i = 0; i < primary.Capabilities.CustomActions.Count; i++)
+                    {
+                        var act = primary.Capabilities.CustomActions[i];
+                        if (act == null || !act.ShowInTrayMenu || act.ActionType != CustomActionType.Toggle) continue;
+                        if (string.IsNullOrEmpty(act.ActionId) || IsLegacyNuphyTrayActionId(act.ActionId)) continue;
+
+                        bool isOn = act.BoolValue || act.IntValue != 0;
+                        string itemText = (!string.IsNullOrEmpty(act.ActiveText) && !string.IsNullOrEmpty(act.InactiveText))
+                            ? (act.Title + ": " + (isOn ? act.ActiveText : act.InactiveText))
+                            : (act.Title ?? act.ActionId);
+
+                        var dynItem = new ToolStripMenuItem(itemText);
+                        dynItem.CheckOnClick = false;
+                        dynItem.Checked = isOn;
+                        dynItem.Tag = act.ActionId;
+
+                        string capturedActionId = act.ActionId;
+                        int targetValue = isOn ? 0 : 1;
+                        dynItem.Click += (s, e) => {
+                            var dev = ResolveTrayContextDevice();
+                            if (dev == null) return;
+                            ThreadPool.QueueUserWorkItem(_ => {
+                                HardwareCommandBus.ExecuteCustomAction(dev, capturedActionId, targetValue);
+                                try
+                                {
+                                    this.BeginInvoke(new Action(() => {
+                                        UpdateTrayDeviceMenuItems();
+                                    }));
+                                }
+                                catch { }
+                            });
+                        };
+
+                        contextMenu.Items.Insert(customInsertIdx, dynItem);
+                        customInsertIdx++;
+                        dynamicCustomActionTrayItems.Add(dynItem);
+                    }
+                }
+
+                if (nuphyTraySep != null)
+                {
+                    nuphyTraySep.Visible = (anyNuphyVisible || dynamicCustomActionTrayItems.Count > 0);
                 }
             }
             else

@@ -152,9 +152,10 @@ Invoke-TestCase "VgnAndCompx.CrossBrandIsolationAndFrames" {
     Assert-True ([bool]$tVgnKb.GetMethod("IsV108Response").Invoke($null, @($v108Rx.PSObject.BaseObject, 20, [byte]0x4A, 2))) "V108 battery RX"
 }
 
-Invoke-TestCase "Vxe.NearLinkR1ProtocolAndReadOnlyContract" {
+Invoke-TestCase "Vxe.NearLinkR1ProtocolAndTrayCustomActions" {
     $tVxe = $asm.GetType("RazerBatteryTray.VxeNearLinkDeviceHelper", $true)
-    Assert-True ([bool]$tVxe.GetMethod("IsSupportedVidPid", $bfPubStatic).Invoke($null, @([int]0x373B, [int]0x1216))) "VXE R1 NearLink accepted"
+    Assert-True ([bool]$tVxe.GetMethod("IsSupportedVidPid", $bfPubStatic).Invoke($null, @([int]0x373B, [int]0x1216))) "VXE R1 NearLink dongle accepted"
+    Assert-True ([bool]$tVxe.GetMethod("IsSupportedVidPid", $bfPubStatic).Invoke($null, @([int]0x373B, [int]0x124C))) "VXE R1 NearLink wired PID accepted"
     Assert-True (-not [bool]$tVxe.GetMethod("IsSupportedVidPid", $bfPubStatic).Invoke($null, @([int]0x373B, [int]0x1085))) "VXE R1 SE rejected"
 
     $epOk = New-Object RazerBatteryTray.HidDeviceDescriptor
@@ -162,8 +163,21 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndReadOnlyContract" {
     $epOk.InputReportLength = 64; $epOk.OutputReportLength = 64; $epOk.DevicePath = "\\?\hid#vid_373b&pid_1216&mi_02&col04#test"
     Assert-True ([bool]$tVxe.GetMethod("IsNearLinkEndpoint", $bfPubStatic).Invoke($null, @($epOk.PSObject.BaseObject))) "NearLink 64B endpoint"
 
+    # UniversalGamingDeviceHelper isolates both 373B:1216 and wired 373B:124C
+    $tUg = $asm.GetType("RazerBatteryTray.UniversalGamingDeviceHelper", $true)
+    $mUgCheck = $tUg.GetMethod("IsSupportedMouseCandidate", $bfAnyStatic)
+    if ($null -ne $mUgCheck) {
+        $wiredDesc = New-Object RazerBatteryTray.HidDeviceDescriptor
+        $wiredDesc.VendorId = 0x373B; $wiredDesc.ProductId = 0x124C; $wiredDesc.DevicePath = "\\?\hid#vid_373b&pid_124c&mi_02#test"
+        Assert-True (-not [bool]$mUgCheck.Invoke($null, @($wiredDesc.PSObject.BaseObject))) "UniversalGaming excludes 373B:124C"
+    }
+
     $tx7 = [byte[]]$tVxe.GetMethod("BuildReport64", $bfPubStatic).Invoke($null, @([int]7, [int]1, [int]0x36))
     Assert-True ($tx7.Length -eq 64 -and $tx7[0] -eq 8 -and $tx7[2] -eq 0x72 -and $tx7[1] -eq ((0x72 + 2 + 0x36 + 1 + 7 + 1) -band 0xFF)) "NearLink BuildReport64"
+
+    $rxBat65 = New-Object byte[] 64; $rxBat65[1] = 0x72; $rxBat65[5] = 0x07; $rxBat65[6] = 1; $rxBat65[7] = 65; $rxBat65[8] = 0x41; $rxBat65[9] = 0x0F
+    $bArgs65 = [object[]]@($rxBat65.PSObject.BaseObject, 64, 0, 0)
+    Assert-True ([bool]$tVxe.GetMethod("ParseBatteryResponse", $bfPubStatic).Invoke($null, $bArgs65) -and [int]$bArgs65[2] -eq 65 -and [int]$bArgs65[3] -eq 3905) "NearLink 65% 3905mV"
 
     $rxBat = New-Object byte[] 64; $rxBat[1] = 0x72; $rxBat[5] = 0x07; $rxBat[6] = 4; $rxBat[7] = 100; $rxBat[8] = 0x68; $rxBat[9] = 0x10
     $bArgs = [object[]]@($rxBat.PSObject.BaseObject, 64, 0, 0)
@@ -184,10 +198,95 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndReadOnlyContract" {
     $vArgs11 = [object[]]@($rxFullVgn.PSObject.BaseObject, 0, $false, 0)
     Assert-True ([bool]$mVgnBat.Invoke($null, $vArgs11) -and [int]$vArgs11[1] -eq 64 -and -not [bool]$vArgs11[2] -and [int]$vArgs11[3] -eq 4193) "10B+ CompX battery + voltage parsed"
 
+    # DPI table 6x10B stream parsing (preserving per-stage [B,G,R,A] colors)
+    [byte[]]$stream = New-Object byte[] 60
+    $stream[0] = 1; $stream[1] = 0x08
+    # Stage 0: 400x400 (0x0190), color 00 00 FF 00
+    $stream[2] = 0x90; $stream[3] = 0x01; $stream[4] = 0x90; $stream[5] = 0x01; $stream[8] = 0xFF
+    # Stage 1: 800x800 (0x0320), color EA 00 FF 00
+    $stream[10] = 0x20; $stream[11] = 0x03; $stream[12] = 0x20; $stream[13] = 0x03; $stream[14] = 0xEA; $stream[16] = 0xFF
+    # Stage 2 (crosses 20B chunk boundary): 2750x2750 (0x0ABE), color FF 11 00 00
+    $stream[18] = 0xBE; $stream[19] = 0x0A; $stream[20] = 0xBE; $stream[21] = 0x0A; $stream[22] = 0xFF; $stream[23] = 0x11
+    # Stage 3: 3000x3000 (0x0BB8), color FF CC 00 00
+    $stream[26] = 0xB8; $stream[27] = 0x0B; $stream[28] = 0xB8; $stream[29] = 0x0B; $stream[30] = 0xFF; $stream[31] = 0xCC
+    $tArgs = [object[]]@($stream.PSObject.BaseObject, 60, [int[]]@(), [int[]]@(), [byte[]]@(), -1)
+    $tOk = [bool]$tVxe.GetMethod("ParseDpiTableStream", $bfPubStatic).Invoke($null, $tArgs)
+    Assert-True ($tOk -and ([int[]]$tArgs[2]).Length -eq 4 -and ([int[]]$tArgs[2])[0] -eq 400 -and ([int[]]$tArgs[2])[2] -eq 2750 -and ([int[]]$tArgs[3])[2] -eq 2750 -and ([int[]]$tArgs[2])[3] -eq 3000) "ParseDpiTableStream 4 stages"
+    Assert-True (([byte[]]$tArgs[4]).Length -eq 16 -and ([byte[]]$tArgs[4])[4] -eq 0xEA -and ([byte[]]$tArgs[4])[8] -eq 0xFF -and [int]$tArgs[5] -eq 1) "ParseDpiTableStream preserves per-stage BGRA & hint"
+    $badStream = [byte[]]$stream.Clone(); $badStream[1] = 0x00
+    Assert-True (-not [bool]$tVxe.GetMethod("ParseDpiTableStream", $bfPubStatic).Invoke($null, [object[]]@($badStream.PSObject.BaseObject, 60, [int[]]@(), [int[]]@(), [byte[]]@(), -1))) "Reject invalid DPI table header"
+
+    # DPI write frame preserves color & refuses missing color
+    [byte[]]$col = @(0xDD, 0x00, 0xFF, 0x00)
+    $dpiTx = [byte[]]$tVxe.GetMethod("BuildDpiWriteFrame64", $bfPubStatic).Invoke($null, @([int]1, [int]1450, [int]1450, $col.PSObject.BaseObject))
+    $dpiSum = 0; for ($i = 2; $i -lt 64; $i++) { $dpiSum = ($dpiSum + $dpiTx[$i]) -band 0xFF }
+    Assert-True ($null -ne $dpiTx -and $dpiTx.Length -eq 64 -and $dpiTx[1] -eq $dpiSum -and $dpiTx[6] -eq 0x02 -and $dpiTx[8] -eq 1 -and $dpiTx[9] -eq 0xAA -and $dpiTx[10] -eq 0x05 -and $dpiTx[13] -eq 0xDD -and $dpiTx[15] -eq 0xFF) "BuildDpiWriteFrame64 1450 DPI + color"
+    Assert-True ($null -eq $tVxe.GetMethod("BuildDpiWriteFrame64", $bfPubStatic).Invoke($null, @([int]0, [int]800, [int]800, $null))) "BuildDpiWriteFrame64 refuses null color"
+
+    # Polling rate descending codes (125->3, 250->2, 500->1, 1000->0)
+    $r250 = [byte[]]$tVxe.GetMethod("BuildPollingRateFrame64", $bfPubStatic).Invoke($null, @([int]250))
+    $r1000 = [byte[]]$tVxe.GetMethod("BuildPollingRateFrame64", $bfPubStatic).Invoke($null, @([int]1000))
+    Assert-True ($r250[6] -eq 0x01 -and $r250[8] -eq 2 -and $r1000[8] -eq 0) "Polling rate descending codes"
+    Assert-True ($null -eq $tVxe.GetMethod("BuildPollingRateFrame64", $bfPubStatic).Invoke($null, @([int]8000))) "Unsupported 8000Hz rejected"
+
+    # Competitive firmware read/write + 0x73 physical switch event
+    $smTx = [byte[]]$tVxe.GetMethod("BuildSensorModeWriteFrame64", $bfPubStatic).Invoke($null, @($true))
+    Assert-True ($smTx[6] -eq 0x1F -and $smTx[8] -eq 0x04) "BuildSensorModeWriteFrame64 competitive"
+    [byte[]]$rxModeOn = @(0x08, 0x72, 0x00, 0x11, 0x00, 0x17, 0x0D, 0x4A, 0x00, 0x01, 0x04)
+    $mArgs = [object[]]@($rxModeOn.PSObject.BaseObject, 11, $false)
+    Assert-True ([bool]$tVxe.GetMethod("ParseSensorModeResponse", $bfPubStatic).Invoke($null, $mArgs) -and [bool]$mArgs[2]) "ParseSensorModeResponse competitive ON"
+    $rxModeOff = [byte[]]$rxModeOn.Clone(); $rxModeOff[10] = 0x00
+    $mArgs2 = [object[]]@($rxModeOff.PSObject.BaseObject, 11, $true)
+    Assert-True ([bool]$tVxe.GetMethod("ParseSensorModeResponse", $bfPubStatic).Invoke($null, $mArgs2) -and -not [bool]$mArgs2[2]) "ParseSensorModeResponse basic OFF"
+
+    [byte[]]$evt73 = @(0x08, 0x9B, 0x73, 0x01, 0x05, 0x00, 0x90, 0x01, 0x90, 0x01)
+    $eArgs = [object[]]@($evt73.PSObject.BaseObject, 10, 0, 0)
+    Assert-True ([bool]$tVxe.GetMethod("ParseDpiSwitchEventFrame", $bfPubStatic).Invoke($null, $eArgs) -and [int]$eArgs[2] -eq 400 -and [int]$eArgs[3] -eq 400) "ParseDpiSwitchEventFrame 400x400"
+
+    # Driver capability contract
     $drv = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.VxeNearLinkDriver", $true))
     $dev = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.MouseBatteryInfo"))
-    $dev.DeviceId = "VXE:373B:1216"
+    $dev.DeviceId = "VXE:373B:1216"; $dev.Brand = "VXE"
+    $dev.Category = [RazerBatteryTray.DeviceCategory]::Mouse
+    $dev.IsConnected = $true; $dev.IsPrimary = $true; $dev.BatteryPercent = 82
+    $dev.DpiStages = [int[]]@(400, 800, 2750, 3000); $dev.DpiStage = 2; $dev.Dpi = 800
     Assert-True ($drv.CanHandle($dev)) "VxeNearLinkDriver CanHandle"
     $drv.PopulateCapabilities($dev)
-    Assert-True ($dev.Capabilities.SupportsBattery -and !$dev.Capabilities.SupportsDpi -and !$dev.Capabilities.SupportsPollingRate) "VXE NearLink read-only capability contract"
+    Assert-True ($dev.Capabilities.SupportsBattery -and $dev.Capabilities.SupportsDpi -and $dev.Capabilities.SupportsDpiStages -and $dev.Capabilities.SupportsPollingRate -and $dev.Capabilities.SupportsHardwareDpiMonitor) "VXE NearLink full capability contract"
+    Assert-True ($dev.Capabilities.CustomActions.Count -ge 1 -and $dev.Capabilities.CustomActions[0].ActionId -eq "competitive_mode") "competitive_mode custom action registered"
+    $dev.Capabilities.CustomActions[0].BoolValue = $true
+    $dev.Capabilities.CustomActions[0].IntValue = 1
+
+    # Sandbox MainForm tray CustomActions generic checked rendering (Mouse keeps DPI+Rate + dynamic Toggle)
+    $form = New-SandboxMainForm $false
+    try {
+        $tMain = $form.GetType()
+        $activeList = $tMain.GetField("activeDevices", $bfNonPubInst).GetValue($form)
+        $activeList.Clear(); $activeList.Add($dev)
+        # Keep competitiveModeState synchronized so PopulateCapabilities preserves true in tray refresh
+        $tVxe.GetField("competitiveModeState", $bfNonPubStatic).SetValue($null, $true)
+        $tMain.GetMethod("UpdateTrayDeviceMenuItems", $bfNonPubInst).Invoke($form, @()) | Out-Null
+
+        $dpiMenu = $tMain.GetField("dpiMenu", $bfNonPubInst).GetValue($form)
+        $rateMenu = $tMain.GetField("rateMenu", $bfNonPubInst).GetValue($form)
+        $nuphySleep = $tMain.GetField("nuphySleepMenuItem", $bfNonPubInst).GetValue($form)
+        $dynCustom = $tMain.GetField("dynamicCustomActionTrayItems", $bfNonPubInst).GetValue($form)
+        Assert-True ($dpiMenu.Available -and $rateMenu.Available) "Mouse with CustomActions retains DPI and PollingRate tray menus"
+        Assert-True (-not $nuphySleep.Available) "VXE competitive_mode does not hijack nuphySleepMenuItem"
+        Assert-Equal 1 $dynCustom.Count "1 dynamic CustomAction tray item rendered"
+        Assert-True ($dynCustom[0].Available -and $dynCustom[0].Checked -and (-not $dynCustom[0].CheckOnClick) -and $dynCustom[0].Tag -eq "competitive_mode") "Dynamic tray CustomAction checked & CheckOnClick=false"
+
+        # Switching to NuPhy keyboard cleans dynamicCustomActionTrayItems and shows NuPhy auto_sleep with Checked state
+        $tVxe.GetField("competitiveModeState", $bfNonPubStatic).SetValue($null, $false)
+        $kb = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.MouseBatteryInfo"))
+        $kb.DeviceId = "NuPhy:19F5:3245"; $kb.Brand = "NuPhy"; $kb.DriverId = "BuiltIn:NuPhy"
+        $kb.Category = [RazerBatteryTray.DeviceCategory]::Keyboard
+        $kb.IsConnected = $true; $kb.IsPrimary = $true; $kb.BatteryPercent = 90
+        $activeList.Clear(); $activeList.Add($kb)
+        $tMain.GetMethod("UpdateTrayDeviceMenuItems", $bfNonPubInst).Invoke($form, @()) | Out-Null
+        Assert-Equal 0 $dynCustom.Count "Dynamic CustomActions cleared on keyboard"
+        Assert-True ((-not $dpiMenu.Available) -and (-not $rateMenu.Available) -and $nuphySleep.Available) "NuPhy keyboard hides mouse menus and shows auto_sleep"
+    } finally {
+        $form.Dispose()
+    }
 }
