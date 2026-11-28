@@ -1587,7 +1587,10 @@ namespace RazerBatteryTray
 
                 this.Activate();
 
-                SyncAllDevicesPhysicalState();
+                // 需求：打开控制面板即刻刷新最新状态。
+                // 与 Nuphy 物理态读取串行（读硬件设置会开 HID 端点，与全量扫描并发会撞 busy），
+                // 读取结束后再由 RequestRefreshOnPanelOpen 回 UI 线程带节流发起刷新。
+                SyncAllDevicesPhysicalState(RequestRefreshOnPanelOpen);
 
             }
 

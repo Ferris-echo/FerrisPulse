@@ -205,6 +205,9 @@ namespace RazerBatteryTray
             lblUpdateTime.AutoSize = true;
             cardBattery.Controls.Add(lblUpdateTime);
 
+            // 刷新态环形加载条：叠在 Card 1 右侧空白区，不遮挡电量数字/状态胶囊
+            InitRefreshRing();
+
             // ================= CARD 2: PERFORMANCE & TUNING =================
             int card2Y = card1Y + card1H + (int)(12 * dpiScale);
             int card2H;
@@ -1179,8 +1182,8 @@ namespace RazerBatteryTray
             btnRefresh.Click += (s, e) => {
                 if ((DateTime.Now - lastManualRefreshTime).TotalMilliseconds < 400) return;
                 lastManualRefreshTime = DateTime.Now;
-                RefreshBatteryStatus(true);
-                SyncAllDevicesPhysicalState();
+                // 与物理态读取串行后再发起可观测刷新（环形加载条随之亮起）
+                SyncAllDevicesPhysicalState(() => RequestRefreshAfterPhysicalSync(true));
             };
             this.Controls.Add(btnRefresh);
 
@@ -2850,6 +2853,8 @@ namespace RazerBatteryTray
                     {
                         lblUpdateTime.Location = new Point((int)(20 * dpiScale), (int)(142 * dpiScale));
                     }
+                    // Card 1 几何变化后必须重排加载环，否则高 DPI 下会偏位
+                    LayoutRefreshRing();
                 }
 
                 // Card 2

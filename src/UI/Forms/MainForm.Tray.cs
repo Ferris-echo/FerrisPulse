@@ -97,7 +97,8 @@ namespace RazerBatteryTray
             showItem = new ToolStripMenuItem("打开控制面板", null, (s, e) => ShowWindow());
             contextMenu.Items.Add(showItem);
 
-            refreshItem = new ToolStripMenuItem("立即刷新电量", null, (s, e) => RefreshBatteryStatus(true));
+            // 走可观测刷新：面板可见时同步点亮环形加载条，隐藏时控件自身不启动定时器
+            refreshItem = new ToolStripMenuItem("立即刷新电量", null, (s, e) => RequestVisibleRefresh(true));
             contextMenu.Items.Add(refreshItem);
 
             // Submenu: DPI 调节
