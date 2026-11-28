@@ -225,4 +225,19 @@ Invoke-TestCase "Rapoo.Vt3UiRegressionsAndStageDialog" {
     } finally {
         $form.Dispose()
     }
+
+    # Anti-stutter cached polling rate + legacy 19B fallback safety guard
+    $origPr = $tRapoo.GetField("CachedPollingRate").GetValue($null)
+    try {
+        $tRapoo.GetField("CachedPollingRate").SetValue($null, 4000)
+        $outHz = 0
+        Assert-True ([RazerBatteryTray.RapooDeviceHelper]::FastQueryPollingRate([ref]$outHz)) "FastQueryPollingRate hits cache without hardware I/O"
+        Assert-Equal 4000 $outHz "FastQueryPollingRate returns cached 4000Hz"
+    } finally {
+        $tRapoo.GetField("CachedPollingRate").SetValue($null, $origPr)
+    }
+    $root = Get-FerrisPulseRoot
+    $rapooSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\RapooDeviceHelper.cs"), [System.Text.Encoding]::UTF8)
+    Assert-True ($rapooSrc.Contains("if (!dongleFound) return QueryLegacy19ByteRapooDevice();") -or $rapooSrc.Contains("return QueryLegacy19ByteRapooDevice();")) "Rapoo QueryRapooDeviceInfo preserves legacy 19-byte fallback"
+    Assert-True ($rapooSrc.Contains("lastResolvedEffPid > 0")) "Rapoo QueryRapooDeviceInfo enables zero-control fast path"
 }

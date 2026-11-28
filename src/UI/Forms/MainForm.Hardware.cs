@@ -2335,26 +2335,27 @@ namespace RazerBatteryTray
             UpdatePrimaryPinButton(dev);
         }
 
+        // 首轮启动刷新延迟：避开程序刚启动时的键鼠交互高峰，防止设备枚举/私有协议查询抢占无线通道导致鼠标短暂卡顿
+        private const int BootPollFirstDelayMs = 3000;
+        private const int BootPollIntervalMs = 1200;
+
         private void StartBootPolling()
         {
             bootPollCount = 0;
             if (bootPollTimer == null)
             {
                 bootPollTimer = new System.Windows.Forms.Timer();
-                bootPollTimer.Interval = 1200;
                 bootPollTimer.Tick += (s, e) =>
                 {
+                    if (bootPollTimer.Interval != BootPollIntervalMs)
+                    {
+                        bootPollTimer.Interval = BootPollIntervalMs;
+                    }
                     bootPollCount++;
                     if (lastInfo == null || lastInfo.IsSleeping || !lastInfo.IsConnected || lastInfo.BatteryPercent <= 0)
                     {
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            try
-                            {
-                                this.BeginInvoke(new Action(() => RefreshBatteryStatus(false)));
-                            }
-                            catch { }
-                        });
+                        // RefreshBatteryStatus 自带重入合流保护：上一次全量扫描未结束时自动并入待补跑队列
+                        RefreshBatteryStatus(false);
                     }
                     if (bootPollCount >= 8 || (lastInfo != null && lastInfo.IsConnected && !lastInfo.IsSleeping && lastInfo.BatteryPercent > 0))
                     {
@@ -2362,6 +2363,7 @@ namespace RazerBatteryTray
                     }
                 };
             }
+            bootPollTimer.Interval = BootPollFirstDelayMs;
             bootPollTimer.Start();
         }
 

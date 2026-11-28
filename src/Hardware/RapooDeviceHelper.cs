@@ -590,10 +590,15 @@ namespace RazerBatteryTray
             }
         }
 
+        private static int lastResolvedEffPid = 0;
+        private static string cachedProdString = null;
+
         public static void CloseRapooHandles()
         {
             lock (hidLock)
             {
+                lastResolvedEffPid = 0;
+                cachedProdString = null;
                 if (cachedHOut != IntPtr.Zero)
                 {
                     try { RazerDeviceHelper.CloseHandle(cachedHOut); } catch { }
@@ -1056,55 +1061,75 @@ namespace RazerBatteryTray
                     PollTelemetryStream();
                 }
 
-                // 1. Test if mouse is awake and responding over RF
-                byte[] stageData;
-                bool isOnline = ReadRegister(BANKS_SYSTEM, ADDR_CURRENT_DPI, 1, out stageData);
-                int stage = (isOnline && stageData != null && stageData.Length > 0) ? (stageData[0] + 1) : CachedDpiStage;
-
-                // 2. Try reading Product ID from register: Bank 0x00, Addr 0x04, len 2
+                // 0.5 缓存有效快速路径：VT3 2.4G 接收器在处理 Write/GetFeature 控制传输期间会短暂暂停鼠标移动，
+                // 稳态刷新时复用已确认身份与 0x07 被动遥测缓存，跳过同步 ReadRegister 轮询以杜绝卡顿。
                 int effPid = 0;
-                byte[] pidData;
-                if (ReadRegister(BANKS_COMM, 0x04, 2, out pidData) && pidData != null && pidData.Length >= 2)
+                int stage = CachedDpiStage;
+                bool isOnline;
+                bool useFastCache = lastResolvedEffPid > 0 &&
+                                    CachedBatteryPercent > 0 &&
+                                    CachedDpi > 0 &&
+                                    CachedDpiStages != null && CachedDpiStages.Length > 0 &&
+                                    CachedPollingRate > 0 &&
+                                    !string.IsNullOrEmpty(CachedDeviceName);
+
+                if (useFastCache)
                 {
-                    effPid = pidData[0] | (pidData[1] << 8);
+                    effPid = lastResolvedEffPid;
+                    isOnline = (DateTime.Now - lastTelemetryTime).TotalSeconds < 60.0 || CachedBatteryPercent > 0;
                 }
-                if (effPid == 0)
+                else
                 {
-                    // Parse from cached device path
-                    if (!string.IsNullOrEmpty(cachedCol05Path))
+                    // 1. Test if mouse is awake and responding over RF
+                    byte[] stageData;
+                    isOnline = ReadRegister(BANKS_SYSTEM, ADDR_CURRENT_DPI, 1, out stageData);
+                    stage = (isOnline && stageData != null && stageData.Length > 0) ? (stageData[0] + 1) : CachedDpiStage;
+
+                    // 2. Try reading Product ID from register: Bank 0x00, Addr 0x04, len 2
+                    byte[] pidData;
+                    if (ReadRegister(BANKS_COMM, 0x04, 2, out pidData) && pidData != null && pidData.Length >= 2)
                     {
-                        int pidIdx = cachedCol05Path.IndexOf("pid_", StringComparison.OrdinalIgnoreCase);
-                        if (pidIdx >= 0 && pidIdx + 8 <= cachedCol05Path.Length)
+                        effPid = pidData[0] | (pidData[1] << 8);
+                    }
+                    if (effPid == 0)
+                    {
+                        // Parse from cached device path
+                        if (!string.IsNullOrEmpty(cachedCol05Path))
                         {
-                            string hex = cachedCol05Path.Substring(pidIdx + 4, 4);
-                            int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out effPid);
+                            int pidIdx = cachedCol05Path.IndexOf("pid_", StringComparison.OrdinalIgnoreCase);
+                            if (pidIdx >= 0 && pidIdx + 8 <= cachedCol05Path.Length)
+                            {
+                                string hex = cachedCol05Path.Substring(pidIdx + 4, 4);
+                                int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out effPid);
+                            }
+                        }
+                    }
+                    if (effPid == 0) effPid = 0x1413;
+                    lastResolvedEffPid = effPid;
+
+                    // 3. Read DPI table if available
+                    byte[] tableData;
+                    if (ReadRegister(BANKS_SYSTEM, ADDR_DPI_TABLE_A, 10, out tableData) && tableData != null && tableData.Length >= 2)
+                    {
+                        int numStages = tableData.Length / 2;
+                        int[] stages = new int[numStages];
+                        for (int i = 0; i < numStages; i++)
+                        {
+                            stages[i] = tableData[i * 2] | (tableData[i * 2 + 1] << 8);
+                        }
+                        if (stages[0] >= 50)
+                        {
+                            CachedDpiStages = stages;
+                            CachedDpiStageCount = numStages;
                         }
                     }
                 }
-                if (effPid == 0) effPid = 0x1413;
 
                 string name = GetModelName(effPid);
                 if (string.IsNullOrEmpty(name)) name = CachedDeviceName;
 
-                // 3. Read DPI table if available
-                byte[] tableData;
-                if (ReadRegister(BANKS_SYSTEM, ADDR_DPI_TABLE_A, 10, out tableData) && tableData != null && tableData.Length >= 2)
-                {
-                    int numStages = tableData.Length / 2;
-                    int[] stages = new int[numStages];
-                    for (int i = 0; i < numStages; i++)
-                    {
-                        stages[i] = tableData[i * 2] | (tableData[i * 2 + 1] << 8);
-                    }
-                    if (stages[0] >= 50)
-                    {
-                        CachedDpiStages = stages;
-                        CachedDpiStageCount = numStages;
-                    }
-                }
-
                 if (stage > 0) CachedDpiStage = stage;
-                if (CachedDpiStages != null && stage <= CachedDpiStages.Length)
+                if (CachedDpiStages != null && stage > 0 && stage <= CachedDpiStages.Length)
                 {
                     CachedDpi = CachedDpiStages[stage - 1];
                 }
@@ -1124,16 +1149,20 @@ namespace RazerBatteryTray
                     }
                 }
 
-                string prodStr = null;
-                try
+                string prodStr = cachedProdString;
+                if (string.IsNullOrEmpty(prodStr))
                 {
-                    StringBuilder sb = new StringBuilder(256);
-                    if (HidD_GetProductString(hOut, sb, sb.Capacity))
+                    try
                     {
-                        prodStr = sb.ToString();
+                        StringBuilder sb = new StringBuilder(256);
+                        if (HidD_GetProductString(hOut, sb, sb.Capacity))
+                        {
+                            prodStr = sb.ToString();
+                            cachedProdString = prodStr;
+                        }
                     }
+                    catch { }
                 }
-                catch { }
 
                 bool isReceiver = false;
                 if (!string.IsNullOrEmpty(prodStr))
@@ -1221,8 +1250,18 @@ namespace RazerBatteryTray
                 }
             }
 
-            // 2. 若遥测尚未收到，兜底尝试 EEPROM 寄存器读取
+            // 2. 非静默期时优先返回已缓存的 DPI/档位（由 0x07 遥测帧被动更新），避免每 200ms 轮询主动发控制指令导致 VT3 卡顿
             if (IsEepromQuietActive()) return false;
+            if (CachedDpiStage > 0 && CachedDpi > 0)
+            {
+                activeStage = CachedDpiStage;
+                stageCount = CachedDpiStageCount > 0 ? CachedDpiStageCount : 5;
+                curDpiX = CachedDpi;
+                curDpiY = CachedDpiY > 0 ? CachedDpiY : curDpiX;
+                return true;
+            }
+
+            // 3. 若缓存尚空，兜底尝试 EEPROM 寄存器读取
 
             byte[] data;
             if (ReadRegister(BANKS_SYSTEM, ADDR_CURRENT_DPI, 1, out data) && data != null && data.Length > 0)
@@ -1265,6 +1304,12 @@ namespace RazerBatteryTray
         public static bool FastQueryPollingRate(out int hz)
         {
             hz = 0;
+            // 回报率变化极少，优先复用缓存值，避免定期轮询对 VT3 2.4G 接收器发送 ReadRegister 引起输入卡顿
+            if (CachedPollingRate > 0)
+            {
+                hz = CachedPollingRate;
+                return true;
+            }
             byte[] rateData;
             if (ReadRegister(BANKS_SYSTEM, ADDR_POLLING_HZ, 1, out rateData) && rateData != null && rateData.Length > 0)
             {

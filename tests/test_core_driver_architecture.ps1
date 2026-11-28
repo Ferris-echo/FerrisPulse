@@ -562,11 +562,12 @@ Invoke-TestCase "9. 全品牌高刷鼠标防卡死契约 (零越界强开/零盲
     Assert-True ($qApBody.IndexOf("vid_05ac") -gt 0 -and $qApBody.IndexOf("vid_05ac") -lt $qApBody.IndexOf("CreateFile(")) "Apple HID scan pre-filters vid_05ac/vid_004c before CreateFile"
     Assert-True (-not $qApBody.Contains("0x40000000, // GENERIC_WRITE")) "Apple HID scan does not open all interfaces with GENERIC_WRITE"
 
-    # 3. HidTransport: GetCaps before ProductString, skips pure motion/keyboard collections, no ManufacturerString/SerialNumber EP0 spam
+    # 3. HidTransport: GetCaps before ProductString, keeps GANSS identity, skips other pure input collections, no ManufacturerString/SerialNumber EP0 spam
     $htSrc = [IO.File]::ReadAllText((Join-Path $root "src\Hardware\HidTransport.cs"), [Text.Encoding]::UTF8)
-    $htEnumIdx = $htSrc.IndexOf("public static List<HidDeviceDescriptor> Enumerate")
+    $htEnumIdx = $htSrc.IndexOf("public static List<HidDeviceDescriptor> EnumerateFresh")
     $htEnumBody = $htSrc.Substring($htEnumIdx, $htSrc.IndexOf("public static HIDP_CAPS GetCaps") - $htEnumIdx)
     Assert-True ($htEnumBody.IndexOf("GetCaps(handle)") -lt $htEnumBody.IndexOf("HidD_GetProductString")) "HidTransport calls GetCaps before ProductString"
+    Assert-True ($htEnumBody.Contains("attributes.VendorID == 0x05AC && attributes.ProductID == 0x024F") -and $htEnumBody.Contains("!isGanssKeyboardIdentity &&")) "HidTransport preserves GANSS keyboard product identity while skipping other pure input collections"
     Assert-True (-not $htEnumBody.Contains("HidD_GetManufacturerString") -and -not $htEnumBody.Contains("HidD_GetSerialNumberString")) "HidTransport removes unused Manufacturer/Serial EP0 transfers"
 
     # 4. VgnDeviceHelper: bounded drain loops + 0-access 0xFF02 check before GENERIC_READ|WRITE

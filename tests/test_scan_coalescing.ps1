@@ -30,16 +30,34 @@ public static class ScanCoalesceProbe {
         if (f == null) throw new InvalidOperationException("field not found: " + name);
         return (int)f.GetValue(null);
     }
-    public static void RunScanInBackground(Type t) {
+    public static object[] RunConcurrentBurst(Type t, int count) {
         MethodInfo m = t.GetMethod("QueryAllDevices", BindingFlags.Public | BindingFlags.Static);
+        object[] results = new object[count];
+        ManualResetEvent go = new ManualResetEvent(false);
+        int ready = 0;
+        Thread[] threads = new Thread[count];
         Running = true;
-        Thread th = new Thread(delegate() {
-            try { m.Invoke(null, null); }
-            catch { }
-            finally { Running = false; }
-        });
-        th.IsBackground = true;
-        th.Start();
+        try {
+            for (int i = 0; i < count; i++) {
+                int idx = i;
+                threads[i] = new Thread(delegate() {
+                    Interlocked.Increment(ref ready);
+                    go.WaitOne();
+                    try { results[idx] = m.Invoke(null, null); }
+                    catch { results[idx] = null; }
+                });
+                threads[i].IsBackground = true;
+                threads[i].Start();
+            }
+            DateTime waitReadyDeadline = DateTime.UtcNow.AddSeconds(5);
+            while (ready < count && DateTime.UtcNow < waitReadyDeadline) { Thread.Sleep(5); }
+            go.Set();
+            for (int i = 0; i < count; i++) { threads[i].Join(40000); }
+        } finally {
+            Running = false;
+            try { go.Close(); } catch { }
+        }
+        return results;
     }
 }
 "@
@@ -49,33 +67,17 @@ if (-not ([System.Management.Automation.PSTypeName]"ScanCoalesceProbe").Type) {
 
 Invoke-TestCase "1. 在途扫描期间到达的 5 次刷新不堆新扫描，且一次补跑收口" {
     $mReset.Invoke($null, @()) | Out-Null
-    [ScanCoalesceProbe]::Running = $false
-    [ScanCoalesceProbe]::RunScanInBackground($tDm)
-    Assert-True ([ScanCoalesceProbe]::Running) "background scan started"
-
-    # 等 1.2s 确认已深入扫描核心内部（单次扫描实测约 5s）
-    [Threading.Thread]::Sleep(1200)
-    $results = New-Object "System.Collections.Generic.List[object]"
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
-    for ($i = 0; $i -lt 5; $i++) {
-        $results.Add($mQuery.Invoke($null, @()))
-    }
+    $results = [ScanCoalesceProbe]::RunConcurrentBurst($tDm, 6)
     $watch.Stop()
 
-    Assert-Equal 5 $results.Count "all 5 coalesced callers returned"
+    Assert-Equal 6 $results.Length "all 6 concurrent callers returned"
     foreach ($r in $results) { Assert-True ($null -ne $r) "coalesced caller received a list, not null" }
-
-    # 等在途扫描 + 补跑全部结束
-    $deadline = [DateTime]::UtcNow.AddSeconds(40)
-    while ([ScanCoalesceProbe]::Running -and [DateTime]::UtcNow -lt $deadline) {
-        [Threading.Thread]::Sleep(100)
-    }
-    Assert-True (-not [ScanCoalesceProbe]::Running) "background scan finished"
 
     $coreRuns = $pCount.GetValue($null, $null)
     Assert-True ($coreRuns -ge 1) ("at least one real scan happened, got " + $coreRuns)
     Assert-True ($coreRuns -le 2) ("coalesced core scans <= 2, got " + $coreRuns)
-    Write-Host ("    [INFO] core scans=" + $coreRuns + ", coalesced-call elapsed=" + $watch.ElapsedMilliseconds + "ms") -ForegroundColor DarkGray
+    Write-Host ("    [INFO] core scans=" + $coreRuns + ", concurrent-6 elapsed=" + $watch.ElapsedMilliseconds + "ms") -ForegroundColor DarkGray
 }
 
 Invoke-TestCase "2. 在途令牌被占用时刷新入口零核心调用，仅置补跑位" {
