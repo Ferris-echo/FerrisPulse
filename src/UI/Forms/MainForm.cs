@@ -490,6 +490,45 @@ namespace RazerBatteryTray
             return null;
         }
 
+        public static CustomDeviceAction GetGameOptSyncAction(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Capabilities == null || dev.Capabilities.CustomActions == null) return null;
+            var list = dev.Capabilities.CustomActions;
+            for (int i = 0; i < list.Count; i++)
+            {
+                CustomDeviceAction act = list[i];
+                if (act != null && act.ActionType == CustomActionType.Toggle && act.SyncWithGameOptimization)
+                {
+                    return act;
+                }
+            }
+            return null;
+        }
+
+        private bool HasGameOptSyncAction(MouseBatteryInfo dev)
+        {
+            if (dev == null || dev.Category != DeviceCategory.Mouse) return false;
+            HardwareDriverRegistry.EnsureCapabilitiesInitialized(dev);
+            return GetGameOptSyncAction(dev) != null;
+        }
+
+        private bool IsAnyAutoGameOptEnabledForDevice(MouseBatteryInfo dev)
+        {
+            return autoGameRateEnabled || autoGameDpiEnabled || (autoGameCustomActionEnabled && HasGameOptSyncAction(dev));
+        }
+
+        private int GetExpandedGameOptCardBaseHeight(MouseBatteryInfo dev)
+        {
+            return HasGameOptSyncAction(dev) ? 283 : 255;
+        }
+
+        private static string FormatGameOptSyncLabel(CustomDeviceAction act)
+        {
+            if (act == null) return "进游戏同步开启竞技固件";
+            string name = !string.IsNullOrEmpty(act.ActiveText) ? act.ActiveText : (!string.IsNullOrEmpty(act.Title) ? act.Title : act.ActionId);
+            return "进游戏同步开启 " + name;
+        }
+
         private int lastMonitoredValkyrieDpi = -1;
         private int lastMonitoredValkyrieStage = -1;
         private int lastMonitoredLogitechDpi = -1;
@@ -547,6 +586,12 @@ namespace RazerBatteryTray
         private int desktopPollingRate = 1000;
 
         private bool autoGameDpiEnabled = false;
+
+        private bool autoGameCustomActionEnabled = false;
+
+        private bool hasCustomActionDesktopBaseline = false;
+
+        private bool customActionDesktopBaselineValue = false;
 
         private int gameDpiStage = 2;
 
@@ -608,6 +653,8 @@ namespace RazerBatteryTray
 
         private ModernCheckBox chkAutoGameDpi;
 
+        private ModernCheckBox chkAutoGameCustomAction;
+
         private ModernButton btnManageGames;
 
         private Label lblLiveRateBadge;
@@ -660,6 +707,8 @@ namespace RazerBatteryTray
         private ToolStripMenuItem autoGameRateToggleItem;
 
         private ToolStripMenuItem autoGameDpiToggleItem;
+
+        private ToolStripMenuItem autoGameCustomActionToggleItem;
 
         private ToolStripMenuItem gameRateSub;
 
@@ -2077,6 +2126,10 @@ namespace RazerBatteryTray
 
                         if (autoGameDpiVal != null) autoGameDpiEnabled = (int)autoGameDpiVal == 1;
 
+                        var autoGameCustomVal = key.GetValue("AutoGameCustomActionEnabled");
+
+                        if (autoGameCustomVal != null) autoGameCustomActionEnabled = (int)autoGameCustomVal == 1;
+
 
 
 var gameRateVal = key.GetValue("GameTargetPollingRate");
@@ -2319,6 +2372,10 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                 if (autoGameDpiToggleItem != null) autoGameDpiToggleItem.Checked = autoGameDpiEnabled;
 
+                if (chkAutoGameCustomAction != null) chkAutoGameCustomAction.Checked = autoGameCustomActionEnabled;
+
+                if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Checked = autoGameCustomActionEnabled;
+
                 if (chkNotifyOsd != null) chkNotifyOsd.Checked = gameRateNotifyOsd;
 
                 if (chkNotifyToast != null) chkNotifyToast.Checked = gameRateNotifyToast;
@@ -2337,7 +2394,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                 UpdateManageGamesButtonText();
 
-                bool anyOptEnabled = (autoGameRateEnabled || autoGameDpiEnabled);
+                bool anyOptEnabled = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
                 if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyOptEnabled;
                 UpdatePerformanceCardHeightForCurrentDevice();
                 UpdatePollingRateDisplayStates();
@@ -2382,7 +2439,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
                 else if (dev.Category == DeviceCategory.Dongle) baseCard2H = 120;
                 else if (IsSelectedDeviceSupportingAutoGameRate())
                 {
-                    baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+                    baseCard2H = IsAnyAutoGameOptEnabledForDevice(dev) ? GetExpandedGameOptCardBaseHeight(dev) : 148;
                 }
                 else
                 {
@@ -2391,7 +2448,7 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
             }
             else
             {
-                baseCard2H = (autoGameRateEnabled || autoGameDpiEnabled) ? 255 : 148;
+                baseCard2H = IsAnyAutoGameOptEnabledForDevice(null) ? 255 : 148;
             }
             return 572 + baseCard2H;
         }
@@ -2538,11 +2595,13 @@ var gameRateVal = key.GetValue("GameTargetPollingRate");
 
                         key.SetValue("RefreshInterval", userSelectedInterval);
 
-                        key.SetValue("AutoGameOptEnabled", (autoGameRateEnabled || autoGameDpiEnabled) ? 1 : 0);
+                        key.SetValue("AutoGameOptEnabled", (autoGameRateEnabled || autoGameDpiEnabled || autoGameCustomActionEnabled) ? 1 : 0);
 
                         key.SetValue("AutoGameRateEnabled", autoGameRateEnabled ? 1 : 0);
 
                         key.SetValue("AutoGameDpiEnabled", autoGameDpiEnabled ? 1 : 0);
+
+                        key.SetValue("AutoGameCustomActionEnabled", autoGameCustomActionEnabled ? 1 : 0);
 
                         key.SetValue("GameTargetPollingRate", gamePollingRate);
 

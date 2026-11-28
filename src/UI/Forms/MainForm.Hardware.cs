@@ -744,10 +744,13 @@ namespace RazerBatteryTray
                 {
                     autoGameRateEnabled = false;
                     autoGameDpiEnabled = false;
+                    autoGameCustomActionEnabled = false;
                     if (chkAutoGameRate != null) chkAutoGameRate.Checked = false;
                     if (chkAutoGameDpi != null) chkAutoGameDpi.Checked = false;
+                    if (chkAutoGameCustomAction != null) chkAutoGameCustomAction.Checked = false;
                     if (autoGameRateToggleItem != null) autoGameRateToggleItem.Checked = false;
                     if (autoGameDpiToggleItem != null) autoGameDpiToggleItem.Checked = false;
+                    if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Checked = false;
                     if (btnManageGames != null) btnManageGames.Visible = false;
                 }
                 else
@@ -763,12 +766,14 @@ namespace RazerBatteryTray
                         chkAutoGameRate.Enabled = !rateBlocked;
                     }
                     if (chkAutoGameDpi != null) chkAutoGameDpi.Checked = true;
+                    if (chkAutoGameCustomAction != null) chkAutoGameCustomAction.Checked = autoGameCustomActionEnabled;
                     if (autoGameRateToggleItem != null)
                     {
                         autoGameRateToggleItem.Checked = autoGameRateEnabled;
                         autoGameRateToggleItem.Enabled = !rateBlocked;
                     }
                     if (autoGameDpiToggleItem != null) autoGameDpiToggleItem.Checked = true;
+                    if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Checked = autoGameCustomActionEnabled;
                 }
 
                 UpdatePerformanceCardHeightForCurrentDevice();
@@ -780,16 +785,23 @@ namespace RazerBatteryTray
             }
             SaveConfig();
 
+            MouseBatteryInfo curDev = GetActiveMouseDevice();
+            bool applyCustom = autoGameCustomActionEnabled && HasGameOptSyncAction(curDev);
             if (!enabled && isGamingActive)
             {
                 RestoreDesktopPollingRate();
                 RestoreDesktopDpiStage();
+                if (hasCustomActionDesktopBaseline || HasGameOptSyncAction(curDev))
+                {
+                    ApplyGameCustomActionAsync(curDev, false);
+                }
                 isGamingActive = false;
             }
             else if (enabled && isGamingActive)
             {
                 ApplyGamePollingRate();
                 ApplyGameDpiStage();
+                if (applyCustom) ApplyGameCustomActionAsync(curDev, true);
             }
         }
 
@@ -802,7 +814,7 @@ namespace RazerBatteryTray
                 if (chkAutoGameDpi != null) chkAutoGameDpi.Checked = enabled;
                 if (autoGameDpiToggleItem != null) autoGameDpiToggleItem.Checked = enabled;
 
-                bool anyEnabled = (autoGameRateEnabled || autoGameDpiEnabled);
+                bool anyEnabled = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
                 if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyEnabled;
 
                 UpdatePerformanceCardHeightForCurrentDevice();
@@ -821,7 +833,7 @@ namespace RazerBatteryTray
                 {
                     RestoreDesktopDpiStage();
                 }
-                if (!autoGameRateEnabled)
+                if (!autoGameRateEnabled && !(autoGameCustomActionEnabled && HasGameOptSyncAction(GetActiveMouseDevice())))
                 {
                     isGamingActive = false;
                 }
@@ -829,6 +841,42 @@ namespace RazerBatteryTray
             else if (enabled && isGamingActive)
             {
                 ApplyGameDpiStage();
+            }
+        }
+
+        public void SetAutoGameCustomActionEnabled(bool enabled)
+        {
+            autoGameCustomActionEnabled = enabled;
+            isUpdatingUI = true;
+            try
+            {
+                if (chkAutoGameCustomAction != null) chkAutoGameCustomAction.Checked = enabled;
+                if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Checked = enabled;
+
+                bool anyEnabled = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
+                if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyEnabled;
+
+                UpdatePerformanceCardHeightForCurrentDevice();
+                UpdatePollingRateDisplayStates();
+            }
+            finally
+            {
+                isUpdatingUI = false;
+            }
+            SaveConfig();
+
+            MouseBatteryInfo curDev = GetActiveMouseDevice();
+            if (!enabled && isGamingActive)
+            {
+                ApplyGameCustomActionAsync(curDev, false);
+                if (!autoGameRateEnabled && !autoGameDpiEnabled)
+                {
+                    isGamingActive = false;
+                }
+            }
+            else if (enabled && isGamingActive && HasGameOptSyncAction(curDev))
+            {
+                ApplyGameCustomActionAsync(curDev, true);
             }
         }
 
@@ -901,7 +949,7 @@ namespace RazerBatteryTray
                 if (chkAutoGameRate != null) chkAutoGameRate.Checked = enabled;
                 if (autoGameRateToggleItem != null) autoGameRateToggleItem.Checked = enabled;
 
-                bool anyEnabled = (autoGameRateEnabled || autoGameDpiEnabled);
+                bool anyEnabled = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
                 if (chkAutoGameOpt != null) chkAutoGameOpt.Checked = anyEnabled;
 
                 UpdatePerformanceCardHeightForCurrentDevice();
@@ -917,7 +965,7 @@ namespace RazerBatteryTray
             if (!enabled && isGamingActive)
             {
                 RestoreDesktopPollingRate();
-                if (!autoGameDpiEnabled)
+                if (!autoGameDpiEnabled && !(autoGameCustomActionEnabled && HasGameOptSyncAction(GetActiveMouseDevice())))
                 {
                     isGamingActive = false;
                 }
@@ -1069,7 +1117,8 @@ namespace RazerBatteryTray
         private void PerformStartupDesktopCalibration(MouseBatteryInfo dev)
         {
             if (dev == null || dev.Category != DeviceCategory.Mouse || !IsDeviceSupportingAutoGameRate(dev)) return;
-            if (!autoGameRateEnabled && !autoGameDpiEnabled) return;
+            bool applyCustom = autoGameCustomActionEnabled && HasGameOptSyncAction(dev);
+            if (!autoGameRateEnabled && !autoGameDpiEnabled && !applyCustom) return;
 
             string devKey = !string.IsNullOrEmpty(dev.DeviceId) ? dev.DeviceId : (dev.Brand ?? "default");
             bool alreadyCalibrated = false;
@@ -1083,7 +1132,7 @@ namespace RazerBatteryTray
                 if (!isGamingActive)
                 {
                     isGamingActive = true;
-                    if (autoGameRateEnabled && autoGameDpiEnabled) ApplyGameOptimization(true);
+                    if (applyCustom || (autoGameRateEnabled && autoGameDpiEnabled)) ApplyGameOptimization(true);
                     else if (autoGameRateEnabled) ApplyGamePollingRate();
                     else if (autoGameDpiEnabled) ApplyGameDpiStage();
                 }
@@ -1094,7 +1143,7 @@ namespace RazerBatteryTray
                 if (isGamingActive)
                 {
                     isGamingActive = false;
-                    if (autoGameRateEnabled && autoGameDpiEnabled) ApplyGameOptimization(false);
+                    if (applyCustom || (autoGameRateEnabled && autoGameDpiEnabled)) ApplyGameOptimization(false);
                     else if (autoGameRateEnabled) RestoreDesktopPollingRate();
                     else if (autoGameDpiEnabled && desktopDpiStage > 0) RestoreDesktopDpiStage();
                     calibratedStartupDevices[devKey] = true;
@@ -1227,6 +1276,12 @@ namespace RazerBatteryTray
                         HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage);
                     }
                 }
+
+                // 3. 竞技固件模式：若游戏联动启用或已进入基线状态，关机/休眠前同步恢复桌面状态
+                if (isGamingActive && (autoGameCustomActionEnabled || hasCustomActionDesktopBaseline))
+                {
+                    ExecuteGameCustomActionSync(curDev, false);
+                }
             }
             catch { }
         }
@@ -1238,12 +1293,13 @@ namespace RazerBatteryTray
             // [P4b] 500ms 一拍：进出游戏的判定门槛仍是"连续 2 拍"，故延迟由 1~2s 降到 0.5~1.0s
             gameMonitorTimer.Interval = GameMonitorIntervalMs;
             gameMonitorTimer.Tick += (s, e) => {
-                if (!autoGameRateEnabled && !autoGameDpiEnabled) { DiscardPendingGameOptTicket(); return; }
+                if (!autoGameRateEnabled && !autoGameDpiEnabled && !autoGameCustomActionEnabled) { DiscardPendingGameOptTicket(); return; }
                 string probeDeviceId;
                 try
                 {
                     var curDev = GetActiveMouseDevice();
                     if (curDev == null || !IsDeviceSupportingAutoGameRate(curDev)) { DiscardPendingGameOptTicket(); return; }
+                    if (!IsAnyAutoGameOptEnabledForDevice(curDev)) { DiscardPendingGameOptTicket(); return; }
                     probeDeviceId = curDev.DeviceId;
                 }
                 catch { return; }
@@ -1286,6 +1342,7 @@ namespace RazerBatteryTray
             public string DeviceId;
             public bool ApplyRate;
             public bool ApplyDpi;
+            public bool ApplyCustomAction;
             public int TargetHz;
             public int TargetDpi;
             public int TargetDpiY;
@@ -1306,7 +1363,8 @@ namespace RazerBatteryTray
                 if (curDev == null) return null;
                 bool applyRate = autoGameRateEnabled;
                 bool applyDpi = autoGameDpiEnabled;
-                if (!applyRate && !applyDpi) return null;
+                bool applyCustomAction = autoGameCustomActionEnabled && (GetGameOptSyncAction(curDev) != null);
+                if (!applyRate && !applyDpi && !applyCustomAction) return null;
                 if (!IsDeviceSupportingAutoGameRate(curDev)) return null;
 
                 GameProfile activeProfile = GetActiveGameProfile();
@@ -1338,6 +1396,7 @@ namespace RazerBatteryTray
                 ticket.DeviceId = curDev.DeviceId;
                 ticket.ApplyRate = applyRate;
                 ticket.ApplyDpi = applyDpi;
+                ticket.ApplyCustomAction = applyCustomAction;
                 ticket.TargetHz = targetHz;
                 ticket.TargetDpi = targetDpi;
                 ticket.TargetDpiY = targetDpiY;
@@ -1372,7 +1431,8 @@ namespace RazerBatteryTray
             }
             if (ticket == null || curDev == null) return null;
             if (!string.Equals(ticket.DeviceId, curDev.DeviceId, StringComparison.OrdinalIgnoreCase)) return null;
-            if (ticket.ApplyRate != autoGameRateEnabled || ticket.ApplyDpi != autoGameDpiEnabled) return null;
+            bool curCustom = autoGameCustomActionEnabled && (GetGameOptSyncAction(curDev) != null);
+            if (ticket.ApplyRate != autoGameRateEnabled || ticket.ApplyDpi != autoGameDpiEnabled || ticket.ApplyCustomAction != curCustom) return null;
             if ((DateTime.UtcNow - ticket.PreparedUtc).TotalMilliseconds > GameOptTicketMaxAgeMs) return null;
             return ticket;
         }
@@ -1395,6 +1455,7 @@ namespace RazerBatteryTray
                     return;
                 }
 
+                bool applyCustom = autoGameCustomActionEnabled && HasGameOptSyncAction(curDev);
                 if (isGame)
                 {
                     outOfGameTickCount = 0;
@@ -1403,7 +1464,7 @@ namespace RazerBatteryTray
                     if (inGameTickCount >= 2 && !isGamingActive)
                     {
                         isGamingActive = true;
-                        if (autoGameRateEnabled && autoGameDpiEnabled)
+                        if (applyCustom || (autoGameRateEnabled && autoGameDpiEnabled))
                         {
                             ApplyGameOptimizationWithPrefetch(true, TakePendingGameOptTicket(curDev));
                         }
@@ -1423,7 +1484,7 @@ namespace RazerBatteryTray
                     if (outOfGameTickCount >= 2 && isGamingActive)
                     {
                         isGamingActive = false;
-                        if (autoGameRateEnabled && autoGameDpiEnabled)
+                        if (applyCustom || hasCustomActionDesktopBaseline || (autoGameRateEnabled && autoGameDpiEnabled))
                         {
                             ApplyGameOptimizationWithPrefetch(false, null);
                         }
@@ -1531,6 +1592,90 @@ namespace RazerBatteryTray
             ApplyGameOptimizationWithPrefetch(isEntering, null);
         }
 
+        private bool PrepareGameCustomActionTarget(MouseBatteryInfo dev, bool isEntering, out CustomDeviceAction targetAct, out bool targetOn)
+        {
+            targetAct = null;
+            targetOn = false;
+            if (dev == null) return false;
+            targetAct = GetGameOptSyncAction(dev);
+            if (targetAct == null) return false;
+
+            if (isEntering)
+            {
+                if (!autoGameCustomActionEnabled) return false;
+                if (!hasCustomActionDesktopBaseline)
+                {
+                    customActionDesktopBaselineValue = (targetAct.BoolValue || targetAct.IntValue != 0);
+                    hasCustomActionDesktopBaseline = true;
+                }
+                targetOn = true;
+                return true;
+            }
+            else
+            {
+                if (!autoGameCustomActionEnabled && !hasCustomActionDesktopBaseline) return false;
+                targetOn = hasCustomActionDesktopBaseline ? customActionDesktopBaselineValue : false;
+                hasCustomActionDesktopBaseline = false;
+                return true;
+            }
+        }
+
+        private bool ExecuteGameCustomActionSync(MouseBatteryInfo dev, bool isEntering)
+        {
+            CustomDeviceAction act;
+            bool targetOn;
+            if (!PrepareGameCustomActionTarget(dev, isEntering, out act, out targetOn)) return false;
+
+            bool ok = false;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                if (HardwareCommandBus.ExecuteCustomAction(dev, act.ActionId, targetOn ? 1 : 0))
+                {
+                    ok = true;
+                    break;
+                }
+                if (attempt < 2) Thread.Sleep(60);
+            }
+            if (ok)
+            {
+                act.BoolValue = targetOn;
+                act.IntValue = targetOn ? 1 : 0;
+            }
+            return ok;
+        }
+
+        private void ApplyGameCustomActionAsync(MouseBatteryInfo dev, bool isEntering)
+        {
+            CustomDeviceAction act;
+            bool targetOn;
+            if (!PrepareGameCustomActionTarget(dev, isEntering, out act, out targetOn)) return;
+            string actionId = act.ActionId;
+            ThreadPool.QueueUserWorkItem(_ => {
+                bool ok = false;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    if (HardwareCommandBus.ExecuteCustomAction(dev, actionId, targetOn ? 1 : 0))
+                    {
+                        ok = true;
+                        break;
+                    }
+                    if (attempt < 2) Thread.Sleep(60);
+                }
+                if (ok)
+                {
+                    try
+                    {
+                        this.BeginInvoke(new Action(() => {
+                            act.BoolValue = targetOn;
+                            act.IntValue = targetOn ? 1 : 0;
+                            UpdateTrayDeviceMenuItems();
+                        }));
+                    }
+                    catch { }
+                }
+            });
+        }
+
         /// <summary>
         /// [P4b] 带预取票的下发入口：prefetched 非空时直接采用第 1 拍算好的 GameProfile 与目标档位，
         /// 省掉确认路径上约 15ms 的 GameProfile 查表；为空则完全按原口径现场计算。
@@ -1540,14 +1685,16 @@ namespace RazerBatteryTray
             var curDev = GetActiveMouseDevice();
             if (curDev == null) return;
 
-            // 两个电竞开关必须各自独立生效：
-            //   - 未勾选「电竞回报率」时，绝不改写回报率（哪怕进了游戏）；
-            //   - 未勾选「电竞 DPI」时，绝不改写 DPI。
-            // 本方法自带闸门，不依赖调用方事先判断——否则任何新增调用点
-            // 都可能误改用户手工设置的回报率或 DPI。
+            // 各项电竞开关必须各自独立生效：
+            //   - 未勾选「电竞回报率」时，绝不改写回报率；
+            //   - 未勾选「电竞 DPI」时，绝不改写 DPI；
+            //   - 支持游戏联动的驱动 CustomAction 按需独立同步并在退出游戏时恢复基线。
             bool applyRate = autoGameRateEnabled;
             bool applyDpi = autoGameDpiEnabled;
-            if (!applyRate && !applyDpi) return;
+            CustomDeviceAction syncCustomAct;
+            bool syncCustomTargetOn;
+            bool applyCustomAction = PrepareGameCustomActionTarget(curDev, isEntering, out syncCustomAct, out syncCustomTargetOn);
+            if (!applyRate && !applyDpi && !applyCustomAction) return;
 
             string brand = curDev.Brand;
             GameProfile activeProfile = isEntering
@@ -1595,14 +1742,28 @@ namespace RazerBatteryTray
                     : ((dpiStageValues != null && targetStage - 1 < dpiStageValues.Length)
                         ? dpiStageValues[targetStage - 1]
                         : ((curDev.Dpi > 0) ? curDev.Dpi : 0));
-                if (targetDpi <= 0) return;
-                targetDpiY = (prefetched != null) ? prefetched.TargetDpiY : targetDpi;
-                if (prefetched == null && curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
+                if (targetDpi <= 0)
                 {
-                    targetDpiY = curDev.DpiStagesY[targetStage - 1];
+                    applyDpi = false;
+                    if (!applyRate && !applyCustomAction) return;
                 }
-                SyncMonitoredDpiState(targetDpi, targetStage, curDev.DeviceId);
+                else
+                {
+                    targetDpiY = (prefetched != null) ? prefetched.TargetDpiY : targetDpi;
+                    if (prefetched == null && curDev.DpiStagesY != null && curDev.DpiStagesY.Length >= targetStage)
+                    {
+                        targetDpiY = curDev.DpiStagesY[targetStage - 1];
+                    }
+                    SyncMonitoredDpiState(targetDpi, targetStage, curDev.DeviceId);
+                }
             }
+
+            string capturedCustomActId = applyCustomAction ? syncCustomAct.ActionId : null;
+            string capturedCustomText = applyCustomAction
+                ? (syncCustomTargetOn
+                    ? (!string.IsNullOrEmpty(syncCustomAct.ActiveText) ? syncCustomAct.ActiveText : (syncCustomAct.Title ?? "竞技模式"))
+                    : (!string.IsNullOrEmpty(syncCustomAct.InactiveText) ? syncCustomAct.InactiveText : "默认模式"))
+                : "";
 
             new Thread(() => {
                 if (applyRate)
@@ -1620,6 +1781,20 @@ namespace RazerBatteryTray
                     {
                         if (HardwareCommandBus.SetDpi(curDev, targetDpi, targetDpiY, targetStage)) break;
                         Thread.Sleep(60);
+                    }
+                }
+
+                bool customActionOk = false;
+                if (applyCustomAction && !string.IsNullOrEmpty(capturedCustomActId))
+                {
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        if (HardwareCommandBus.ExecuteCustomAction(curDev, capturedCustomActId, syncCustomTargetOn ? 1 : 0))
+                        {
+                            customActionOk = true;
+                            break;
+                        }
+                        if (attempt < 2) Thread.Sleep(60);
                     }
                 }
 
@@ -1664,11 +1839,28 @@ namespace RazerBatteryTray
                             if (isGamingActive && autoGameDpiEnabled) { if (desktopDpiStage > 0) HighlightDpiStage(desktopDpiStage); UpdateGameDpiButtonSelection(targetStage); } else { HighlightDpiStage(targetStage); }
                         }
                     }
+                    if (applyCustomAction && customActionOk && syncCustomAct != null)
+                    {
+                        syncCustomAct.BoolValue = syncCustomTargetOn;
+                        syncCustomAct.IntValue = syncCustomTargetOn ? 1 : 0;
+                        if (!applyRate && !applyDpi)
+                        {
+                            if (isEntering && activeProfile != null)
+                            {
+                                inGameActiveGameTitle = !string.IsNullOrEmpty(activeProfile.FriendlyTitle) ? activeProfile.FriendlyTitle : (activeProfile.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? activeProfile.ProcessName.Substring(0, activeProfile.ProcessName.Length - 4) : activeProfile.ProcessName);
+                            }
+                            else if (!isEntering)
+                            {
+                                inGameActiveGameTitle = "";
+                            }
+                        }
+                        UpdateTrayDeviceMenuItems();
+                    }
 
                     UpdateStatusDisplay();
                     UpdatePollingRateDisplayStates();
 
-                    if (gameRateNotifyOsd && osdForm != null)
+                    if (gameRateNotifyOsd && osdForm != null && (applyDpi || applyRate))
                     {
                         int stCount = (dpiStageValues != null) ? dpiStageValues.Length : 0;
                         osdForm.ShowGameOptimization(isEntering, applyDpi, targetDpi, targetDpiY, targetStage, stCount, applyRate, targetHz, brand);
@@ -1676,26 +1868,26 @@ namespace RazerBatteryTray
 
                     if (gameRateNotifyToast)
                     {
-                        string tip;
+                        List<string> parts = new List<string>();
                         if (isEntering)
                         {
-                            if (applyRate && applyDpi)
-                                tip = string.Format("检测到电竞游戏运行，回报率提升至 {0} Hz，DPI 切换至第 {1} 档 ({2} DPI)", targetHz, targetStage, targetDpi);
-                            else if (applyRate)
-                                tip = string.Format("检测到电竞游戏运行，回报率提升至 {0} Hz", targetHz);
-                            else
-                                tip = string.Format("检测到电竞游戏运行，DPI 切换至第 {1} 档 ({2} DPI)", targetHz, targetStage, targetDpi);
-                            SafeShowBalloonTip(3000, "FerrisPulse · 电竞加速已激活", tip, ToolTipIcon.Info);
+                            if (applyRate) parts.Add(string.Format("回报率提升至 {0} Hz", targetHz));
+                            if (applyDpi) parts.Add(string.Format("DPI 切换至第 {0} 档 ({1} DPI)", targetStage, targetDpi));
+                            if (applyCustomAction && customActionOk) parts.Add("同步开启 " + capturedCustomText);
+                            if (parts.Count > 0)
+                            {
+                                SafeShowBalloonTip(3000, "FerrisPulse · 电竞加速已激活", "检测到电竞游戏运行，" + string.Join("，", parts.ToArray()), ToolTipIcon.Info);
+                            }
                         }
                         else
                         {
-                            if (applyRate && applyDpi)
-                                tip = string.Format("已切回桌面，回报率恢复至 {0} Hz，DPI 恢复至第 {1} 档 ({2} DPI)", targetHz, targetStage, targetDpi);
-                            else if (applyRate)
-                                tip = string.Format("已切回桌面，回报率恢复至 {0} Hz", targetHz);
-                            else
-                                tip = string.Format("已切回桌面，DPI 恢复至第 {1} 档 ({2} DPI)", targetHz, targetStage, targetDpi);
-                            SafeShowBalloonTip(3000, "FerrisPulse · 常规桌面状态", tip, ToolTipIcon.Info);
+                            if (applyRate) parts.Add(string.Format("回报率恢复至 {0} Hz", targetHz));
+                            if (applyDpi) parts.Add(string.Format("DPI 恢复至第 {0} 档 ({1} DPI)", targetStage, targetDpi));
+                            if (applyCustomAction && customActionOk) parts.Add("恢复 " + capturedCustomText);
+                            if (parts.Count > 0)
+                            {
+                                SafeShowBalloonTip(3000, "FerrisPulse · 常规桌面状态", "已切回桌面，" + string.Join("，", parts.ToArray()), ToolTipIcon.Info);
+                            }
                         }
                     }
 
@@ -2669,6 +2861,7 @@ namespace RazerBatteryTray
             if (chkAutoGameOpt != null) chkAutoGameOpt.Visible = false;
             if (chkAutoGameRate != null) chkAutoGameRate.Visible = false;
             if (chkAutoGameDpi != null) chkAutoGameDpi.Visible = false;
+            if (chkAutoGameCustomAction != null) chkAutoGameCustomAction.Visible = false;
             if (btnManageGames != null) btnManageGames.Visible = false;
             if (lblLiveRateBadge != null) lblLiveRateBadge.Visible = false;
             if (lblGameRateTitle != null) lblGameRateTitle.Visible = false;
@@ -3456,8 +3649,9 @@ namespace RazerBatteryTray
                     autoGameRateEnabled = false;
                 }
 
-                bool isOptExpanded = (autoGameRateEnabled || autoGameDpiEnabled);
-                int targetPerfH = (!supportsAutoGameRate || !isOptExpanded) ? (int)(148 * dpiScale) : (int)(255 * dpiScale);
+                bool isOptExpanded = IsAnyAutoGameOptEnabledForDevice(info);
+                int baseExpandedH = GetExpandedGameOptCardBaseHeight(info);
+                int targetPerfH = (!supportsAutoGameRate || !isOptExpanded) ? (int)(148 * dpiScale) : (int)(baseExpandedH * dpiScale);
                 AdjustPerformanceCardHeight(targetPerfH);
 
                 bool showExpanded = supportsAutoGameRate && isOptExpanded;

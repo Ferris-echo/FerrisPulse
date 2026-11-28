@@ -2,8 +2,9 @@
 // 模块名称: CustomDeviceAction.cs
 // 所属区域: Models (数据契约层)
 // 核心职责:
-//   声明式外设自定义动作契约模型（支持开关 Toggle、滑块 Slider、触发按钮 Button、预设菜单 PresetMenu），
-//   用于将键盘、耳机、鼠标等专有硬件控制（如自动休眠、Win键锁定、背光开关、亮度调节等）与 UI 彻底解耦。
+//   声明式外设自定义动作契约模型（支持开关 Toggle、滑块 Slider、触发按钮 Button、预设菜单 PresetMenu，
+//   以及 SyncWithGameOptimization 游戏优化联动标识），
+//   用于将键盘、耳机、鼠标等专有硬件控制（如自动休眠、Win键锁定、背光开关、亮度调节、绝鲨竞技固件等）与 UI 彻底解耦。
 // 依赖关系: System
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -38,6 +39,7 @@ namespace RazerBatteryTray
         public int MaxValue { get; set; }
         public int[] Presets { get; set; }
         public bool ShowInTrayMenu { get; set; }
+        public bool SyncWithGameOptimization { get; set; }
 
         public CustomDeviceAction()
         {
@@ -53,6 +55,7 @@ namespace RazerBatteryTray
             MaxValue = 100;
             Presets = new int[0];
             ShowInTrayMenu = true;
+            SyncWithGameOptimization = false;
         }
 
         public string GetFormattedButtonText()
@@ -91,6 +94,7 @@ namespace RazerBatteryTray
                 Array.Copy(this.Presets, copy.Presets, this.Presets.Length);
             }
             copy.ShowInTrayMenu = this.ShowInTrayMenu;
+            copy.SyncWithGameOptimization = this.SyncWithGameOptimization;
             return copy;
         }
     }

@@ -269,6 +269,14 @@ namespace RazerBatteryTray
             autoGameDpiToggleItem.Checked = autoGameDpiEnabled;
             autoGameRateMenu.DropDownItems.Add(autoGameDpiToggleItem);
 
+            autoGameCustomActionToggleItem = new ToolStripMenuItem("进游戏同步开启竞技固件", null, (s, e) => {
+                SetAutoGameCustomActionEnabled(!autoGameCustomActionEnabled);
+                autoGameCustomActionToggleItem.Checked = autoGameCustomActionEnabled;
+            });
+            autoGameCustomActionToggleItem.Checked = autoGameCustomActionEnabled;
+            autoGameCustomActionToggleItem.Visible = false;
+            autoGameRateMenu.DropDownItems.Add(autoGameCustomActionToggleItem);
+
             autoGameRateMenu.DropDownItems.Add(new ToolStripSeparator());
 
             gameRateSub = new ToolStripMenuItem("全屏电竞回报率");
@@ -1179,12 +1187,24 @@ namespace RazerBatteryTray
                             ConfigureSubMenuDropDown(lightingMenu.DropDown);
                         }
                     }
+
+                    if (autoGameCustomActionToggleItem != null)
+                    {
+                        var syncActTray = GetGameOptSyncAction(primary);
+                        autoGameCustomActionToggleItem.Visible = (syncActTray != null);
+                        if (syncActTray != null)
+                        {
+                            autoGameCustomActionToggleItem.Text = FormatGameOptSyncLabel(syncActTray);
+                            autoGameCustomActionToggleItem.Checked = autoGameCustomActionEnabled;
+                        }
+                    }
                 }
                 else
                 {
                     if (dpiMenu != null) dpiMenu.Visible = false;
                     if (rateMenu != null) rateMenu.Visible = false;
                     if (lightingMenu != null) lightingMenu.Visible = false;
+                    if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Visible = false;
                 }
 
                 // 2. 声明式 CustomActions 区（同时适配 NuPhy 经典控制项与任意第三方/内置 Toggle 开关）
@@ -1321,6 +1341,7 @@ namespace RazerBatteryTray
                 if (dpiMenu != null) dpiMenu.Visible = false;
                 if (rateMenu != null) rateMenu.Visible = false;
                 if (lightingMenu != null) lightingMenu.Visible = false;
+                if (autoGameCustomActionToggleItem != null) autoGameCustomActionToggleItem.Visible = false;
                 if (nuphySleepMenuItem != null) nuphySleepMenuItem.Visible = false;
                 if (nuphyWinLockMenuItem != null) nuphyWinLockMenuItem.Visible = false;
                 if (nuphyBacklightMenu != null) nuphyBacklightMenu.Visible = false;

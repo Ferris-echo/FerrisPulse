@@ -428,6 +428,7 @@ namespace RazerBatteryTray
                 found.ShowInTrayMenu = true;
                 cap.CustomActions.Add(found);
             }
+            found.SyncWithGameOptimization = true;
             found.BoolValue = compMode;
             found.IntValue = compMode ? 1 : 0;
         }

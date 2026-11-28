@@ -253,7 +253,7 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndTrayCustomActions" {
     Assert-True ($drv.CanHandle($dev)) "VxeNearLinkDriver CanHandle"
     $drv.PopulateCapabilities($dev)
     Assert-True ($dev.Capabilities.SupportsBattery -and $dev.Capabilities.SupportsDpi -and $dev.Capabilities.SupportsDpiStages -and $dev.Capabilities.SupportsPollingRate -and $dev.Capabilities.SupportsHardwareDpiMonitor) "VXE NearLink full capability contract"
-    Assert-True ($dev.Capabilities.CustomActions.Count -ge 1 -and $dev.Capabilities.CustomActions[0].ActionId -eq "competitive_mode") "competitive_mode custom action registered"
+    Assert-True ($dev.Capabilities.CustomActions.Count -ge 1 -and $dev.Capabilities.CustomActions[0].ActionId -eq "competitive_mode" -and $dev.Capabilities.CustomActions[0].SyncWithGameOptimization) "competitive_mode custom action registered with SyncWithGameOptimization"
     $dev.Capabilities.CustomActions[0].BoolValue = $true
     $dev.Capabilities.CustomActions[0].IntValue = 1
 
@@ -287,6 +287,48 @@ Invoke-TestCase "Vxe.NearLinkR1ProtocolAndTrayCustomActions" {
         Assert-True ((-not $compItem.Checked) -and ($compItem.Text -like "*基础模式*")) "Failed execute does not flip Checked state"
         [void]$mInPlace.Invoke($form, @($compItem, $dev, "competitive_mode", $compAct, $true, $true))
         Assert-True ($compItem.Checked -and ($compItem.Text -like "*ATK绝鲨竞技固件*") -and $compAct.BoolValue) "In-place refresh toggles competitive_mode ON"
+
+        # Game-optimization firmware sync gating (VXE R1 exposes it; ordinary mice do not)
+        $bfAnyInst = [System.Reflection.BindingFlags]"Public,NonPublic,Instance"
+        $mSetOpt = $tMain.GetMethod("SetAutoGameOptEnabled", $bfAnyInst)
+        $mSetCustomOpt = $tMain.GetMethod("SetAutoGameCustomActionEnabled", $bfAnyInst)
+        $mUpdPerf = $tMain.GetMethod("UpdatePerformanceSection", $bfNonPubInst)
+        $mExpH = $tMain.GetMethod("GetExpandedGameOptCardBaseHeight", $bfNonPubInst)
+        $mIsAnyOpt = $tMain.GetMethod("IsAnyAutoGameOptEnabledForDevice", $bfNonPubInst)
+        $chkCustom = $tMain.GetField("chkAutoGameCustomAction", $bfNonPubInst).GetValue($form)
+        $menuCustom = $tMain.GetField("autoGameCustomActionToggleItem", $bfNonPubInst).GetValue($form)
+
+        $form.Visible = $true
+        $activeList.Clear(); $activeList.Add($dev)
+        $tMain.GetField("selectedDevice", $bfNonPubInst).SetValue($form, $dev)
+        $mSetOpt.Invoke($form, @($true)) | Out-Null
+        $mSetCustomOpt.Invoke($form, @($true)) | Out-Null
+        $mUpdPerf.Invoke($form, @($dev, [System.Drawing.Color]::Lime)) | Out-Null
+        $tMain.GetMethod("UpdateTrayDeviceMenuItems", $bfNonPubInst).Invoke($form, @()) | Out-Null
+        Assert-True ($chkCustom.Visible -and ($chkCustom.Text -like "*ATK绝鲨竞技固件*") -and $chkCustom.Checked) "VXE mouse displays GameOpt firmware sync checkbox"
+        Assert-True ($menuCustom.Available -and $menuCustom.Checked -and ($menuCustom.Text -like "*ATK绝鲨竞技固件*")) "Tray autoGameRateMenu displays VXE firmware sync toggle"
+        Assert-Equal 283 ([int]$mExpH.Invoke($form, @($dev))) "VXE expanded GameOpt card base height is 283"
+
+        # Non-VXE mouse (e.g. Razer) must NOT see GameOpt firmware sync checkbox or menu item
+        $razer = [Activator]::CreateInstance($asm.GetType("RazerBatteryTray.MouseBatteryInfo"))
+        $razer.DeviceId = "Razer:1532:00C0"; $razer.Brand = "Razer"; $razer.DeviceName = "Razer Viper V3 Pro"
+        $razer.Category = [RazerBatteryTray.DeviceCategory]::Mouse; $razer.IsConnected = $true; $razer.IsPrimary = $true
+        $razer.Capabilities.SupportsPollingRate = $true; $razer.SupportedPollingRates = [int[]]@(1000, 2000, 4000, 8000)
+        $activeList.Clear(); $activeList.Add($razer)
+        $tMain.GetField("selectedDevice", $bfNonPubInst).SetValue($form, $razer)
+        $mUpdPerf.Invoke($form, @($razer, [System.Drawing.Color]::Lime)) | Out-Null
+        $tMain.GetMethod("UpdateTrayDeviceMenuItems", $bfNonPubInst).Invoke($form, @()) | Out-Null
+        Assert-True (-not $chkCustom.Visible) "Ordinary Razer mouse hides GameOpt firmware sync checkbox"
+        Assert-True (-not $menuCustom.Available) "Ordinary Razer mouse hides GameOpt firmware sync tray toggle"
+        Assert-Equal 255 ([int]$mExpH.Invoke($form, @($razer))) "Ordinary mouse keeps 255 GameOpt card base height"
+
+        # CustomAction-only expansion works for VXE, not for Razer; SetAutoGameOptEnabled(false) clears it
+        $mSetOpt.Invoke($form, @($false)) | Out-Null
+        $mSetCustomOpt.Invoke($form, @($true)) | Out-Null
+        Assert-True ([bool]$mIsAnyOpt.Invoke($form, @($dev))) "VXE expands when only CustomAction sync is enabled"
+        Assert-True (-not [bool]$mIsAnyOpt.Invoke($form, @($razer))) "Razer does not expand on CustomAction sync alone"
+        $mSetOpt.Invoke($form, @($false)) | Out-Null
+        Assert-True (-not $chkCustom.Checked -and -not $menuCustom.Checked) "SetAutoGameOptEnabled(false) turns off firmware sync"
 
         # Switching to NuPhy keyboard cleans dynamicCustomActionTrayItems and shows NuPhy auto_sleep with Checked state
         $tVxe.GetField("competitiveModeState", $bfNonPubStatic).SetValue($null, $false)

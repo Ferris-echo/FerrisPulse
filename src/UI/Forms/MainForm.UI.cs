@@ -437,6 +437,19 @@ namespace RazerBatteryTray
                 btnGameRates[i] = btn;
             }
 
+            // Row 5.5: 设备扩展特性游戏联动开关（由驱动 CustomAction.SyncWithGameOptimization 声明触发，如 ATK绝鲨竞技固件）
+            chkAutoGameCustomAction = new ModernCheckBox();
+            chkAutoGameCustomAction.Text = "进游戏同步开启 ATK绝鲨竞技固件";
+            chkAutoGameCustomAction.Font = new Font("Microsoft YaHei UI", 8.4F, FontStyle.Regular, GraphicsUnit.Point);
+            chkAutoGameCustomAction.ForeColor = Color.FromArgb(0, 230, 118);
+            chkAutoGameCustomAction.Location = new Point(cPad, (int)(219 * dpiScale));
+            chkAutoGameCustomAction.Size = new Size(secW, (int)(24 * dpiScale));
+            chkAutoGameCustomAction.Visible = false;
+            chkAutoGameCustomAction.CheckedChanged += (s, e) => {
+                if (!isUpdatingUI) SetAutoGameCustomActionEnabled(chkAutoGameCustomAction.Checked);
+            };
+            cardPerformance.Controls.Add(chkAutoGameCustomAction);
+
             // Row 6: 提醒方式设置
             int gameNotifY = (int)(221 * dpiScale);
             lblNotifyModeTitle = new Label();
@@ -1443,8 +1456,10 @@ namespace RazerBatteryTray
             // Row 3: 全屏游戏自动优化总开关 + 游戏管理 (恒定 Y = 112)
             int gameSwY = (int)(112 * dpiScale);
             int gap = (int)(6 * dpiScale);
-            bool isOptExpanded = (autoGameRateEnabled || autoGameDpiEnabled);
+            bool isOptExpanded = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
             bool showExpanded = supportsAutoGameRate && isOptExpanded;
+            var syncAct = HasGameOptSyncAction(selectedDevice) ? GetGameOptSyncAction(selectedDevice) : null;
+            bool showCustomOpt = showExpanded && (syncAct != null);
             int chkOptW = showExpanded ? (int)(160 * dpiScale) : secW;
             int btnMgrW = secW - (int)(160 * dpiScale) - gap;
 
@@ -1569,8 +1584,24 @@ namespace RazerBatteryTray
                 }
             }
 
-            // Row 6: 切换提醒方式 (恒定 Y = 221，并与上方 400 / 1000 Hz 按钮左列及垂直中线严格对齐)
-            int r6Y = (int)(221 * dpiScale);
+            // Row 5.5: 设备扩展特性游戏联动开关（仅当鼠标驱动声明 SyncWithGameOptimization 时显示）
+            if (chkAutoGameCustomAction != null)
+            {
+                chkAutoGameCustomAction.Location = new Point(cPad, (int)(221 * dpiScale));
+                chkAutoGameCustomAction.Size = new Size(secW, (int)(24 * dpiScale));
+                chkAutoGameCustomAction.Visible = showCustomOpt;
+                if (syncAct != null)
+                {
+                    chkAutoGameCustomAction.Text = FormatGameOptSyncLabel(syncAct);
+                    string inactiveLabel = !string.IsNullOrEmpty(syncAct.InactiveText) ? syncAct.InactiveText : "默认模式";
+                    string activeLabel = !string.IsNullOrEmpty(syncAct.ActiveText) ? syncAct.ActiveText : (syncAct.Title ?? "竞技模式");
+                    if (!isUserSizingDrag) toolTipTop.SetToolTip(chkAutoGameCustomAction,
+                        string.Format("进入全屏游戏时自动开启 {0}，切回桌面或退出游戏后自动恢复{1}", activeLabel, inactiveLabel));
+                }
+            }
+
+            // Row 6: 切换提醒方式 (非联动鼠标 Y=221，含联动开关时顺延至 Y=249)
+            int r6Y = showCustomOpt ? (int)(249 * dpiScale) : (int)(221 * dpiScale);
             if (lblNotifyModeTitle != null)
             {
                 lblNotifyModeTitle.TextAlign = ContentAlignment.MiddleLeft;
@@ -1910,7 +1941,7 @@ namespace RazerBatteryTray
 
             if (lblLiveRateBadge != null)
             {
-                bool showBadge = isAutoRateSupportedMouse && (autoGameRateEnabled || autoGameDpiEnabled);
+                bool showBadge = isAutoRateSupportedMouse && IsAnyAutoGameOptEnabledForDevice(selectedDevice);
                 lblLiveRateBadge.Visible = showBadge;
                 if (showBadge)
                 {
@@ -2032,9 +2063,10 @@ namespace RazerBatteryTray
         {
             bool supportsAutoGameRate = IsSelectedDeviceSupportingAutoGameRate();
 
-            // Row 4, 5, 6 仅在卡片展开且功能开启时展示（两档高度，两档展示）
-            bool isOptExpanded = (autoGameRateEnabled || autoGameDpiEnabled);
+            // Row 4, 5, 5.5, 6 仅在卡片展开且功能开启时展示（两档高度，两档展示）
+            bool isOptExpanded = IsAnyAutoGameOptEnabledForDevice(selectedDevice);
             bool showExpanded = visible && supportsAutoGameRate && isOptExpanded;
+            var syncAct = HasGameOptSyncAction(selectedDevice) ? GetGameOptSyncAction(selectedDevice) : null;
 
             // Row 3: 总开关始终伴随支持设备展示；游戏管理按钮仅在展开时展示
             if (chkAutoGameOpt != null) chkAutoGameOpt.Visible = supportsAutoGameRate;
@@ -2074,6 +2106,16 @@ namespace RazerBatteryTray
                 }
             }
 
+            if (chkAutoGameCustomAction != null)
+            {
+                chkAutoGameCustomAction.Visible = showExpanded && (syncAct != null);
+                chkAutoGameCustomAction.Checked = autoGameCustomActionEnabled;
+                if (syncAct != null)
+                {
+                    chkAutoGameCustomAction.Text = FormatGameOptSyncLabel(syncAct);
+                }
+            }
+
             if (lblNotifyModeTitle != null) lblNotifyModeTitle.Visible = showExpanded;
             if (chkNotifyOsd != null) chkNotifyOsd.Visible = showExpanded;
             if (chkNotifyToast != null) chkNotifyToast.Visible = showExpanded;
@@ -2089,7 +2131,7 @@ namespace RazerBatteryTray
             if (!this.Visible || this.WindowState == FormWindowState.Minimized)
             {
                 if (cardAnimTimer != null && cardAnimTimer.Enabled) cardAnimTimer.Stop();
-                SetGameRateControlsVisibility(autoGameRateEnabled || autoGameDpiEnabled);
+                SetGameRateControlsVisibility(IsAnyAutoGameOptEnabledForDevice(selectedDevice));
                 AdjustPerformanceCardHeight(targetH);
                 return;
             }
@@ -2098,14 +2140,14 @@ namespace RazerBatteryTray
             if (cardPerformance.Height == targetH)
             {
                 if (cardAnimTimer != null && cardAnimTimer.Enabled) cardAnimTimer.Stop();
-                SetGameRateControlsVisibility(autoGameRateEnabled || autoGameDpiEnabled);
+                SetGameRateControlsVisibility(IsAnyAutoGameOptEnabledForDevice(selectedDevice));
                 return;
             }
 
             // 3. 卷帘门遮罩式动效生命周期：
             // 展开开始时立即点亮子控件，配合卡片容器硬件裁剪 (WS_CLIPCHILDREN) 像卷帘门一样随着底边拉伸自然向下露出；
             // 收回过程中保持子控件可见，随着底边向上收拢自然被裁切遮盖，待完全缩入卡片底边后才彻底设为 false。
-            if (autoGameRateEnabled || autoGameDpiEnabled)
+            if (IsAnyAutoGameOptEnabledForDevice(selectedDevice))
             {
                 SetGameRateControlsVisibility(true);
             }
@@ -2129,7 +2171,7 @@ namespace RazerBatteryTray
                         AdjustPerformanceCardHeight(animTargetCardH);
 
                         // 收起彻底完成时关闭可见性，避免折叠状态下的无效命中或焦点捕获
-                        SetGameRateControlsVisibility(autoGameRateEnabled || autoGameDpiEnabled);
+                        SetGameRateControlsVisibility(IsAnyAutoGameOptEnabledForDevice(selectedDevice));
 
                         // 终点全量深度刷新：彻底抹除所有历史脏矩形残留
                         this.Invalidate(true);
@@ -2186,8 +2228,9 @@ namespace RazerBatteryTray
             var dev = selectedDevice;
             if (dev != null && IsSelectedDeviceSupportingAutoGameRate())
             {
-                bool isOptExpanded = (autoGameRateEnabled || autoGameDpiEnabled);
-                int targetH = isOptExpanded ? (int)(255 * dpiScale) : (int)(148 * dpiScale);
+                bool isOptExpanded = IsAnyAutoGameOptEnabledForDevice(dev);
+                int baseExpandedH = GetExpandedGameOptCardBaseHeight(dev);
+                int targetH = isOptExpanded ? (int)(baseExpandedH * dpiScale) : (int)(148 * dpiScale);
                 RelayoutPerformanceControls();
                 RelayoutActiveDevicePerformanceControls();
                 AnimatePerformanceCardHeight(targetH);
