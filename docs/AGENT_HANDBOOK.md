@@ -135,3 +135,28 @@
 - `docs/OPTIMIZATION_BACKLOG.md` 的 M2 遥测（`scan_trace.log`）就是为这条服务的：**先测，再改**。
 - 本轮实测推翻了清单里两处前提：① 「HID 枚举是扫描慢的主因」——46 次枚举只占 ~2%，大头是 `Mchose`/`Vgn` 的超时阶梯；② 「解析/能力缓存能省大钱」——按设备缓存会把状态相关的 `CanHandle` 判错。改造前若没有基线表，这两处都会被做错。
 
+---
+
+## 9. 刷新可观测性契约（2026-11-28，打开面板即刷新 + 环形加载条）
+
+任何"发起一次硬件刷新并展示进度"的功能，必须同时满足下面四条，否则必然长出**永转的加载环**或**被打满的扫描占空**：
+
+### 9.1 三种收口结果必须分开处理
+`MainForm.StartRefreshCore` 返回 `RefreshOutcome`：
+- `Started` / `Coalesced`：**保证**后续会有一次 `ApplyDeviceStatus` 落地；
+- `Suppressed`（`PauseBackgroundRefresh` 为真）：**永远不会**落地。
+
+`Suppressed` 被当成`Started`处理 = 加载环转满 15 秒兜底。所以"先判结果，再点亮环"是硬顺序。
+
+### 9.2 唯一的"完成"信号是数据落地，不是函数返回
+收口点固定在 `ApplyDeviceStatus` 首行的 `MarkRefreshAppliedOnUi()`。**不要**用 `QueryAllDevices` 返回、`BeginInvoke` 投递、定时器节拍去猜完成——线程池与 UI 线程之间的时序无法保证。另配 15s 守卫定时器兜异常路径（读取异常走 `AbortRefreshUiWait`）。
+
+### 9.3 触发必须节流，且与物理态读取串行
+- 节流：距上次数据落地 < 3s 直接跳过（`PanelOpenRefreshThrottleMs`），否则托盘连点 = 扫描占空 100%；
+- 串行：`SyncAllDevicesPhysicalState(Action afterSync)` 把"读 Nuphy 硬件设置"与"全量扫描"串成链——两者都开 HID 端点，并发会让设备回 busy，被 helper 判成超时，凭空多出一张离线卡。
+
+### 9.4 动效控件自身负责视觉节流
+`RefreshRingControl` 内部固化：25FPS（`AnimIntervalMs=40`，别追 60FPS：WinForms Timer 分辨率只有 15.6ms）、最短展示 600ms（实测最快一次扫描 344ms，低于此值会被当成"闪一下"故障）、200ms 淡出、宿主隐藏/最小化自动停表。宿主只负责 `BeginSpinning` / `CompleteSpinning` / `AbortSpinning` 三个动词。
+
+> 契约验证：`tests/test_panel_refresh_ring.ps1`（7 用例，含真实绘制像素断言）。
+

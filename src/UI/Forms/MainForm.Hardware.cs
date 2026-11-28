@@ -2371,9 +2371,26 @@ namespace RazerBatteryTray
         private int refreshBatteryPending = 0;
         private int refreshBatteryPendingManualTip = 0;
 
+        /// <summary>
+        /// 刷新请求的三种收口结果。环形加载条与「打开即刷新」节流必须靠它区分：
+        /// Started / Coalesced 都保证后续会有一次数据落地（ApplyDeviceStatus），
+        /// 而 Suppressed 永远不会落地——两者混为一谈，加载环就会永转不停。
+        /// </summary>
+        internal enum RefreshOutcome
+        {
+            Suppressed = 0,
+            Started = 1,
+            Coalesced = 2
+        }
+
         private void RefreshBatteryStatus(bool showTipIfManual)
         {
-            if (PauseBackgroundRefresh) return;
+            StartRefreshCore(showTipIfManual);
+        }
+
+        internal RefreshOutcome StartRefreshCore(bool showTipIfManual)
+        {
+            if (PauseBackgroundRefresh) return RefreshOutcome.Suppressed;
             if (System.Threading.Interlocked.CompareExchange(ref refreshBatteryInFlight, 1, 0) != 0)
             {
                 if (showTipIfManual)
@@ -2381,7 +2398,7 @@ namespace RazerBatteryTray
                     System.Threading.Interlocked.Exchange(ref refreshBatteryPendingManualTip, 1);
                 }
                 System.Threading.Interlocked.Exchange(ref refreshBatteryPending, 1);
-                return;
+                return RefreshOutcome.Coalesced;
             }
 
             ThreadPool.QueueUserWorkItem(_ =>
@@ -2414,6 +2431,8 @@ namespace RazerBatteryTray
                                     statusMenuItem.Text = "读取失败: " + ex.Message;
                                     trayIcon.Text = "无线鼠标检测异常";
                                     UpdateTrayIcon(-1, false, false);
+                                    // 读取异常是"永不落地"的路径之一：必须显式收口，否则加载环会转到守卫超时
+                                    AbortRefreshUiWait(false);
                                 }));
                             }
                             catch { }
@@ -2432,10 +2451,15 @@ namespace RazerBatteryTray
                     System.Threading.Interlocked.Exchange(ref refreshBatteryInFlight, 0);
                 }
             });
+
+            return RefreshOutcome.Started;
         }
 
         private void ApplyDeviceStatus(List<MouseBatteryInfo> devices, bool showTipIfManual)
         {
+            // 数据落地即一次刷新收口：加载环在此停下（最短展示与淡出由控件内部处理）
+            MarkRefreshAppliedOnUi();
+
             activeDevices = devices;
 
             if (devices != null && devices.Count > 0)
@@ -2864,9 +2888,18 @@ namespace RazerBatteryTray
         }
 
         private bool isSyncingPhysicalState = false;
+        // 物理态读取与全量扫描都会开 HID 端点：两条后台路径并发会撞设备 busy，
+        // 在 helper 侧被当成超时 → 凭空多出一张"离线"卡。故用一次性回调把二者串成链。
+        private Action afterPhysicalStateSync = null;
+        private readonly object afterPhysicalStateSyncLock = new object();
 
-        private void SyncAllDevicesPhysicalState()
+        private void SyncAllDevicesPhysicalState(Action afterSync)
         {
+            if (afterSync != null)
+            {
+                lock (afterPhysicalStateSyncLock) { afterPhysicalStateSync = afterSync; }
+            }
+
             if (isSyncingPhysicalState) return;
             isSyncingPhysicalState = true;
 
@@ -2892,8 +2925,25 @@ namespace RazerBatteryTray
                 finally
                 {
                     isSyncingPhysicalState = false;
+
+                    // 串行化的后半程：物理态读完之后才允许发起全量扫描
+                    Action next = null;
+                    lock (afterPhysicalStateSyncLock)
+                    {
+                        next = afterPhysicalStateSync;
+                        afterPhysicalStateSync = null;
+                    }
+                    if (next != null)
+                    {
+                        try { next(); } catch { }
+                    }
                 }
             });
+        }
+
+        private void SyncAllDevicesPhysicalState()
+        {
+            SyncAllDevicesPhysicalState(null);
         }
 
         private void UpdatePerformanceSection(MouseBatteryInfo info, Color brandAccent)
