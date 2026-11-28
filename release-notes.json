@@ -1,10 +1,26 @@
 {
   "releases": [
     {
+      "version": "2.4.3",
+      "releaseDate": "2026-11-28",
+      "summary": "全链路性能提速、VXE R1 星闪全协议与托盘实时刷新",
+      "sha256": "",
+      "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.3/FerrisPulse.exe",
+      "changelog": [
+        "一、 全链路扫描提速与稳定性加固（感谢 @yamlling 与 @lbyisme）",
+        "引入 HID 单次枚举快照复用、并发扫描合流闸门与按需遥测，常态 DPI 轮询降载至 200ms、游戏侦测提速至 500ms 线程池首拍预取，并优化雷柏 VT3 快路径与开机首轮避让",
+        "升级自更新 TLS 1.2/1.3 严格校验与两阶段坏包自动回滚状态机，确保版本升级可靠无误",
+        "二、 VXE 蜻蜓 R1 星闪版全协议与竞技固件联动（感谢“冻干咸鱼”）",
+        "完整接入 VXE R1 星闪版 (373B:1216 / 有线 373B:124C) 单读通道会话复用、灯色保真 DPI 读写、0x73 物理切档同步、125–1000Hz 回报率与 ATK 绝鲨竞技固件开关，并新增进游戏自动同步开启绝鲨竞技固件选项",
+        "三、 托盘菜单通用渲染与实时刷新修复",
+        "修复带自定义开关的鼠标丢失托盘 DPI/回报率子菜单的 Bug，支持自定义开关在托盘展开状态下点击即原地刷新勾选态与文字"
+      ]
+    },
+    {
       "version": "2.4.2",
       "releaseDate": "2026-11-27",
       "summary": "8K 高刷鼠标卡死根治、雷蛇 8K 接收器与公版固件冲突修复",
-      "sha256": "",
+      "sha256": "fee18c4dbc85b75a7b3da7bee25d6a6670af8d83f07632657e3a79aa59402575",
       "downloadUrl": "https://gitee.com/Ferris-echo/ferris-pulse/releases/download/v2.4.2/FerrisPulse.exe",
       "changelog": [
         "一、 8K 高刷鼠标卡死根治与稳定性加固",
