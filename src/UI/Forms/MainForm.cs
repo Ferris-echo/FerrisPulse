@@ -1292,6 +1292,9 @@ namespace RazerBatteryTray
 
                 RestoreWindowPosition();
 
+                // [U2] 新版本已成功走到主循环：确认更新健康（清 pending 标记并删除 .old 退路）
+                UpdateManager.ConfirmUpdateHealthy();
+
             }
 
             finally

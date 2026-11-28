@@ -3,6 +3,7 @@
 // 所属区域: Services (后台服务层)
 // 核心职责:
 //   提供云端版本探测、容灾镜像故障转移、SemVer 版本比对、文件流式下载与 SHA256 校验
+//   自更新采用 TLS 1.2 严格校验证书（U1）；原位替换前后用 UpdatePending 标记支撑自动回滚（U2）
 // 依赖关系: UpdateInfo, ConfigManager
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -26,12 +27,14 @@ namespace RazerBatteryTray
 {
     public static class UpdateManager
     {
+        // [U1] 只显式启用 TLS 1.2，且【禁止】再设置进程级 ServerCertificateValidationCallback：
+        // 版本检查、release-notes 与安装包下载全走 HTTPS，sha256 与 downloadUrl 又来自同一个响应，
+        // 一旦放行任意证书，中间人可同时伪造包与校验值，校验形同虚设。
         private static void EnsureTlsSecurity()
         {
             try
             {
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 | (SecurityProtocolType)12288 | SecurityProtocolType.Tls;
-                ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
             }
             catch { }
         }
@@ -485,6 +488,121 @@ namespace RazerBatteryTray
             });
         }
 
+        // ===== [U2 原位替换回滚] =====
+        // 更新是"一次性不可逆动作"：新 exe 能启动但随即崩溃/卡死时，用户机器上只剩坏版本。
+        // 这里引入 pending 标记：
+        //   1. 替换前写 HKCU\Software\FerrisPulse\UpdatePending；
+        //   2. 新版本进入主循环（MainForm.OnLoad 之后）才清标记并删除 .old；
+        //   3. 下次启动若发现标记仍在且 .old 存在 → 自动回滚到旧版并重启一次。
+        private const string UpdateStateRegPath = @"Software\FerrisPulse";
+        private const string UpdatePendingValName = "UpdatePending";
+
+        public static bool HasPendingUpdate()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(UpdateStateRegPath, false))
+                {
+                    if (key == null) return false;
+                    object v = key.GetValue(UpdatePendingValName);
+                    return v != null && !string.IsNullOrEmpty(v.ToString());
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>替换前写标记：记录目标版本与时间（仅用于排查，不参与判定）。</summary>
+        public static void MarkUpdatePending(string targetVersion)
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(UpdateStateRegPath))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(UpdatePendingValName, (targetVersion == null ? "" : targetVersion) + "|" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void ClearUpdatePendingMarker()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(UpdateStateRegPath, true))
+                {
+                    if (key != null) key.DeleteValue(UpdatePendingValName, false);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 新版本"活着走到主循环"的确认：清标记并删掉唯一的退路 .old。
+        /// </summary>
+        public static void ConfirmUpdateHealthy()
+        {
+            if (!HasPendingUpdate()) return;
+            ClearUpdatePendingMarker();
+            try
+            {
+                string oldExe = Application.ExecutablePath + ".old";
+                if (File.Exists(oldExe)) File.Delete(oldExe);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 启动期回滚：上次替换后新版本没走完主循环（标记仍在）。返回 true 表示已回滚并拉起旧版，
+        /// 调用方必须立刻退出当前进程。全程"先复制到临时名、再原子重命名"，失败时保留 .old 不动。
+        /// </summary>
+        public static bool TryRollbackPendingUpdate()
+        {
+            if (!HasPendingUpdate()) return false;
+            try
+            {
+                string exePath = Application.ExecutablePath;
+                string oldExe = exePath + ".old";
+                if (!File.Exists(oldExe))
+                {
+                    // 没有退路可用：清掉标记，避免每次启动都做无意义的重试
+                    ClearUpdatePendingMarker();
+                    return false;
+                }
+
+                string rollback = exePath + ".rollback";
+                string failed = exePath + ".failed";
+                try { if (File.Exists(rollback)) File.Delete(rollback); } catch { }
+                try { if (File.Exists(failed)) File.Delete(failed); } catch { }
+
+                File.Copy(oldExe, rollback, true);
+                File.Move(exePath, failed);
+                try
+                {
+                    File.Move(rollback, exePath);
+                }
+                catch
+                {
+                    // 原子替换失败：把坏版本放回原位，保留 .old 与 .failed 供人工处理
+                    try { File.Move(failed, exePath); } catch { }
+                    try { if (File.Exists(rollback)) File.Delete(rollback); } catch { }
+                    return false;
+                }
+
+                // 回滚成功：保留 .failed 一份便于取证，清标记后拉起旧版
+                ClearUpdatePendingMarker();
+                try { Process.Start(exePath, "--rolledback"); } catch { }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool LaunchSelfReplace(string updateFilePath)
         {
             try
@@ -503,6 +621,8 @@ namespace RazerBatteryTray
                     {
                         try { File.Delete(oldExe); } catch { }
                     }
+                    // [U2] 先落 pending 标记：新版本若起不来，下次启动据此自动回滚
+                    MarkUpdatePending(null);
                     File.Move(exePath, oldExe);
                     File.Move(updateFilePath, exePath);
 
