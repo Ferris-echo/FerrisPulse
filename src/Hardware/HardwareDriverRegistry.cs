@@ -5,6 +5,8 @@
 //   管理全系统所有内置驱动包 (Priority 100)、FDAS v2.0 JSON 扩展包 (Priority 200)
 //   与 C# 动态脚本扩展包 (Priority 300) 的注册、卸载、按 VID:PID 优先级热覆盖仲裁、
 //   设备能力自动补齐、脚本优先查询的精确端点归属以及 RawInput 唤醒路径动态匹配。
+//   严格身份名单 RequiresStrictIdentity：登记了共用公版 VID:PID 的内置驱动，
+//   这些驱动在 VID:PID 仲裁中必须再通过 CanHandle 四元组复核才允许接管设备。
 // 依赖关系: IHardwareDriver.cs, HardwareDriverBase.cs, MouseBatteryInfo.cs
 //
 // ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️:
@@ -25,12 +27,31 @@ namespace RazerBatteryTray
         private static readonly List<IHardwareDriver> drivers = new List<IHardwareDriver>();
         private static Dictionary<IHardwareDriver, HashSet<string>> externalClaims = new Dictionary<IHardwareDriver, HashSet<string>>();
 
+        // ===== [P4 驱动解析 / 顺序快照缓存] =====
+        // 改造前每次 ResolveDriver 都 new 一份 31 元素驱动列表并按 Priority 重排，
+        // 而 DPI 监听线程按 5~20Hz × N 设备调用它。这里缓存：
+        //   orderedSnapshot：按 Priority 排好序的只读快照，任何注册/卸载都作废。
+        //   （解析结果不缓存，原因见 ResolveDriver 的说明。）
+        private static List<IHardwareDriver> orderedSnapshot;
+
+        /// <summary>作废驱动顺序快照。调用方必须已持有 syncRoot。</summary>
+        private static void InvalidateDriverCaches()
+        {
+            orderedSnapshot = null;
+        }
+
         internal static bool RequiresStrictIdentity(IHardwareDriver drv)
         {
             if (drv == null) return false;
             if (drv.IsExternalPackage && drv.Priority >= 300) return true;
+            // [M3 共用公版 PID 隔离] 以下内置驱动的 MatchesVidPid 覆盖了被别人共用的公版 VID:PID，
+            // 只允许再通过 CanHandle（品牌 / 设备 ID 命名空间 / 端点四元组）复核后才接管设备：
+            //   BuiltIn:LogitechMR0097 — 046D 公版接收器家族
+            //   BuiltIn:KeychronM6     — Link-KM 公版
+            //   BuiltIn:KzziKeyboard   — CompX 3554:FA09（与 MCHOSE G75 PRO / MARVO / AULA / YUNZII 共用）
             return string.Equals(drv.DriverId, "BuiltIn:LogitechMR0097", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(drv.DriverId, "BuiltIn:KeychronM6", StringComparison.OrdinalIgnoreCase);
+                   string.Equals(drv.DriverId, "BuiltIn:KeychronM6", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(drv.DriverId, "BuiltIn:KzziKeyboard", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsExternallyOwnedPath(string path)
@@ -110,6 +131,7 @@ namespace RazerBatteryTray
             if (expected == null) return false;
             lock (syncRoot)
             {
+                InvalidateDriverCaches();
                 int index = drivers.FindIndex(d => object.ReferenceEquals(d, expected));
                 externalClaims.Remove(expected);
                 if (index < 0) return false;
@@ -123,6 +145,7 @@ namespace RazerBatteryTray
             if (driver == null || string.IsNullOrEmpty(driver.DriverId)) return;
             lock (syncRoot)
             {
+                InvalidateDriverCaches();
                 for (int i = drivers.Count - 1; i >= 0; i--)
                 {
                     if (string.Equals(drivers[i].DriverId, driver.DriverId, StringComparison.OrdinalIgnoreCase))
@@ -150,6 +173,7 @@ namespace RazerBatteryTray
         {
             lock (syncRoot)
             {
+                InvalidateDriverCaches();
                 for (int i = drivers.Count - 1; i >= 0; i--)
                 {
                     if (drivers[i] != null && drivers[i].IsExternalPackage)
@@ -166,6 +190,7 @@ namespace RazerBatteryTray
             if (string.IsNullOrEmpty(driverId)) return false;
             lock (syncRoot)
             {
+                InvalidateDriverCaches();
                 bool removed = false;
                 for (int i = drivers.Count - 1; i >= 0; i--)
                 {
@@ -185,12 +210,15 @@ namespace RazerBatteryTray
             BuiltInDrivers.EnsureRegistered();
             lock (syncRoot)
             {
-                return new List<IHardwareDriver>(drivers);
+                if (orderedSnapshot == null) orderedSnapshot = new List<IHardwareDriver>(drivers);
+                return new List<IHardwareDriver>(orderedSnapshot);
             }
         }
 
         public static void ReloadExternalPackages()
         {
+            // 外部包热加载后必须让解析/顺序快照失效，否则能力不会立即生效（P4 风险点）
+            lock (syncRoot) { InvalidateDriverCaches(); }
             FdasRuntimeHelper.ReloadAdapters();
         }
 
@@ -199,6 +227,13 @@ namespace RazerBatteryTray
             return ResolveDriver(dev);
         }
 
+        /// <summary>
+        /// 仲裁一台设备的归属驱动。
+        /// [P4 说明] 这里刻意【不缓存】解析结果：部分驱动的 CanHandle 依赖自身可变状态
+        /// （如 LogitechMR0097 的端点身份要等 AcceptIdentity 后才认），按设备签名缓存会把
+        /// "刚被验证的身份"永久判给旧驱动。P4 真正的收益来自把常态轮询从 50ms 放宽到 200ms，
+        /// 解析成本（一次 31 元素快照遍历 + 字符串比较）在 5Hz 下可忽略。
+        /// </summary>
         public static IHardwareDriver ResolveDriver(MouseBatteryInfo dev)
         {
             if (dev == null) return null;

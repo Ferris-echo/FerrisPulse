@@ -955,6 +955,8 @@ namespace RazerBatteryTray
             }
 
             NuphyDeviceHelper.CachedCommandPath = null;
+            // [P1] 拓扑已变化：立刻作废扫描代次的 HID 枚举快照
+            HidTransport.NotifyTopologyChanged();
 
             if (deviceChangeTimer1 == null)
 

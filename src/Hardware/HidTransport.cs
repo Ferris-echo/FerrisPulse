@@ -5,6 +5,7 @@
 // CORE_CAPABILITY: ZERO-DEPENDENCY WIN32 HID TRANSPORT
 //   零依赖 Win32 HID 底层通信总线：SetupAPI 枚举、HidD 属性/能力查询、
 //   重叠 I/O 读写与超时取消（含 HidD_SetOutputReport 封装）。ReadReportExact 拒绝实际短读；旧 ReadReport 保持兼容。
+//   另暴露进程内 HID 枚举计数器（EnumerationCount），仅服务于 ScanTelemetry 的 scan_trace.log 统计。
 //   供 Flydigi / MCHOSE / VXE 等品牌 Helper 复用。
 // 依赖关系: 仅 .NET 4.0 核心程序集 + hid.dll / setupapi.dll / kernel32.dll
 //
@@ -18,6 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace RazerBatteryTray
 {
@@ -51,6 +53,85 @@ namespace RazerBatteryTray
         private const uint OPEN_EXISTING = 3;
         private const uint FILE_FLAG_OVERLAPPED = 0x40000000;
         private const int ERROR_IO_PENDING = 997;
+
+        // [扫描遥测 M2] 进程内 HID 全量枚举调用计数器：仅用于 scan_trace.log 统计，
+        // 由 ScanTelemetry.Begin() 在每个扫描代次开头清零。任何逻辑判断都不得依赖它。
+        private static int enumerationCount;
+        internal static int EnumerationCount { get { return Interlocked.CompareExchange(ref enumerationCount, 0, 0); } }
+        internal static void ResetEnumerationCount() { Interlocked.Exchange(ref enumerationCount, 0); }
+
+        // ===== [P1 按扫描代次的 HID 枚举快照] =====
+        // 一次全量扫描里 26+ 个品牌 helper 会各自"从零问系统要一遍设备列表"，本机 23 个 HID 接口被重复
+        // 枚举 40+ 次。这里给同一次扫描提供只读快照：
+        //   1. BeginScanGeneration() 由扫描入口调用，记录代次与扫描线程 ID；
+        //   2. 只有"扫描线程自己"能命中快照——UI / 硬件写入等其它线程永远走实时枚举，
+        //      因此写路径（SetDpi / SetPollingRate 等）绝不可能复用到过期句柄（铁律：写路径实时开路）；
+        //   3. EndScanGeneration() 在扫描结束立刻作废快照，快照生命周期严格限定在单次扫描内；
+        //   4. 热插拔（WM_DEVICECHANGE）调用 NotifyTopologyChanged() 立刻作废，保证代次内也能看见新设备。
+        private static readonly object scanCacheLock = new object();
+        private static int scanGeneration;
+        private static int scanThreadId;
+        private static int cachedGeneration = -1;
+        private static List<HidDeviceDescriptor> cachedScanDescriptors;
+        private static int enumerationCacheHits;
+
+        internal static int EnumerationCacheHits { get { return Interlocked.CompareExchange(ref enumerationCacheHits, 0, 0); } }
+
+        internal static void ResetEnumerationCacheHits() { Interlocked.Exchange(ref enumerationCacheHits, 0); }
+
+        internal static void BeginScanGeneration()
+        {
+            lock (scanCacheLock)
+            {
+                scanGeneration++;
+                scanThreadId = Thread.CurrentThread.ManagedThreadId;
+                cachedScanDescriptors = null;
+                cachedGeneration = -1;
+            }
+        }
+
+        internal static void EndScanGeneration()
+        {
+            lock (scanCacheLock)
+            {
+                scanThreadId = 0;
+                cachedScanDescriptors = null;
+                cachedGeneration = -1;
+            }
+        }
+
+        /// <summary>
+        /// 设备拓扑可能已变化（WM_DEVICECHANGE / 手动刷新）：立刻作废快照并推进代次。
+        /// </summary>
+        internal static void NotifyTopologyChanged()
+        {
+            lock (scanCacheLock)
+            {
+                scanGeneration++;
+                cachedScanDescriptors = null;
+                cachedGeneration = -1;
+            }
+        }
+
+        private static HidDeviceDescriptor CloneDescriptor(HidDeviceDescriptor src)
+        {
+            if (src == null) return null;
+            HidDeviceDescriptor copy = new HidDeviceDescriptor();
+            copy.DevicePath = src.DevicePath;
+            copy.InstanceId = src.InstanceId;
+            copy.VendorId = src.VendorId;
+            copy.ProductId = src.ProductId;
+            copy.VersionNumber = src.VersionNumber;
+            copy.UsagePage = src.UsagePage;
+            copy.Usage = src.Usage;
+            copy.InputReportLength = src.InputReportLength;
+            copy.OutputReportLength = src.OutputReportLength;
+            copy.FeatureReportLength = src.FeatureReportLength;
+            copy.ProductString = src.ProductString;
+            copy.ManufacturerString = src.ManufacturerString;
+            copy.SerialNumber = src.SerialNumber;
+            return copy;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct SP_DEVINFO_DATA
@@ -196,8 +277,58 @@ namespace RazerBatteryTray
             return Encoding.Unicode.GetString(buffer, 0, length).Trim();
         }
 
+        /// <summary>
+        /// 枚举当前 HID 端点。扫描线程内（BeginScanGeneration 之后）命中本代次快照，
+        /// 其它线程与扫描之外一律实时枚举，保证写路径永远拿到活句柄。
+        /// </summary>
         public static List<HidDeviceDescriptor> Enumerate(int vendorId, int productId)
         {
+            bool inScanThread;
+            List<HidDeviceDescriptor> snapshot;
+            lock (scanCacheLock)
+            {
+                inScanThread = scanThreadId != 0 && scanThreadId == Thread.CurrentThread.ManagedThreadId;
+                snapshot = (inScanThread && cachedGeneration == scanGeneration) ? cachedScanDescriptors : null;
+            }
+
+            if (!inScanThread) return EnumerateFresh(vendorId, productId);
+
+            if (snapshot == null)
+            {
+                snapshot = EnumerateFresh(0, 0);
+                List<HidDeviceDescriptor> cloned = new List<HidDeviceDescriptor>(snapshot.Count);
+                for (int i = 0; i < snapshot.Count; i++) cloned.Add(CloneDescriptor(snapshot[i]));
+                lock (scanCacheLock)
+                {
+                    cachedScanDescriptors = cloned;
+                    cachedGeneration = scanGeneration;
+                }
+                snapshot = cloned;
+            }
+            else
+            {
+                Interlocked.Increment(ref enumerationCacheHits);
+            }
+
+            // 返回防御性副本：helper 可能对自己的结果集合做排序 / 过滤，绝不能污染共享快照
+            List<HidDeviceDescriptor> result = new List<HidDeviceDescriptor>();
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                HidDeviceDescriptor d = snapshot[i];
+                if (d == null) continue;
+                if (vendorId != 0 && d.VendorId != vendorId) continue;
+                if (productId != 0 && d.ProductId != productId) continue;
+                result.Add(CloneDescriptor(d));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 无条件实时枚举（原始实现）。写路径、扫描之外以及需要跳过快照的调用方使用。
+        /// </summary>
+        public static List<HidDeviceDescriptor> EnumerateFresh(int vendorId, int productId)
+        {
+            Interlocked.Increment(ref enumerationCount);
             List<HidDeviceDescriptor> result = new List<HidDeviceDescriptor>();
             Guid guid = HidGuid;
             IntPtr deviceInfoSet = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
